@@ -1,0 +1,133 @@
+@model AxialFanMVC.ViewModels.DesignWizardViewModel
+
+<h2 class="dw-panel-title mb-3 fw-bold" style="color:var(--v2-accent)">Motor</h2>
+<div class="row g-3">
+    <div class="col-md-6">
+        <label asp-for="SpeedRpm" class="form-label">Fan Speed <span class="text-danger">*</span></label>
+        <div class="input-group">
+            <input asp-for="SpeedRpm" type="text" class="form-control" />
+            <span class="input-group-text">RPM</span>
+        </div>
+        <div class="form-text">Required for tip-speed and power calculations.</div>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="MotorPoles" class="form-label">Motor Poles</label>
+        <select asp-for="MotorPoles" class="form-select">
+            <option value="2-pole / 50 Hz">2-pole / 50 Hz</option>
+            <option value="4-pole / 50 Hz">4-pole / 50 Hz</option>
+            <option value="6-pole / 50 Hz">6-pole / 50 Hz</option>
+            <option value="8-pole / 50 Hz">8-pole / 50 Hz</option>
+        </select>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="MotorType" class="form-label">Motor Type</label>
+        <select asp-for="MotorType" class="form-select">
+            <option value="3-Phase Induction (TEFC)">3-Phase Induction (TEFC)</option>
+            <option value="3-Phase Induction (ODP)">3-Phase Induction (ODP)</option>
+            <option value="Single-Phase">Single-Phase</option>
+        </select>
+    </div>
+    <div class="col-md-6">
+        <label class="form-label">Rated Power</label>
+        <div class="input-group">
+            <input type="text" class="form-control" value="@Model.MotorPowerKw" readonly />
+            <span class="input-group-text">kW</span>
+        </div>
+        <div class="form-text">Set on the Design &amp; Results step.</div>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="VoltageSpec" class="form-label">Voltage</label>
+        <select asp-for="VoltageSpec" class="form-select">
+            <option value="415 V, 3-Phase">415 V, 3-Phase</option>
+            <option value="230 V, 1-Phase">230 V, 1-Phase</option>
+            <option value="690 V, 3-Phase">690 V, 3-Phase</option>
+        </select>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="InsulationClass" class="form-label">Insulation Class</label>
+        <select asp-for="InsulationClass" class="form-select">
+            <option value="B">B</option>
+            <option value="F">F</option>
+            <option value="H">H</option>
+        </select>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="StartingMethod" class="form-label">Starting Method</label>
+        <select asp-for="StartingMethod" class="form-select">
+            <option value="Direct on Line">Direct on Line</option>
+            <option value="Star-Delta">Star-Delta</option>
+            <option value="VFD">VFD</option>
+        </select>
+    </div>
+</div>
+
+<h2 class="dw-panel-title mb-3 mt-4 fw-bold" style="color:var(--v2-accent)">Drive Configuration</h2>
+<div class="row g-3">
+    <div class="col-md-6">
+        <label asp-for="DriveType" class="form-label">Drive Type</label>
+        <select asp-for="DriveType" id="driveTypeSelect" class="form-select" onchange="onDriveTypeChange(this.value)">
+            <option value="Direct Drive">Direct Drive</option>
+            <option value="Coupled">Coupled (Flexible Coupling)</option>
+            <option value="Direct VFD">Direct VFD</option>
+            <option value="V-Belt Drive">V-Belt Drive</option>
+        </select>
+        <div class="form-text">How the motor drives the fan shaft.</div>
+    </div>
+</div>
+
+<div id="vbeltSection" class="row g-3 mt-1" style="display:none">
+    <div class="col-12"><hr class="my-2" /></div>
+    <div class="col-md-6">
+        <label asp-for="MotorRpm" class="form-label">Motor RPM</label>
+        <input asp-for="MotorRpm" id="motorRpmInput" type="text" class="form-control" oninput="calcPulleyRatio()" />
+    </div>
+    <div class="col-md-6">
+        <label asp-for="FanRpm" class="form-label">Fan RPM (driven)</label>
+        <input asp-for="FanRpm" id="fanRpmInput" type="text" class="form-control" oninput="calcPulleyRatio()" />
+    </div>
+    <div class="col-md-6">
+        <label asp-for="BeltType" class="form-label">Belt Type</label>
+        <select asp-for="BeltType" class="form-select">
+            <option value="A">A</option>
+            <option value="B">B</option>
+            <option value="C">C</option>
+            <option value="D">D</option>
+        </select>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="PulleyRatio" class="form-label">Pulley Ratio</label>
+        <input asp-for="PulleyRatio" id="pulleyRatioInput" type="text" class="form-control" readonly />
+        <div class="form-text">= Motor RPM ÷ Fan RPM (auto)</div>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="NumberOfBelts" class="form-label">Number of Belts</label>
+        <input asp-for="NumberOfBelts" type="text" class="form-control" />
+    </div>
+    <div class="col-md-6">
+        <label asp-for="CentreDistanceMm" class="form-label">Centre Distance</label>
+        <div class="input-group">
+            <input asp-for="CentreDistanceMm" type="text" class="form-control" />
+            <span class="input-group-text">mm</span>
+        </div>
+    </div>
+</div>
+
+<div id="vfdSection" class="row g-3 mt-1" style="display:none">
+    <div class="col-12"><hr class="my-2" /></div>
+    <div class="col-md-6">
+        <label asp-for="VfdMinRpm" class="form-label">Min RPM</label>
+        <input asp-for="VfdMinRpm" id="vfdMinRpm" type="text" class="form-control" oninput="updateVfdSlider()" />
+    </div>
+    <div class="col-md-6">
+        <label asp-for="VfdMaxRpm" class="form-label">Max RPM</label>
+        <input asp-for="VfdMaxRpm" id="vfdMaxRpm" type="text" class="form-control" oninput="updateVfdSlider()" />
+    </div>
+    <div class="col-12">
+        <label asp-for="VfdSpeedPct" class="form-label">
+            Operating Speed — <span id="vfdSpeedPctLabel">@Model.VfdSpeedPct%</span>
+        </label>
+        <input asp-for="VfdSpeedPct" id="vfdSpeedSlider" type="range" min="0" max="100" step="1"
+               class="form-range" oninput="updateVfdRpmDisplay(this.value)" />
+        <div class="form-text">Operating point: <span id="vfdOperatingRpm">—</span></div>
+    </div>
+</div>

@@ -1,0 +1,985 @@
+@{
+    ViewData["Title"] = "Dashboard";
+}
+
+<style>
+    @@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap');
+
+    .spd-heading {
+        font-family: 'Space Grotesk', 'Segoe UI', sans-serif;
+    }
+
+    /* ===== Welcome Hero ===== */
+    .spd-hero {
+        position: relative;
+        overflow: hidden;
+        border-radius: 10px;
+        padding: 1.75rem 2rem;
+        margin-bottom: 1.5rem;
+        background: linear-gradient(135deg, var(--v2-accent) 0%, #2c5964 100%);
+        color: #ffffff;
+    }
+
+        .spd-hero::after {
+            content: "";
+            position: absolute;
+            top: -60px;
+            right: -40px;
+            width: 220px;
+            height: 220px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.07);
+        }
+
+        .spd-hero::before {
+            content: "";
+            position: absolute;
+            bottom: -80px;
+            right: 90px;
+            width: 160px;
+            height: 160px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.05);
+        }
+
+    .spd-hero-icon {
+        position: absolute;
+        top: 1.5rem;
+        right: 2rem;
+        font-size: 3.25rem;
+        color: rgba(255,255,255,0.16);
+    }
+
+    .spd-hero h1 {
+        font-size: 1.6rem;
+        font-weight: 700;
+        margin: 0 0 .35rem;
+        letter-spacing: -0.01em;
+        position: relative;
+        z-index: 1;
+    }
+
+    .spd-hero p {
+        font-size: .875rem;
+        margin: 0;
+        color: rgba(255,255,255,0.82);
+        max-width: 560px;
+        position: relative;
+        z-index: 1;
+    }
+
+    .spd-hero-meta {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        gap: 1.75rem;
+        margin-top: 1.1rem;
+        flex-wrap: wrap;
+    }
+
+    .spd-hero-meta-item {
+        font-size: .8rem;
+        color: rgba(255,255,255,0.9);
+    }
+
+        .spd-hero-meta-item strong {
+            display: block;
+            font-size: 1.15rem;
+            font-weight: 700;
+            font-family: 'Space Grotesk', 'Segoe UI', sans-serif;
+        }
+
+    .spd-hero-tag {
+        position: relative;
+        z-index: 1;
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+        background: rgba(255,255,255,0.14);
+        border: 1px solid rgba(255,255,255,0.25);
+        color: #fff;
+        font-size: .7rem;
+        font-weight: 600;
+        padding: .3rem .7rem;
+        border-radius: 20px;
+        margin-bottom: .75rem;
+    }
+
+    /* ===== KPI Cards ===== */
+    .spd-kpi-card {
+        background: var(--v2-surface);
+        border: 1px solid var(--v2-border);
+        border-radius: 8px;
+        padding: 1.1rem 1.25rem;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        transition: box-shadow .15s ease, transform .15s ease;
+    }
+
+        .spd-kpi-card:hover {
+            box-shadow: 0 6px 18px rgba(34,48,46,0.08);
+            transform: translateY(-2px);
+        }
+
+    .spd-kpi-top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        margin-bottom: .75rem;
+    }
+
+    .spd-kpi-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 9px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.15rem;
+        flex-shrink: 0;
+    }
+
+        .spd-kpi-icon.bg-1 {
+            background: color-mix(in srgb, var(--v2-accent) 15%, white);
+            color: var(--v2-accent);
+        }
+
+        .spd-kpi-icon.bg-2 {
+            background: #eaf3ee;
+            color: #2f9e5c;
+        }
+
+        .spd-kpi-icon.bg-3 {
+            background: #fdf1e1;
+            color: #a8600f;
+        }
+
+        .spd-kpi-icon.bg-4 {
+            background: #f1edfa;
+            color: #6f52c9;
+        }
+
+    .spd-kpi-label {
+        font-size: .75rem;
+        text-transform: uppercase;
+        letter-spacing: .05em;
+        color: #8a938f;
+        font-weight: 600;
+        margin-bottom: .3rem;
+    }
+
+    .spd-kpi-value {
+        font-size: 1.85rem;
+        font-weight: 700;
+        color: #22302e;
+        line-height: 1.1;
+        font-family: 'Space Grotesk', 'Segoe UI', sans-serif;
+    }
+
+    .spd-kpi-trend {
+        font-size: .75rem;
+        font-weight: 600;
+        margin-top: .45rem;
+        display: flex;
+        align-items: center;
+        gap: .25rem;
+    }
+
+        .spd-kpi-trend.up {
+            color: #2f9e5c;
+        }
+
+        .spd-kpi-trend.down {
+            color: #c9463f;
+        }
+
+        .spd-kpi-trend.flat {
+            color: #8a938f;
+        }
+
+    /* ===== Section Titles ===== */
+    .spd-section-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: .75rem; /* reduce gap */
+    
+    }
+
+    .spd-table {
+        margin-bottom: 0 !important;
+    }
+
+
+        .spd-section-title h2 {
+            font-size: 1.05rem;
+            font-weight: 700;
+            margin: 0;
+            color: #22302e;
+            font-family: 'Space Grotesk', 'Segoe UI', sans-serif;
+        }
+
+            .spd-section-title h2 small {
+                font-weight: 500;
+                color: #8a938f;
+                font-size: .75rem;
+                margin-left: .35rem;
+            }
+
+    .spd-section-link {
+        font-size: .8rem;
+        font-weight: 600;
+        color: var(--v2-accent);
+        text-decoration: none;
+    }
+
+        .spd-section-link:hover {
+            text-decoration: underline;
+        }
+
+    /* ===== Quick Actions ===== */
+    .spd-qa-card {
+        position: relative;
+        background: var(--v2-surface);
+        border: 1px solid var(--v2-border);
+        border-radius: 9px;
+        padding: 1.25rem 1.1rem;
+        height: 100%;
+        text-decoration: none;
+        display: block;
+        transition: box-shadow .15s ease, transform .15s ease, border-color .15s ease;
+        overflow: hidden;
+    }
+
+        .spd-qa-card:hover {
+            box-shadow: 0 8px 22px rgba(34,48,46,0.1);
+            transform: translateY(-3px);
+            border-color: var(--v2-accent);
+        }
+
+        .spd-qa-card::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--v2-accent), #8fb3ba);
+            opacity: 0;
+            transition: opacity .15s ease;
+        }
+
+        .spd-qa-card:hover::before {
+            opacity: 1;
+        }
+
+    .spd-qa-icon {
+        width: 46px;
+        height: 46px;
+        border-radius: 10px;
+        background: color-mix(in srgb, var(--v2-accent) 12%, white);
+        color: var(--v2-accent);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.3rem;
+        margin-bottom: .85rem;
+    }
+
+    .spd-qa-title {
+        font-size: .9rem;
+        font-weight: 700;
+        color: #22302e;
+        margin-bottom: .25rem;
+    }
+
+    .spd-qa-desc {
+        font-size: .75rem;
+        color: #8a938f;
+        line-height: 1.4;
+        margin: 0;
+    }
+
+    .spd-qa-ribbon {
+        position: absolute;
+        top: .75rem;
+        right: .75rem;
+        font-size: .625rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: .04em;
+        padding: .2rem .5rem;
+        border-radius: 20px;
+        background: #fdf1e1;
+        color: #a8600f;
+    }
+
+        .spd-qa-ribbon.new {
+            background: #e4f5eb;
+            color: #1f7a44;
+        }
+
+    /* ===== Generic Panel ===== */
+    .spd-panel {
+        background: var(--v2-surface);
+        border: 1px solid var(--v2-border);
+        border-radius: 8px;
+        padding: 1.25rem 1.4rem;
+       
+    }
+
+    /* ===== Recent Designs ===== */
+    .spd-table thead th {
+        font-size: .7rem;
+        text-transform: uppercase;
+        letter-spacing: .04em;
+        color: #8a938f;
+        border-bottom: 1px solid var(--v2-border);
+        font-weight: 700;
+    }
+
+    .spd-table tbody tr {
+        transition: background-color .12s ease;
+    }
+
+        .spd-table tbody tr:hover {
+            background: color-mix(in srgb, var(--v2-accent) 6%, white);
+        }
+
+    .spd-table td {
+        vertical-align: middle;
+        font-size: .875rem;
+    }
+
+    .spd-thumb {
+        width: 34px;
+        height: 34px;
+        border-radius: 7px;
+        background: color-mix(in srgb, var(--v2-accent) 12%, white);
+        color: var(--v2-accent);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: .95rem;
+        margin-right: .6rem;
+    }
+
+    .spd-badge {
+        font-size: .7rem;
+        font-weight: 600;
+        padding: .3em .65em;
+        border-radius: 4px;
+        white-space: nowrap;
+    }
+
+        .spd-badge.active {
+            background: #e4f5eb;
+            color: #1f7a44;
+        }
+
+        .spd-badge.draft {
+            background: #eef0ef;
+            color: #6b7674;
+        }
+
+        .spd-badge.review {
+            background: #fdf1e1;
+            color: #a8600f;
+        }
+
+        .spd-badge.approved {
+            background: #e6f0fb;
+            color: #1f5fa8;
+        }
+
+    .spd-row-action {
+        color: #8a938f;
+        padding: .25rem .4rem;
+        border-radius: 4px;
+        text-decoration: none;
+    }
+
+        .spd-row-action:hover {
+            background: color-mix(in srgb, var(--v2-accent) 14%, white);
+            color: var(--v2-accent);
+        }
+
+    /* ===== Activity Timeline ===== */
+    .spd-timeline {
+        position: relative;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+        .spd-timeline::before {
+            content: "";
+            position: absolute;
+            left: 15px;
+            top: 4px;
+            bottom: 4px;
+            width: 2px;
+            background: var(--v2-border);
+        }
+
+    .spd-timeline-item {
+        position: relative;
+        padding-left: 2.5rem;
+        padding-bottom: 1.25rem;
+    }
+
+        .spd-timeline-item:last-child {
+            padding-bottom: 0;
+        }
+
+    .spd-timeline-dot {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: .85rem;
+        border: 2px solid var(--v2-surface);
+        box-shadow: 0 0 0 1px var(--v2-border);
+    }
+
+        .spd-timeline-dot.t-1 {
+            background: #e4f5eb;
+            color: #1f7a44;
+        }
+
+        .spd-timeline-dot.t-2 {
+            background: #e6f0fb;
+            color: #1f5fa8;
+        }
+
+        .spd-timeline-dot.t-3 {
+            background: #fdf1e1;
+            color: #a8600f;
+        }
+
+        .spd-timeline-dot.t-4 {
+            background: #f1edfa;
+            color: #6f52c9;
+        }
+
+    .spd-timeline-text {
+        font-size: .825rem;
+        color: #22302e;
+        margin: 0 0 .15rem;
+    }
+
+        .spd-timeline-text strong {
+            font-weight: 600;
+        }
+
+    .spd-timeline-time {
+        font-size: .7rem;
+        color: #8a938f;
+    }
+
+    /* ===== System Status ===== */
+    .spd-status-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: .65rem 0;
+        border-bottom: 1px solid var(--v2-border);
+    }
+
+        .spd-status-item:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+
+    .spd-status-left {
+        display: flex;
+        align-items: center;
+        gap: .65rem;
+    }
+
+    .spd-status-dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        flex-shrink: 0;
+    }
+
+        .spd-status-dot.ok {
+            background: #2f9e5c;
+            box-shadow: 0 0 0 3px rgba(47,158,92,0.18);
+        }
+
+        .spd-status-dot.warn {
+            background: #d99a2b;
+            box-shadow: 0 0 0 3px rgba(217,154,43,0.18);
+        }
+
+        .spd-status-dot.down {
+            background: #c9463f;
+            box-shadow: 0 0 0 3px rgba(201,70,63,0.18);
+        }
+
+    .spd-status-label {
+        font-size: .825rem;
+        font-weight: 600;
+        color: #22302e;
+    }
+
+    .spd-status-sub {
+        font-size: .7rem;
+        color: #8a938f;
+    }
+
+    .spd-status-value {
+        font-size: .75rem;
+        font-weight: 600;
+    }
+
+        .spd-status-value.ok {
+            color: #2f9e5c;
+        }
+
+        .spd-status-value.warn {
+            color: #a8600f;
+        }
+
+        .spd-status-value.down {
+            color: #c9463f;
+        }
+
+    /* ===== Pending Reviews ===== */
+    .spd-review-item {
+        display: flex;
+        align-items: flex-start;
+        gap: .75rem;
+        padding: .75rem 0;
+        border-bottom: 1px solid var(--v2-border);
+    }
+
+        .spd-review-item:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+
+    .spd-review-avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: #eef1f0;
+        color: #46666e;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: .7rem;
+        font-weight: 700;
+        flex-shrink: 0;
+    }
+
+    .spd-review-body {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .spd-review-title {
+        font-size: .825rem;
+        font-weight: 600;
+        color: #22302e;
+        margin: 0 0 .1rem;
+    }
+
+    .spd-review-sub {
+        font-size: .7rem;
+        color: #8a938f;
+        margin: 0;
+    }
+
+    .spd-review-priority {
+        font-size: .65rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: .03em;
+        padding: .18em .5em;
+        border-radius: 4px;
+        margin-left: .4rem;
+    }
+
+        .spd-review-priority.high {
+            background: #fce8e7;
+            color: #c9463f;
+        }
+
+        .spd-review-priority.medium {
+            background: #fdf1e1;
+            color: #a8600f;
+        }
+
+        .spd-review-priority.low {
+            background: #eef0ef;
+            color: #6b7674;
+        }
+
+    .spd-review-actions {
+        display: flex;
+        gap: .35rem;
+        flex-shrink: 0;
+    }
+
+        .spd-review-actions .btn {
+            padding: .25rem .5rem;
+            font-size: .8rem;
+            line-height: 1;
+        }
+</style>
+
+
+
+    <!-- ===== Welcome Header ===== -->
+    <div class="spd-hero">
+        <i class="bi bi-fan spd-hero-icon"></i>
+        <span class="spd-hero-tag"><i class="bi bi-stars"></i> Pro Workspace</span>
+        <h1 class="spd-heading">Welcome back, @(User.Identity != null && User.Identity.IsAuthenticated ? User.Identity.Name : "Designer")</h1>
+        <p>Here's what's happening across your axial fan design projects today. Data shown below is illustrative and not yet connected to live records.</p>
+        <div class="spd-hero-meta">
+            <div class="spd-hero-meta-item">
+                <strong>7</strong>Active Projects
+            </div>
+            <div class="spd-hero-meta-item">
+                <strong>3</strong>Pending Reviews
+            </div>
+            <div class="spd-hero-meta-item">
+                <strong>42</strong>Total Designs
+            </div>
+            <div class="spd-hero-meta-item">
+                <strong>02 Jul 2026</strong>Today
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== KPI Cards ===== -->
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-xl-3">
+            <div class="spd-kpi-card">
+                <div class="spd-kpi-top">
+                    <div class="spd-kpi-icon bg-1"><i class="bi bi-kanban"></i></div>
+                </div>
+                <div class="spd-kpi-label">Active Projects</div>
+                <div class="spd-kpi-value">7</div>
+                <div class="spd-kpi-trend up"><i class="bi bi-arrow-up-short"></i>2 added this week</div>
+            </div>
+        </div>
+        <div class="col-6 col-xl-3">
+            <div class="spd-kpi-card">
+                <div class="spd-kpi-top">
+                    <div class="spd-kpi-icon bg-2"><i class="bi bi-diagram-3"></i></div>
+                </div>
+                <div class="spd-kpi-label">Total Designs</div>
+                <div class="spd-kpi-value">42</div>
+                <div class="spd-kpi-trend up"><i class="bi bi-arrow-up-short"></i>5 this month</div>
+            </div>
+        </div>
+        <div class="col-6 col-xl-3">
+            <div class="spd-kpi-card">
+                <div class="spd-kpi-top">
+                    <div class="spd-kpi-icon bg-3"><i class="bi bi-hourglass-split"></i></div>
+                </div>
+                <div class="spd-kpi-label">Pending Reviews</div>
+                <div class="spd-kpi-value">3</div>
+                <div class="spd-kpi-trend flat">Awaiting approval</div>
+            </div>
+        </div>
+        <div class="col-6 col-xl-3">
+            <div class="spd-kpi-card">
+                <div class="spd-kpi-top">
+                    <div class="spd-kpi-icon bg-4"><i class="bi bi-hdd-stack"></i></div>
+                </div>
+                <div class="spd-kpi-label">Blade Profiles</div>
+                <div class="spd-kpi-value">15</div>
+                <div class="spd-kpi-trend flat">3 custom uploads</div>
+            </div>
+        </div>
+    </div>
+    <!-- ===== Premium Quick Actions ===== -->
+    <div class="spd-section-title">
+        <h2>Quick Actions <small>— jump straight into common tasks</small></h2>
+    </div>
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-lg-4 col-xl-2">
+            <a asp-controller="SectionPreview" asp-action="DesignWizard" class="spd-qa-card">
+                <span class="spd-qa-ribbon new">Popular</span>
+                <div class="spd-qa-icon"><i class="bi bi-plus-circle"></i></div>
+                <div class="spd-qa-title">New Design</div>
+                <p class="spd-qa-desc">Start the 8-step design wizard for a new axial fan.</p>
+            </a>
+        </div>
+        <div class="col-6 col-lg-4 col-xl-2">
+            <a asp-controller="Projects" asp-action="Index" class="spd-qa-card">
+                <div class="spd-qa-icon"><i class="bi bi-folder"></i></div>
+                <div class="spd-qa-title">Design Projects</div>
+                <p class="spd-qa-desc">Browse and manage all your active design projects.</p>
+            </a>
+        </div>
+        <div class="col-6 col-lg-4 col-xl-2">
+            <a asp-controller="DesignSeries" asp-action="Index" class="spd-qa-card">
+                <div class="spd-qa-icon"><i class="bi bi-layers"></i></div>
+                <div class="spd-qa-title">Design Series</div>
+                <p class="spd-qa-desc">Group related designs into a versioned series.</p>
+            </a>
+        </div>
+        <div class="col-6 col-lg-4 col-xl-2">
+            <a asp-controller="BladeProfiles" asp-action="Index" class="spd-qa-card">
+                <div class="spd-qa-icon"><i class="bi bi-database"></i></div>
+                <div class="spd-qa-title">Blade Profiles</div>
+                <p class="spd-qa-desc">Manage your library of aerofoil blade profiles.</p>
+            </a>
+        </div>
+        <div class="col-6 col-lg-4 col-xl-2">
+            <a asp-controller="SectionPreview" asp-action="Reports" class="spd-qa-card">
+                <div class="spd-qa-icon"><i class="bi bi-bar-chart"></i></div>
+                <div class="spd-qa-title">Reports</div>
+                <p class="spd-qa-desc">Generate performance and design summary reports.</p>
+            </a>
+        </div>
+        <div class="col-6 col-lg-4 col-xl-2">
+            <a asp-controller="SectionPreview" asp-action="BomCosting" class="spd-qa-card">
+                <span class="spd-qa-ribbon">New</span>
+                <div class="spd-qa-icon"><i class="bi bi-receipt"></i></div>
+                <div class="spd-qa-title">BOM &amp; Costing</div>
+                <p class="spd-qa-desc">Build bills of materials and estimate project cost.</p>
+            </a>
+        </div>
+    </div>
+
+    <!-- ===== Recent Designs ===== -->
+<div class="spd-panel mb-4">
+    <div class="spd-section-title">
+        <h2>Recent Designs <small>(dummy data)</small></h2>
+        <a asp-controller="SectionPreview"
+           asp-action="MyDrawings"
+           class="spd-section-link">
+            View all <i class="bi bi-arrow-right"></i>
+        </a>
+    </div>
+        <div class="table-responsive">
+            <table class="table spd-table mb-0">
+                <thead>
+                    <tr>
+                        <th>Design</th>
+                        <th>Application</th>
+                        <th>Status</th>
+                        <th>Updated</th>
+                        <th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="spd-thumb"><i class="bi bi-fan"></i></span>Cooling Tower Fan — Rev C</td>
+                        <td>Cooling Tower</td>
+                        <td><span class="spd-badge active">Active</span></td>
+                        <td>02 Jul 2026</td>
+                        <td class="text-end">
+                            <a href="#" class="spd-row-action" title="View"><i class="bi bi-eye"></i></a>
+                            <a href="#" class="spd-row-action" title="Edit"><i class="bi bi-pencil"></i></a>
+                            <a href="#" class="spd-row-action" title="Download"><i class="bi bi-download"></i></a>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><span class="spd-thumb"><i class="bi bi-fan"></i></span>Cement Plant – ID Fan</td>
+                        <td>Industrial Ventilation</td>
+                        <td><span class="spd-badge draft">Draft</span></td>
+                        <td>28 Jun 2026</td>
+                        <td class="text-end">
+                            <a href="#" class="spd-row-action" title="View"><i class="bi bi-eye"></i></a>
+                            <a href="#" class="spd-row-action" title="Edit"><i class="bi bi-pencil"></i></a>
+                            <a href="#" class="spd-row-action" title="Download"><i class="bi bi-download"></i></a>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><span class="spd-thumb"><i class="bi bi-fan"></i></span>Exhaust Ventilation Unit</td>
+                        <td>HVAC</td>
+                        <td><span class="spd-badge approved">Approved</span></td>
+                        <td>25 Jun 2026</td>
+                        <td class="text-end">
+                            <a href="#" class="spd-row-action" title="View"><i class="bi bi-eye"></i></a>
+                            <a href="#" class="spd-row-action" title="Edit"><i class="bi bi-pencil"></i></a>
+                            <a href="#" class="spd-row-action" title="Download"><i class="bi bi-download"></i></a>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><span class="spd-thumb"><i class="bi bi-fan"></i></span>Flue Gas ID Fan — Rev A</td>
+                        <td>Flue Gas</td>
+                        <td><span class="spd-badge review">In Review</span></td>
+                        <td>20 Jun 2026</td>
+                        <td class="text-end">
+                            <a href="#" class="spd-row-action" title="View"><i class="bi bi-eye"></i></a>
+                            <a href="#" class="spd-row-action" title="Edit"><i class="bi bi-pencil"></i></a>
+                            <a href="#" class="spd-row-action" title="Download"><i class="bi bi-download"></i></a>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><span class="spd-thumb"><i class="bi bi-fan"></i></span>Textile Mill – Supply Fan</td>
+                        <td>Industrial Ventilation</td>
+                        <td><span class="spd-badge active">Active</span></td>
+                        <td>17 Jun 2026</td>
+                        <td class="text-end">
+                            <a href="#" class="spd-row-action" title="View"><i class="bi bi-eye"></i></a>
+                            <a href="#" class="spd-row-action" title="Edit"><i class="bi bi-pencil"></i></a>
+                            <a href="#" class="spd-row-action" title="Download"><i class="bi bi-download"></i></a>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+<!-- ===== Activity Timeline & System Status ===== -->
+<div class="row g-3 mb-4">
+    <div class="col-lg-6">
+        <div class="spd-panel">
+            <div class="spd-section-title">
+                <h2>Activity Timeline <small>— last 24 hours</small></h2>
+            </div>
+            <ul class="spd-timeline">
+                <li class="spd-timeline-item">
+                    <span class="spd-timeline-dot t-1"><i class="bi bi-check-lg"></i></span>
+                    <p class="spd-timeline-text"><strong>Cooling Tower Fan — Rev C</strong> was approved by Rohan Mehta.</p>
+                    <span class="spd-timeline-time">Today, 09:14</span>
+                </li>
+                <li class="spd-timeline-item">
+                    <span class="spd-timeline-dot t-2"><i class="bi bi-upload"></i></span>
+                    <p class="spd-timeline-text"><strong>3 blade profiles</strong> were uploaded to the profile library.</p>
+                    <span class="spd-timeline-time">Today, 08:02</span>
+                </li>
+                <li class="spd-timeline-item">
+                    <span class="spd-timeline-dot t-3"><i class="bi bi-pencil"></i></span>
+                    <p class="spd-timeline-text"><strong>Flue Gas ID Fan — Rev A</strong> was sent for review.</p>
+                    <span class="spd-timeline-time">Yesterday, 17:40</span>
+                </li>
+                <li class="spd-timeline-item">
+                    <span class="spd-timeline-dot t-4"><i class="bi bi-file-earmark-plus"></i></span>
+                    <p class="spd-timeline-text"><strong>Textile Mill – Supply Fan</strong> project was created.</p>
+                    <span class="spd-timeline-time">Yesterday, 14:12</span>
+                </li>
+                <li class="spd-timeline-item">
+                    <span class="spd-timeline-dot t-1"><i class="bi bi-download"></i></span>
+                    <p class="spd-timeline-text"><strong>Cement Plant – ID Fan</strong> drawing was exported as PDF.</p>
+                    <span class="spd-timeline-time">Yesterday, 11:26</span>
+                </li>
+            </ul>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="spd-panel">
+            <div class="spd-section-title">
+                <h2>System Status <small>— all services</small></h2>
+            </div>
+            <div class="spd-status-item">
+                <div class="spd-status-left">
+                    <span class="spd-status-dot ok"></span>
+                    <div>
+                        <div class="spd-status-label">Design Engine</div>
+                        <div class="spd-status-sub">Aerodynamic calculation service</div>
+                    </div>
+                </div>
+                <span class="spd-status-value ok">Operational</span>
+            </div>
+            <div class="spd-status-item">
+                <div class="spd-status-left">
+                    <span class="spd-status-dot ok"></span>
+                    <div>
+                        <div class="spd-status-label">Drawing Export</div>
+                        <div class="spd-status-sub">PDF / DXF generation</div>
+                    </div>
+                </div>
+                <span class="spd-status-value ok">Operational</span>
+            </div>
+            <div class="spd-status-item">
+                <div class="spd-status-left">
+                    <span class="spd-status-dot warn"></span>
+                    <div>
+                        <div class="spd-status-label">Blade Profile Sync</div>
+                        <div class="spd-status-sub">Library replication job</div>
+                    </div>
+                </div>
+                <span class="spd-status-value warn">Degraded</span>
+            </div>
+            <div class="spd-status-item">
+                <div class="spd-status-left">
+                    <span class="spd-status-dot ok"></span>
+                    <div>
+                        <div class="spd-status-label">Fan Database</div>
+                        <div class="spd-status-sub">Catalog lookup service</div>
+                    </div>
+                </div>
+                <span class="spd-status-value ok">Operational</span>
+            </div>
+            <div class="spd-status-item">
+                <div class="spd-status-left">
+                    <span class="spd-status-dot ok"></span>
+                    <div>
+                        <div class="spd-status-label">BOM &amp; Costing</div>
+                        <div class="spd-status-sub">Pricing engine</div>
+                    </div>
+                </div>
+                <span class="spd-status-value ok">Operational</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ===== Pending Reviews ===== -->
+<div class="spd-panel mb-4">
+    <div class="spd-section-title">
+        <h2>Pending Reviews <small>(dummy data)</small></h2>
+        <span class="spd-section-link">3 awaiting action</span>
+    </div>
+    <div class="spd-review-item">
+        <span class="spd-review-avatar">RM</span>
+        <div class="spd-review-body">
+            <p class="spd-review-title">Flue Gas ID Fan — Rev A <span class="spd-review-priority high">High</span></p>
+            <p class="spd-review-sub">Submitted by Rohan Mehta &middot; Metro Textiles &middot; 20 Jun 2026</p>
+        </div>
+        <div class="spd-review-actions">
+            <button type="button" class="btn btn-outline-success" title="Approve"><i class="bi bi-check-lg"></i></button>
+            <button type="button" class="btn btn-outline-danger" title="Reject"><i class="bi bi-x-lg"></i></button>
+        </div>
+    </div>
+    <div class="spd-review-item">
+        <span class="spd-review-avatar">SK</span>
+        <div class="spd-review-body">
+            <p class="spd-review-title">Cement Plant – ID Fan <span class="spd-review-priority medium">Medium</span></p>
+            <p class="spd-review-sub">Submitted by Sanjana Kulkarni &middot; XYZ Cement Co. &middot; 28 Jun 2026</p>
+        </div>
+        <div class="spd-review-actions">
+            <button type="button" class="btn btn-outline-success" title="Approve"><i class="bi bi-check-lg"></i></button>
+            <button type="button" class="btn btn-outline-danger" title="Reject"><i class="bi bi-x-lg"></i></button>
+        </div>
+    </div>
+    <div class="spd-review-item">
+        <span class="spd-review-avatar">AT</span>
+        <div class="spd-review-body">
+            <p class="spd-review-title">Textile Mill – Supply Fan <span class="spd-review-priority low">Low</span></p>
+            <p class="spd-review-sub">Submitted by Arjun Thakur &middot; Metro Textiles &middot; 01 Jul 2026</p>
+        </div>
+        <div class="spd-review-actions">
+            <button type="button" class="btn btn-outline-success" title="Approve"><i class="bi bi-check-lg"></i></button>
+            <button type="button" class="btn btn-outline-danger" title="Reject"><i class="bi bi-x-lg"></i></button>
+        </div>
+    </div>
+</div>
+
+@section Scripts
+{
+     <script>
+        (function () {
+            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[title]'));
+            tooltipTriggerList.forEach(function (el) {
+                new bootstrap.Tooltip(el);
+            });
+        })();
+    </script>
+}

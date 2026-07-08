@@ -1,0 +1,40 @@
+@model AxialFanMVC.ViewModels.CreateProjectViewModel
+@{
+    ViewData["Title"] = "New Project";
+}
+
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card shadow-sm">
+            <div class="card-body p-4">
+                <h3 class="card-title mb-4">
+                    <i class="bi bi-folder-plus me-2 text-primary"></i>New Project
+                </h3>
+
+                <form asp-action="Create" method="post">
+                    <div asp-validation-summary="ModelOnly" class="alert alert-danger"
+                         style="display:@(ViewData.ModelState.ErrorCount > 0 ? "block" : "none")"></div>
+
+                    <div class="mb-3">
+                        <label asp-for="Name" class="form-label fw-semibold">Project Name</label>
+                        <input asp-for="Name" class="form-control" placeholder="e.g. Cooling Tower Fan 800mm" autofocus />
+                        <span asp-validation-for="Name" class="text-danger small"></span>
+                    </div>
+
+                    <div class="mb-4">
+                        <label asp-for="Description" class="form-label fw-semibold">Description <span class="text-muted fw-normal">(optional)</span></label>
+                        <textarea asp-for="Description" class="form-control" rows="3"
+                                  placeholder="Brief notes about this fan design project..."></textarea>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-circle me-1"></i>Create Project
+                        </button>
+                        <a asp-action="Index" class="btn btn-outline-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,59 @@
+@model AxialFanMVC.ViewModels.DesignWizardViewModel
+
+<h2 class="dw-panel-title mb-3 fw-bold" style="color:var(--v2-accent)">Design & Results</h2>
+<div class="alert alert-info small">
+    <i class="bi bi-info-circle-fill me-1"></i>
+    Enter your target blade geometry below. Actual calculated results (efficiency, shaft power, safety factor)
+    are produced when you click <strong>Calculate &amp; Save</strong> on the final step.
+</div>
+<div class="row g-3">
+    <div class="col-md-6">
+        <label asp-for="BladeProfileId" class="form-label">Blade Profile</label>
+        <select asp-for="BladeProfileId" class="form-select">
+            <option value="">-- Select a blade profile --</option>
+            @if (Model.BladeProfiles != null)
+            {
+                foreach (var bp in Model.BladeProfiles)
+                {
+                    <option value="@bp.Id">@bp.Name</option>
+                }
+            }
+        </select>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="BladeCount" class="form-label">Blade Count</label>
+        <input asp-for="BladeCount" type="text" class="form-control" />
+    </div>
+    <div class="col-md-6">
+        <label asp-for="TipDiameterMm" class="form-label">Tip Diameter</label>
+        <div class="input-group">
+            <input asp-for="TipDiameterMm" type="text" class="form-control" />
+            <span class="input-group-text">mm</span>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="HubRatio" class="form-label">Hub Ratio</label>
+        <input asp-for="HubRatio" type="text" class="form-control" />
+    </div>
+    <div class="col-md-6">
+        <label asp-for="BladeAngleDeg" class="form-label">Blade Angle</label>
+        <div class="input-group">
+            <input asp-for="BladeAngleDeg" type="text" class="form-control" />
+            <span class="input-group-text">deg</span>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="TargetEfficiencyPct" class="form-label">Target Efficiency</label>
+        <div class="input-group">
+            <input asp-for="TargetEfficiencyPct" type="text" class="form-control" />
+            <span class="input-group-text">%</span>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="MotorPowerKw" class="form-label">Target Motor Power</label>
+        <div class="input-group">
+            <input asp-for="MotorPowerKw" type="text" class="form-control" />
+            <span class="input-group-text">kW</span>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,110 @@
+@model AxialFanMVC.ViewModels.DesignWizardViewModel
+
+<h2 class="dw-panel-title mb-3 fw-bold" style="color:var(--v2-accent)">Air Input</h2>
+<div class="text-uppercase small fw-bold text-muted mb-2" style="letter-spacing:.04em;">Operating Conditions</div>
+<div class="row g-3">
+    <div class="col-md-6">
+        <label asp-for="FlowRateM3s" class="form-label">Flow Rate <span class="text-danger">*</span></label>
+        <div class="input-group">
+            <input asp-for="FlowRateM3s" type="text" class="form-control" />
+            <select class="form-select" style="max-width:90px;" disabled><option>m³/s</option></select>
+        </div>
+        <span asp-validation-for="FlowRateM3s" class="text-danger small"></span>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="MediaType" class="form-label">Gas Type</label>
+        <select asp-for="MediaType" class="form-select">
+            <option value="Air (standard)">Air (standard)</option>
+            <option value="Air (hot)">Air (hot)</option>
+            <option value="Flue gas">Flue gas</option>
+            <option value="Custom gas">Custom gas</option>
+        </select>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="StaticPressurePa" class="form-label">Static Pressure <span class="text-danger">*</span></label>
+        <div class="input-group">
+            <input asp-for="StaticPressurePa" type="text" class="form-control" />
+            <select class="form-select" style="max-width:90px;" disabled><option>Pa</option></select>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="TotalPressurePa" class="form-label">Total Pressure <span class="text-danger">*</span></label>
+        <div class="input-group">
+            <input asp-for="TotalPressurePa" type="text" class="form-control" />
+            <select class="form-select" style="max-width:90px;" disabled><option>Pa</option></select>
+        </div>
+        <span asp-validation-for="TotalPressurePa" class="text-danger small"></span>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="DensityKgM3" class="form-label">Air Density</label>
+        <div class="input-group">
+            <select class="form-select" style="max-width:100px;" disabled><option>Auto</option></select>
+            <input asp-for="DensityKgM3" type="text" class="form-control" readonly />
+            <span class="input-group-text">kg/m³</span>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="TemperatureCelsius" class="form-label">Temperature <span class="text-danger">*</span></label>
+        <div class="input-group">
+            <input asp-for="TemperatureCelsius" type="text" class="form-control" />
+            <select class="form-select" style="max-width:90px;" disabled><option>°C</option></select>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="Direction" class="form-label">Direction</label>
+        <select asp-for="Direction" class="form-select">
+            <option value="Exhaust">Exhaust</option>
+            <option value="Supply">Supply</option>
+        </select>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="AltitudeM" class="form-label">Altitude</label>
+        <div class="input-group">
+            <input asp-for="AltitudeM" type="text" class="form-control" />
+            <select class="form-select" style="max-width:90px;" disabled><option>m</option></select>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="InstallationType" class="form-label">Installation Type</label>
+        <select asp-for="InstallationType" class="form-select">
+            <option value="Ducted – Ducted (Type D)">Ducted – Ducted (Type D)</option>
+            <option value="Free Inlet – Free Outlet">Free Inlet – Free Outlet</option>
+            <option value="Ducted – Free Outlet">Ducted – Free Outlet</option>
+        </select>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="AtmosphericPressureKPa" class="form-label">Atmospheric Pressure</label>
+        <div class="input-group">
+            <input asp-for="AtmosphericPressureKPa" type="text" class="form-control" />
+            <select class="form-select" style="max-width:90px;" disabled><option>kPa</option></select>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="Duty" class="form-label">Duty</label>
+        <select asp-for="Duty" class="form-select">
+            <option value="Continuous">Continuous</option>
+            <option value="Intermittent">Intermittent</option>
+        </select>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="RelativeHumidityPct" class="form-label">Relative Humidity</label>
+        <div class="input-group">
+            <input asp-for="RelativeHumidityPct" type="text" class="form-control" />
+            <span class="input-group-text">%</span>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="FrequencyHz" class="form-label">Frequency</label>
+        <div class="input-group">
+            <select asp-for="FrequencyHz" class="form-select">
+                <option value="50">50</option>
+                <option value="60">60</option>
+            </select>
+            <span class="input-group-text">Hz</span>
+        </div>
+    </div>
+</div>
+<div class="alert alert-info small mt-3 mb-0">
+    <i class="bi bi-info-circle-fill me-1"></i>
+    Density is shown for reference at these conditions and is not currently editable here.
+</div>

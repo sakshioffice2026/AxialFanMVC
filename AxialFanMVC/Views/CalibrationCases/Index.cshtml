@@ -1,0 +1,62 @@
+﻿@model List<AxialFanMVC.Database.CalibrationCase>
+@{
+    ViewData["Title"] = "Calibration Cases";
+}
+
+<h2>Calibration Cases</h2>
+<p class="text-muted">Real reference data used to train/validate the performance-curve correction model.</p>
+
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert-success">@TempData["Success"]</div>
+}
+
+<a asp-action="Create" class="btn btn-primary mb-3">+ New Calibration Case</a>
+
+@if (!Model.Any())
+{
+    <p class="text-muted">No calibration cases yet.</p>
+}
+else
+{
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Source</th>
+                <th>Diameter (mm)</th>
+                <th>Blade Angle (°)</th>
+                <th>Blade Count</th>
+                <th>RPM</th>
+                <th>Solidity</th>
+                <th>Reynolds No.</th>
+                <th>Tip Mach</th>
+                <th>Points</th>
+                <th>Added</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var c in Model)
+            {
+                <tr>
+                    <td>
+                        <strong>@c.SourceType</strong>
+                        @if (!string.IsNullOrEmpty(c.SourceDescription))
+                        {
+                            <br />
+                            <small class="text-muted">@c.SourceDescription</small>
+                        }
+                    </td>
+                    <td>@c.TipDiameterMm.ToString("F0")</td>
+                    <td>@c.BladeAngleDeg.ToString("F1")</td>
+                    <td>@c.BladeCount</td>
+                    <td>@c.SpeedRpm</td>
+                    <td>@c.Solidity.ToString("F3")</td>
+                    <td>@c.ReynoldsNumber.ToString("N0")</td>
+                    <td>@c.TipMachNumber.ToString("F2")</td>
+                    <td>@c.Points.Count</td>
+                    <td>@c.CreatedAt.ToString("yyyy-MM-dd")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}

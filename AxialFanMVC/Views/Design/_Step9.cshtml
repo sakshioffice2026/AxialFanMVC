@@ -1,0 +1,108 @@
+﻿@model AxialFanMVC.ViewModels.DesignWizardViewModel
+
+<div class="card shadow-sm border-0">
+    <div class="card-header bg-dark text-white">
+        <h4 class="mb-0">
+            <i class="bi bi-volume-up"></i>
+            Step 9 – Acoustic Data
+        </h4>
+    </div>
+
+    <div class="card-body">
+
+        <div class="row g-3">
+
+            <div class="col-md-6">
+                <label asp-for="ReceiverDistanceM" class="form-label"></label>
+                <input asp-for="ReceiverDistanceM" class="form-control" />
+                <span asp-validation-for="ReceiverDistanceM" class="text-danger"></span>
+            </div>
+
+            <div class="col-md-6">
+                <label asp-for="AcousticEnvironment" class="form-label"></label>
+                <select asp-for="AcousticEnvironment" class="form-select">
+                    <option>Free Field</option>
+                    <option>Semi-Reverberant</option>
+                    <option>Reverberant Room</option>
+                    <option>Outdoor</option>
+                    <option>Industrial Plant</option>
+                </select>
+            </div>
+
+            <div class="col-md-6">
+                <label asp-for="DirectivityIndexDb" class="form-label"></label>
+                <input asp-for="DirectivityIndexDb" class="form-control" />
+            </div>
+
+            <div class="col-md-6">
+                <label asp-for="RoomCorrectionDb" class="form-label"></label>
+                <input asp-for="RoomCorrectionDb" class="form-control" />
+            </div>
+
+        </div>
+
+        <hr />
+
+        <h5 class="text-primary">
+            Attenuation
+        </h5>
+
+        <div class="row g-3">
+
+            <div class="col-md-4">
+                <label asp-for="InletAttenuationDb" class="form-label"></label>
+                <input asp-for="InletAttenuationDb" class="form-control" />
+            </div>
+
+            <div class="col-md-4">
+                <label asp-for="OutletAttenuationDb" class="form-label"></label>
+                <input asp-for="OutletAttenuationDb" class="form-control" />
+            </div>
+
+            <div class="col-md-4">
+                <label asp-for="SilencerAttenuationDb" class="form-label"></label>
+                <input asp-for="SilencerAttenuationDb" class="form-control" />
+            </div>
+
+            <div class="col-md-6">
+                <label asp-for="CasingTransmissionLossDb" class="form-label"></label>
+                <input asp-for="CasingTransmissionLossDb" class="form-control" />
+            </div>
+
+            <div class="col-md-6">
+                <label asp-for="BackgroundNoiseDbA" class="form-label"></label>
+                <input asp-for="BackgroundNoiseDbA" class="form-control" />
+            </div>
+
+        </div>
+
+        <hr />
+
+        <h5 class="text-primary">
+            Design Margin
+        </h5>
+
+        <div class="row g-3">
+
+            <div class="col-md-4">
+                <label asp-for="SafetyMarginDb" class="form-label"></label>
+                <input asp-for="SafetyMarginDb" class="form-control" />
+            </div>
+
+        </div>
+
+        <hr />
+
+        <div class="alert alert-info mb-0">
+            <strong>Notes</strong>
+            <ul class="mb-0 mt-2">
+                <li>Receiver Distance is used when converting Sound Power (Lw) to Sound Pressure (Lp).</li>
+                <li>Directivity Index is added to the calculated sound pressure.</li>
+                <li>Attenuation values reduce the predicted noise.</li>
+                <li>Room Correction compensates for reflections.</li>
+                <li>Safety Margin is subtracted from the allowable maximum noise level.</li>
+            </ul>
+        </div>
+
+    </div>
+</div>

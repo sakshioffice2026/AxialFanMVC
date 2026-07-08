@@ -1,0 +1,657 @@
+@model AxialFanMVC.ViewModels.DesignWizardViewModel
+
+@{
+    ViewData["Title"] = $"Design Wizard — {Model.ProjectName}";
+
+    string[] stepNames =
+{
+    "Project Info",
+    "Air Input",
+    "Fan Constraints",
+    "Design & Results",
+    "Performance",
+    "Motor",
+    "Accessories",
+    "Output & Save",
+    "Acoustic Data"
+};
+    string[] stepIcons = {
+    "bi-info-circle",
+    "bi-wind",
+    "bi-rulers",
+    "bi-gear",
+    "bi-graph-up",
+    "bi-lightning-charge",
+    "bi-shield-check",
+    "bi-save",
+    "bi-volume-up"
+};
+
+    int currentStep = Model.CurrentStep;
+
+    string StepClass(int n) => n < currentStep ? "dw-step done"
+                              : n == currentStep ? "dw-step active"
+                              : "dw-step";
+
+    string WorkflowStatus(int n) => n < currentStep ? "Completed"
+                                   : n == currentStep ? "In Progress"
+                                   : "Pending";
+
+    string WorkflowClass(int n) => n < currentStep ? "dw-wf-item completed"
+                                  : n == currentStep ? "dw-wf-item active"
+                                  : "dw-wf-item pending";
+}
+
+<style>
+    .dw-stepper {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+        background: var(--v2-surface);
+        border: 1px solid var(--v2-border);
+        border-radius: .5rem;
+        padding: 1rem 1.25rem;
+        margin-bottom: 1rem;
+    }
+
+    .dw-step {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: .8125rem;
+        font-weight: 600;
+        color: var(--v2-sidebar-text-muted, #9aa5a3);
+        padding: 4px 8px;
+        text-decoration: none;
+        border-radius: 4px;
+    }
+
+        .dw-step:hover {
+            background: color-mix(in srgb, var(--v2-accent) 8%, white);
+        }
+
+        .dw-step .num {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            border: 2px solid #c9cfce;
+            color: #8a938f;
+            font-size: .6875rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .dw-step.active {
+            color: var(--v2-accent);
+        }
+
+            .dw-step.active .num {
+                background: var(--v2-accent);
+                border-color: var(--v2-accent);
+                color: #fff;
+            }
+
+        .dw-step.done .num {
+            background: #2f9e5c;
+            border-color: #2f9e5c;
+            color: #fff;
+        }
+
+        .dw-step.done {
+            color: #22302e;
+        }
+
+    .dw-sep {
+        width: 18px;
+        height: 2px;
+        background: var(--v2-border);
+    }
+
+    .dw-panel {
+        background: var(--v2-surface);
+        border: 1px solid var(--v2-border);
+        border-radius: .5rem;
+        padding: 1.25rem 1.5rem;
+        margin-bottom: 1rem;
+    }
+
+        .dw-panel h2 {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--v2-accent);
+            margin-bottom: 1rem;
+        }
+
+    .dw-kv {
+        display: flex;
+        justify-content: space-between;
+        padding: .5rem 0;
+        border-bottom: 1px dashed var(--v2-border);
+        font-size: .875rem;
+        gap: .75rem;
+    }
+
+        .dw-kv:last-child {
+            border-bottom: none;
+        }
+
+        .dw-kv .k {
+            color: #6b7674;
+        }
+
+        .dw-kv .v {
+            font-weight: 600;
+            text-align: right;
+        }
+
+    .dw-wf-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: .5rem 0;
+        border-bottom: 1px solid var(--v2-border);
+        font-size: .8125rem;
+    }
+
+        .dw-wf-item:last-child {
+            border-bottom: none;
+        }
+
+        .dw-wf-item .num {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            border: 1.5px solid #c9cfce;
+            color: #8a938f;
+            font-size: .625rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 8px;
+        }
+
+        .dw-wf-item.completed .num {
+            background: #2f9e5c;
+            border-color: #2f9e5c;
+            color: #fff;
+        }
+
+        .dw-wf-item.completed .status {
+            color: #2f9e5c;
+            font-weight: 600;
+        }
+
+        .dw-wf-item.active .num {
+            background: var(--v2-accent);
+            border-color: var(--v2-accent);
+            color: #fff;
+        }
+
+        .dw-wf-item.active {
+            color: var(--v2-accent);
+            font-weight: 600;
+        }
+
+        .dw-wf-item.pending .status {
+            color: #9aa5a3;
+        }
+</style>
+
+<div class="mb-3">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-1">
+            <li class="breadcrumb-item"><a asp-controller="Projects" asp-action="Index">Projects</a></li>
+            <li class="breadcrumb-item">
+                <a asp-controller="Design" asp-action="History" asp-route-projectId="@Model.ProjectId">@Model.ProjectName</a>
+            </li>
+            <li class="breadcrumb-item active">New Design</li>
+        </ol>
+    </nav>
+</div>
+
+<div class="dw-stepper">
+
+        @for (int i = 1; i <= stepNames.Length; i++)
+        {
+            <a class="@StepClass(i)"
+               asp-action="Wizard"
+               asp-route-projectId="@Model.ProjectId"
+               asp-route-step="@i">
+
+                <span class="num">@(i < currentStep ? "✓" : i.ToString())</span>
+                @stepNames[i - 1]
+            </a>
+
+            if (i < stepNames.Length)
+            {
+                <span class="dw-sep"></span>
+            }
+        }
+   
+</div>
+
+<form asp-controller="Design" asp-action="Wizard" method="post" id="wizardForm">
+    @Html.AntiForgeryToken()
+    <input type="hidden" asp-for="ProjectId" />
+    <input type="hidden" asp-for="ProjectName" />
+    <input type="hidden" asp-for="CurrentStep" />
+
+    @* ── Hidden carry-forward fields ─────────────────────────────────────
+       Only the CURRENT step's fields are rendered as visible/editable inputs
+       (by the partial below). Every other step's fields must still round-trip
+       with the form on Next/Back, or they'd be wiped out when this POST
+       overwrites the server-side TempData snapshot. ─────────────────────── *@
+
+    @if (currentStep != 1)
+    {
+        <input type="hidden" asp-for="Client" />
+        <input type="hidden" asp-for="Application" />
+        <input type="hidden" asp-for="Engineer" />
+        <input type="hidden" asp-for="JobDate" />
+    }
+    @if (currentStep != 2)
+    {
+        <input type="hidden" asp-for="MediaType" />
+        <input type="hidden" asp-for="TemperatureCelsius" />
+        <input type="hidden" asp-for="InletPressurePa" />
+        <input type="hidden" asp-for="DensityKgM3" />
+        <input type="hidden" asp-for="AltitudeM" />
+        <input type="hidden" asp-for="AtmosphericPressureKPa" />
+        <input type="hidden" asp-for="RelativeHumidityPct" />
+        <input type="hidden" asp-for="Direction" />
+        <input type="hidden" asp-for="InstallationType" />
+        <input type="hidden" asp-for="Duty" />
+        <input type="hidden" asp-for="FrequencyHz" />
+        <input type="hidden" asp-for="FlowRateM3s" />
+        <input type="hidden" asp-for="StaticPressurePa" />
+        <input type="hidden" asp-for="TotalPressurePa" />
+    }
+    @if (currentStep != 3)
+    {
+        <input type="hidden" asp-for="MaxTipDiameterMm" />
+        <input type="hidden" asp-for="MinEfficiencyPct" />
+        <input type="hidden" asp-for="MaxNoiseDbA" />
+        <input type="hidden" asp-for="MaxMotorPowerKw" />
+        <input type="hidden" asp-for="PreferredBladeCount" />
+        <input type="hidden" asp-for="MaxSpeedRpm" />
+    }
+    @if (currentStep != 4)
+    {
+        <input type="hidden" asp-for="BladeCount" />
+        <input type="hidden" asp-for="TipDiameterMm" />
+        <input type="hidden" asp-for="HubRatio" />
+        <input type="hidden" asp-for="HubDiameterMm" />
+        <input type="hidden" asp-for="BladeAngleDeg" />
+        <input type="hidden" asp-for="TargetEfficiencyPct" />
+        <input type="hidden" asp-for="BladeProfileId" />
+        <input type="hidden" asp-for="MotorPowerKw" />
+    }
+    @if (currentStep != 5)
+    {
+        <input type="hidden" asp-for="RangeMinFlowM3h" />
+        <input type="hidden" asp-for="RangeMaxFlowM3h" />
+        <input type="hidden" asp-for="RangeMinPressurePa" />
+        <input type="hidden" asp-for="RangeMaxPressurePa" />
+        <input type="hidden" asp-for="RangeMinSpeedRpm" />
+        <input type="hidden" asp-for="RangeMaxSpeedRpm" />
+    }
+    @if (currentStep != 6)
+    {
+        <input type="hidden" asp-for="SpeedRpm" />
+        <input type="hidden" asp-for="MotorPoles" />
+        <input type="hidden" asp-for="MotorType" />
+        <input type="hidden" asp-for="VoltageSpec" />
+        <input type="hidden" asp-for="InsulationClass" />
+        <input type="hidden" asp-for="StartingMethod" />
+        <input type="hidden" asp-for="DriveType" />
+        <input type="hidden" asp-for="MotorRpm" />
+        <input type="hidden" asp-for="FanRpm" />
+        <input type="hidden" asp-for="BeltType" />
+        <input type="hidden" asp-for="PulleyRatio" />
+        <input type="hidden" asp-for="NumberOfBelts" />
+        <input type="hidden" asp-for="CentreDistanceMm" />
+        <input type="hidden" asp-for="VfdMinRpm" />
+        <input type="hidden" asp-for="VfdMaxRpm" />
+        <input type="hidden" asp-for="VfdSpeedPct" />
+    }
+    @if (currentStep != 7)
+    {
+        <input type="hidden" asp-for="AccInletGuard" />
+        <input type="hidden" asp-for="AccOutletGuard" />
+        <input type="hidden" asp-for="AccVibrationIsolators" />
+        <input type="hidden" asp-for="AccFlexibleConnector" />
+        <input type="hidden" asp-for="AccSilencer" />
+        <input type="hidden" asp-for="AccBackdraftDamper" />
+        <input type="hidden" asp-for="AccessoryNotes" />
+    }
+    @if (currentStep != 8)
+    {
+        <input type="hidden" asp-for="CapacityFlowM3h" />
+        <input type="hidden" asp-for="CapacityStaticPa" />
+        <input type="hidden" asp-for="CapacitySpeedRpm" />
+        <input type="hidden" asp-for="CapacityMotorKw" />
+        <input type="hidden" asp-for="CapacityEfficiencyPct" />
+        <input type="hidden" asp-for="DrawingTagNo" />
+        <input type="hidden" asp-for="NameplateText" />
+    }
+    @if (currentStep != 9)
+    {
+        <input type="hidden" asp-for="ReceiverDistanceM" />
+        <input type="hidden" asp-for="AcousticEnvironment" />
+        <input type="hidden" asp-for="DirectivityIndexDb" />
+        <input type="hidden" asp-for="RoomCorrectionDb" />
+        <input type="hidden" asp-for="InletAttenuationDb" />
+        <input type="hidden" asp-for="OutletAttenuationDb" />
+        <input type="hidden" asp-for="SilencerAttenuationDb" />
+        <input type="hidden" asp-for="CasingTransmissionLossDb" />
+        <input type="hidden" asp-for="BackgroundNoiseDbA" />
+        <input type="hidden" asp-for="SafetyMarginDb" />
+    }
+
+
+    <div class="row g-3">
+        <div class="col-lg-8">
+            <div class="dw-panel">
+                @await Html.PartialAsync($"_Step{currentStep}", Model)
+
+                <div class="d-flex justify-content-between mt-3">
+                    @if (currentStep > 1)
+                    {
+                        <button type="submit" name="action" value="back" class="btn btn-outline-secondary">
+                            <i class="bi bi-chevron-left"></i> Back
+                        </button>
+                    }
+                    else
+                    {
+                        <a asp-controller="Projects" asp-action="Index" class="btn btn-outline-secondary">
+                            <i class="bi bi-x me-1"></i>Cancel
+                        </a>
+                    }
+
+                    @if (currentStep < 9)
+                    {
+                        <button type="submit" name="action" value="next" class="btn btn-primary px-4">
+                            Next <i class="bi bi-chevron-right"></i>
+                        </button>
+                    }
+                    else
+                    {
+                        <button type="submit" name="action" value="calculate" id="btnCalculate" class="btn btn-success btn-lg px-5">
+                            <i class="bi bi-calculator me-1"></i>Calculate &amp; Save
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="dw-panel">
+                <h2>Project Summary</h2>
+                <div class="dw-kv"><span class="k">Project Name</span><span class="v">@Model.ProjectName</span></div>
+                <div class="dw-kv"><span class="k">Client</span><span class="v">@(string.IsNullOrWhiteSpace(Model.Client) ? "—" : Model.Client)</span></div>
+                <div class="dw-kv"><span class="k">Application</span><span class="v">@(string.IsNullOrWhiteSpace(Model.Application) ? "—" : Model.Application)</span></div>
+                <div class="dw-kv"><span class="k">Engineer</span><span class="v">@(string.IsNullOrWhiteSpace(Model.Engineer) ? "—" : Model.Engineer)</span></div>
+                <div class="dw-kv"><span class="k">Date</span><span class="v">@(Model.JobDate?.ToString("dd MMM yyyy") ?? "—")</span></div>
+            </div>
+            <div class="dw-panel mb-0">
+                <h2>Design Workflow</h2>
+                @for (int i = 1; i <= 9; i++)
+                {
+                    <div class="@WorkflowClass(i)">
+                        <span><span class="num">@(i < currentStep ? "✓" : i.ToString())</span>@stepNames[i - 1]</span>
+                        <span class="status">@WorkflowStatus(i)</span>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</form>
+
+@section Scripts {
+    <script>
+        // ── Hub Diameter auto-calc (Step 4 only — guarded) ──────────────
+        function calcHubDiameter() {
+            const hubInput = document.getElementById('hubDiameterInput');
+            if (!hubInput) return;
+            const tip = parseFloat(document.getElementById('tipDiameterInput')?.value) || 0;
+            const ratio = parseFloat(document.getElementById('HubRatio')?.value) || 0;
+            const hint = document.getElementById('hubDiameterHint');
+            if (!hubInput.dataset.manualOverride && tip > 0 && ratio > 0) {
+                const calc = Math.round(tip * ratio);
+                hubInput.value = calc;
+                if (hint) {
+                    hint.textContent = `= ${tip} × ${ratio} = ${calc} mm (auto)`;
+                    hint.className = 'form-text text-success';
+                }
+            }
+        }
+
+        // ── Blade Profile preview (Step 4 only — guarded) ───────────────
+        async function onBladeProfileChange(profileId) {
+            const card = document.getElementById('profilePreviewCard');
+            const body = document.getElementById('profilePreviewBody');
+            const label = document.getElementById('profilePreviewLabel');
+            if (!card || !body) return;
+            if (!profileId) {
+                card.style.display = 'none';
+                return;
+            }
+            card.style.display = 'block';
+            const sel = document.getElementById('bladeProfileSelect');
+            const selectedOption = sel.options[sel.selectedIndex];
+            if (label) label.textContent = selectedOption.getAttribute('data-name') || selectedOption.text;
+            body.innerHTML = `<div class="text-center py-3 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading profile preview…</div>`;
+            const tipDiam = parseFloat(document.getElementById('tipDiameterInput')?.value) || 0;
+            const chord = tipDiam > 0 ? tipDiam / 2.0 : 148.3;
+            try {
+                const url = `/BladeProfiles/PreviewPartial?profileId=${encodeURIComponent(profileId)}&chord=${chord}`;
+                const res = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                if (!res.ok) throw new Error(`Server returned ${res.status}`);
+                body.innerHTML = await res.text();
+            } catch (err) {
+                body.innerHTML = `<div class="alert alert-danger small mb-0"><i class="bi bi-exclamation-triangle me-1"></i>Could not load profile preview: ${err.message}</div>`;
+            }
+        }
+
+        // ── Drive Type show/hide (Step 6 only — guarded) ────────────────
+        // "Direct Drive" and "Coupled" are 1:1 mechanical connections with
+        // no extra fields to collect. "V-Belt Drive" needs pulley/belt
+        // fields; "Direct VFD" needs the VFD min/max RPM band + speed %.
+        function onDriveTypeChange(val) {
+            const vbelt = document.getElementById('vbeltSection');
+            const vfd = document.getElementById('vfdSection');
+            if (vbelt) vbelt.style.display = val === 'V-Belt Drive' ? 'flex' : 'none';
+            if (vfd) vfd.style.display = val === 'Direct VFD' ? 'flex' : 'none';
+        }
+
+        // ── Pulley ratio auto-calc (Step 6 only — guarded) ──────────────
+        function calcPulleyRatio() {
+            const ratioInput = document.getElementById('pulleyRatioInput');
+            if (!ratioInput) return;
+            const motorRpm = parseFloat(document.getElementById('motorRpmInput')?.value) || 0;
+            const fanRpm = parseFloat(document.getElementById('fanRpmInput')?.value) || 0;
+            ratioInput.value = (motorRpm > 0 && fanRpm > 0) ? (motorRpm / fanRpm).toFixed(3) : '';
+        }
+
+        // ── VFD slider (Step 6 only — guarded) ──────────────────────────
+        function updateVfdRpmDisplay(pct) {
+            const label = document.getElementById('vfdSpeedPctLabel');
+            const display = document.getElementById('vfdOperatingRpm');
+            if (!label || !display) return;
+            label.textContent = pct + '%';
+            const min = parseFloat(document.getElementById('vfdMinRpm')?.value) || 0;
+            const max = parseFloat(document.getElementById('vfdMaxRpm')?.value) || 0;
+            display.textContent = (min > 0 && max > 0) ? Math.round(min + (max - min) * pct / 100) + ' RPM' : pct + '%';
+        }
+        function updateVfdSlider() {
+            const slider = document.getElementById('vfdSpeedSlider');
+            if (slider) updateVfdRpmDisplay(slider.value || 100);
+        }
+
+        // ── Capacity Marking + Nameplate (Step 8 only — guarded) ────────
+        function autoFillCapacity() {
+            if (!document.getElementById('capFlowM3h')) return;
+            const flowM3s = parseFloat(document.getElementById('FlowRateM3s')?.value) || 0;
+            const flowM3h = Math.round(flowM3s * 3600 * 10) / 10;
+            const staticPa = parseFloat(document.getElementById('StaticPressurePa')?.value) || 0;
+            const rpm = parseFloat(document.getElementById('SpeedRpm')?.value) || 0;
+            const motorKw = parseFloat(document.getElementById('MotorPowerKw')?.value) || 0;
+            const eff = parseFloat(document.getElementById('TargetEfficiencyPct')?.value) || 0;
+
+            document.getElementById('capFlowM3h').value = flowM3h;
+            document.getElementById('capStaticPa').value = staticPa;
+            document.getElementById('capSpeedRpm').value = rpm;
+            document.getElementById('capMotorKw').value = motorKw;
+            document.getElementById('capEfficiency').value = eff;
+
+            generateNameplate(flowM3h, staticPa, rpm, motorKw, eff);
+        }
+
+        function generateNameplate(flow, pressure, rpm, power, eff) {
+            const textarea = document.getElementById('nameplateText');
+            if (!textarea) return;
+            const tag = document.getElementById('drawingTagNo')?.value || '';
+            const text =
+                (tag ? `TAG: ${tag}\n` : '') +
+                `FLOW     : ${flow || '—'} m³/h\n` +
+                `PRESSURE : ${pressure || '—'} Pa (static)\n` +
+                `SPEED    : ${rpm || '—'} RPM\n` +
+                `POWER    : ${power || '—'} kW\n` +
+                `EFF.     : ${eff || '—'} %`;
+            textarea.value = text;
+            updateNameplatePreview(text);
+        }
+
+        function updateNameplatePreview(text) {
+            const preview = document.getElementById('nameplatePreview');
+            if (!preview) return;
+            if (!text.trim()) {
+                preview.innerHTML = '<div class="text-muted small text-center">Fill values above to generate nameplate</div>';
+                return;
+            }
+            const lines = text.split('\n').map(line => {
+                const parts = line.split(':');
+                if (parts.length >= 2) {
+                    const label = parts[0].trim();
+                    const val = parts.slice(1).join(':').trim();
+                    return `<div class="d-flex gap-3"><span class="text-muted" style="min-width:90px">${label}</span><span class="fw-semibold">: ${val}</span></div>`;
+                }
+                return `<div class="fw-semibold text-primary">${line}</div>`;
+            });
+            preview.innerHTML = lines.join('');
+        }
+
+        // ── Operating Range / Zone (Step 5 only — guarded) ──────────────
+        function updateZoneBadge() {
+            if (!document.getElementById('rangeMinFlow')) return;
+            const minFlow = parseFloat(document.getElementById('rangeMinFlow')?.value);
+            const maxFlow = parseFloat(document.getElementById('rangeMaxFlow')?.value);
+            const minPressure = parseFloat(document.getElementById('rangeMinPressure')?.value);
+            const maxPressure = parseFloat(document.getElementById('rangeMaxPressure')?.value);
+            const minSpeed = parseFloat(document.getElementById('rangeMinSpeed')?.value);
+            const maxSpeed = parseFloat(document.getElementById('rangeMaxSpeed')?.value);
+
+            const hasFlow = !isNaN(minFlow) && !isNaN(maxFlow);
+            const hasPressure = !isNaN(minPressure) && !isNaN(maxPressure);
+            const hasSpeed = !isNaN(minSpeed) && !isNaN(maxSpeed);
+
+            if (hasFlow) document.getElementById('zoneFlowBadge').textContent = `Flow: ${minFlow} – ${maxFlow} m³/h`;
+            if (hasPressure) document.getElementById('zonePressureBadge').textContent = `Pressure: ${minPressure} – ${maxPressure} Pa`;
+            if (hasSpeed) document.getElementById('zoneSpeedBadge').textContent = `Speed: ${minSpeed} – ${maxSpeed} RPM`;
+
+            const filledCount = [hasFlow, hasPressure, hasSpeed].filter(Boolean).length;
+            const badge = document.getElementById('zoneBadge');
+            const summaryRow = document.getElementById('zoneSummaryRow');
+            if (filledCount === 0) { badge.style.display = 'none'; summaryRow.style.display = 'none'; return; }
+
+            let zoneLabel = 'Custom Range';
+            if (hasFlow) {
+                const spread = maxFlow - minFlow;
+                if (spread <= 2000) zoneLabel = 'Zone A — Narrow';
+                else if (spread <= 5000) zoneLabel = 'Zone B — Standard';
+                else if (spread <= 10000) zoneLabel = 'Zone C — Wide';
+                else zoneLabel = 'Zone D — Full range';
+            }
+            badge.textContent = zoneLabel;
+            badge.style.display = 'inline-block';
+            summaryRow.style.display = 'flex';
+        }
+
+        function autoFillRange() {
+            if (!document.getElementById('rangeMinFlow')) return;
+            const flowM3s = parseFloat(document.getElementById('FlowRateM3s')?.value) || 0;
+            const flowM3h = Math.round(flowM3s * 3600 * 10) / 10;
+            const staticPa = parseFloat(document.getElementById('StaticPressurePa')?.value) || 0;
+            const rpm = parseFloat(document.getElementById('SpeedRpm')?.value) || 0;
+
+            if (flowM3h > 0) {
+                document.getElementById('rangeMinFlow').value = Math.round(flowM3h * 0.7 * 10) / 10;
+                document.getElementById('rangeMaxFlow').value = Math.round(flowM3h * 1.3 * 10) / 10;
+            }
+            if (staticPa > 0) {
+                document.getElementById('rangeMinPressure').value = Math.round(staticPa * 0.6);
+                document.getElementById('rangeMaxPressure').value = Math.round(staticPa * 1.4);
+            }
+            if (rpm > 0) {
+                document.getElementById('rangeMinSpeed').value = Math.round(rpm * 0.7);
+                document.getElementById('rangeMaxSpeed').value = Math.round(rpm);
+            }
+            updateZoneBadge();
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            // Step 4 — hub diameter
+            calcHubDiameter();
+            document.getElementById('hubDiameterInput')?.addEventListener('input', function () {
+                if (this.value) {
+                    this.dataset.manualOverride = 'true';
+                    const hint = document.getElementById('hubDiameterHint');
+                    if (hint) { hint.textContent = 'Manually entered'; hint.className = 'form-text text-primary'; }
+                } else {
+                    delete this.dataset.manualOverride;
+                    calcHubDiameter();
+                }
+            });
+            document.getElementById('tipDiameterInput')?.addEventListener('input', calcHubDiameter);
+            document.getElementById('HubRatio')?.addEventListener('input', calcHubDiameter);
+
+            let debounce;
+            document.getElementById('tipDiameterInput')?.addEventListener('input', () => {
+                clearTimeout(debounce);
+                debounce = setTimeout(() => {
+                    const profileId = document.getElementById('bladeProfileSelect')?.value;
+                    if (profileId) onBladeProfileChange(profileId);
+                }, 600);
+            });
+            const existingProfileId = document.getElementById('bladeProfileSelect')?.value;
+            if (existingProfileId) onBladeProfileChange(existingProfileId);
+
+            // Step 6 — drive type / VFD
+            const driveType = document.getElementById('driveTypeSelect')?.value;
+            if (driveType) onDriveTypeChange(driveType);
+            const vfdPct = document.getElementById('vfdSpeedSlider')?.value;
+            if (vfdPct) updateVfdRpmDisplay(vfdPct);
+
+            // Step 5 — operating range
+            updateZoneBadge();
+
+            // Step 8 — capacity / nameplate
+            const existingNameplate = document.getElementById('nameplateText')?.value;
+            if (existingNameplate) updateNameplatePreview(existingNameplate);
+            document.getElementById('drawingTagNo')?.addEventListener('input', () => {
+                const flow = document.getElementById('capFlowM3h')?.value;
+                const pressure = document.getElementById('capStaticPa')?.value;
+                const rpm = document.getElementById('capSpeedRpm')?.value;
+                const power = document.getElementById('capMotorKw')?.value;
+                const eff = document.getElementById('capEfficiency')?.value;
+                if (flow || pressure || rpm) generateNameplate(flow, pressure, rpm, power, eff);
+            });
+            if (document.getElementById('capFlowM3h') && !document.getElementById('nameplateText')?.value) {
+                autoFillCapacity();
+            }
+        });
+    </script>
+}

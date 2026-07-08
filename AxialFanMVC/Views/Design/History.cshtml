@@ -1,0 +1,108 @@
+@model AxialFanMVC.ViewModels.DesignHistoryViewModel
+@{
+    ViewData["Title"] = $"Design History — {Model.ProjectName}";
+}
+
+<div class="mb-4">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a asp-controller="Projects" asp-action="Index">Projects</a></li>
+            <li class="breadcrumb-item active">@Model.ProjectName</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center">
+        <h2 class="mb-0">
+            <i class="bi bi-clock-history me-2 text-primary"></i>@Model.ProjectName
+        </h2>
+        <a asp-controller="Design" asp-action="Wizard" asp-route-projectId="@Model.ProjectId"
+           class="btn btn-primary">
+            <i class="bi bi-plus-circle me-1"></i>New Design
+        </a>
+    </div>
+</div>
+
+@if (!Model.Designs.Any())
+{
+    <div class="text-center py-5 text-muted">
+        <i class="bi bi-wind display-3"></i>
+        <p class="mt-3 lead">No designs yet.</p>
+        <a asp-controller="Design" asp-action="Wizard" asp-route-projectId="@Model.ProjectId"
+           class="btn btn-primary">
+            <i class="bi bi-plus-circle me-1"></i>Create your first design
+        </a>
+    </div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th>#</th>
+                    <th>Date</th>
+                    <th>Flow (m³/s)</th>
+                    <th>ΔP Total (Pa)</th>
+                    <th>RPM</th>
+                    <th>D<sub>tip</sub> (mm)</th>
+                    <th>Blades</th>
+                    <th>Blade Profile</th>
+                    <th>Efficiency</th>
+                    <th>Power (kW)</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var d in Model.Designs)
+                {
+                    <tr>
+                        <td class="text-muted small">@d.DesignInputId</td>
+                        <td class="small">@d.CreatedAt.ToLocalTime().ToString("dd/MM/yy HH:mm")</td>
+                        <td>@d.FlowRateM3s.ToString("F2")</td>
+                        <td>@d.TotalPressurePa.ToString("F0")</td>
+                        <td>@d.SpeedRpm</td>
+                        <td>@d.TipDiameterMm.ToString("F0")</td>
+                        <td>@d.BladeCount</td>
+                        <td><span class="badge bg-light text-dark">@(d.BladeProfileName ?? "—")</span></td>
+                        <td>@(d.OverallEfficiencyPct.HasValue ? $"{d.OverallEfficiencyPct:F1} %" : "—")</td>
+                        <td>@(d.ShaftPowerKw.HasValue ? $"{d.ShaftPowerKw:F2}" : "—")</td>
+                        <td>
+                            @{
+                                var (badgeCls, icon) = d.Status switch
+                                {
+                                    "ok"      => ("bg-success", "bi-check-circle"),
+                                    "warning" => ("bg-warning text-dark", "bi-exclamation-triangle"),
+                                    "error"   => ("bg-danger", "bi-x-circle"),
+                                    _         => ("bg-secondary", "bi-hourglass-split")
+                                };
+                            }
+                            <span class="badge @badgeCls">
+                                <i class="bi @icon me-1"></i>@d.Status
+                            </span>
+                        </td>
+                        <td>
+                            @if (d.ResultId.HasValue)
+                            {
+                                <a asp-controller="Results" asp-action="Result"
+                                   asp-route-resultId="@d.ResultId"
+                                   class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-eye me-1"></i>View
+                                </a>
+                            }
+                            else
+                            {
+                                <span class="text-muted small">No result</span>
+                            }
+                            <a asp-controller="Design" asp-action="EditInput"
+                               asp-route-designInputId="@d.DesignInputId"
+                               class="btn btn-sm btn-outline-secondary ms-1">
+                                <i class="bi bi-pencil me-1"></i>Edit
+                            </a>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}

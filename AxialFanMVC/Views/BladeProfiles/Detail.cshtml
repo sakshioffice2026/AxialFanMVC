@@ -1,0 +1,320 @@
+﻿@model AxialFanMVC.Models.BladeProfileDetailViewModel
+@{
+    ViewData["Title"] = Model.Name + " — Blade Profile";
+    bool isSaved = Model.Id > 0;
+}
+
+<div class="container-fluid px-4 py-3">
+
+    @* ── Breadcrumb ───────────────────────────────────────────────────── *@
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb small">
+            <li class="breadcrumb-item"><a asp-action="Index">Blade Profiles</a></li>
+            <li class="breadcrumb-item active">@Model.Name</li>
+        </ol>
+    </nav>
+
+    @* ── Header row ───────────────────────────────────────────────────── *@
+    <div class="d-flex align-items-start justify-content-between mb-4 flex-wrap gap-2">
+        <div>
+            <h4 class="fw-semibold mb-1">@Model.Name</h4>
+            <div class="d-flex gap-2 align-items-center">
+                <span class="badge bg-primary-subtle text-primary border border-primary-subtle">@Model.Type</span>
+                @if (!string.IsNullOrEmpty(Model.Description))
+                {
+                    <span class="text-muted small">@Model.Description</span>
+                }
+            </div>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            @* Chord selector form *@
+            <form asp-action="@(isSaved ? "Detail" : "Naca")" method="get"
+                  class="d-flex align-items-center gap-2 flex-wrap" id="chordForm">
+                @if (isSaved)
+                {
+                    <input type="hidden" name="id" value="@Model.Id" />
+                }
+                else
+                {
+                    <input type="hidden" name="designation" value="@Model.Name.Replace("NACA ", "")" />
+                }
+                <label class="small text-muted mb-0">Chord</label>
+
+                @* ── Slider ───────────────────────────────────────────── *@
+                <input type="range"
+                       id="chordSlider"
+                       name="chord"
+                       min="50" max="2000" step="1"
+                       value="@((int)Model.ChordMm)"
+                       class="form-range"
+                       style="width:160px"
+                       oninput="document.getElementById('chordLabel').textContent = this.value + ' mm'" />
+
+                @* ── Live label ───────────────────────────────────────── *@
+                <span id="chordLabel"
+                      class="small fw-semibold text-primary"
+                      style="min-width:60px">
+                    @((int)Model.ChordMm) mm
+                </span>
+
+                <button type="submit" class="btn btn-sm btn-primary">Apply</button>
+            </form>
+            @if (isSaved)
+            {
+                <div class="btn-group btn-group-sm">
+                    <a asp-action="Svg" asp-route-id="@Model.Id" asp-route-chord="@Model.ChordMm"
+                       class="btn btn-outline-secondary" title="Download profile SVG">
+                        <i class="bi bi-download me-1"></i>Profile SVG
+                    </a>
+                    <a asp-action="StationSvg" asp-route-id="@Model.Id" asp-route-chord="@Model.ChordMm"
+                       class="btn btn-outline-secondary" title="Download station table SVG">
+                        Station SVG
+                    </a>
+                    <a asp-action="Coordinates" asp-route-id="@Model.Id"
+                       asp-route-chord="@Model.ChordMm" asp-route-format="csv"
+                       class="btn btn-outline-secondary" title="Download CSV coordinates">
+                        CSV
+                    </a>
+                </div>
+            }
+        </div>
+    </div>
+
+    @* ── Two-column layout: SVG left, params right ────────────────────── *@
+    <div class="row g-4">
+
+        @* Left: aerofoil SVG drawing *@
+        <div class="col-lg-8">
+            <div class="card shadow-sm h-100">
+                <div class="card-header py-2 px-3 d-flex justify-content-between align-items-center">
+                    <span class="small fw-medium">Aerofoil Profile (DWG-003)</span>
+                    <span class="small text-muted">Chord = @Model.ChordMm.ToString("F1") mm</span>
+                </div>
+                <div class="card-body p-2">
+                    @* Zoom/pan wrapper *@
+                    <div id="svgWrapper" style="overflow:hidden;border-radius:6px;background:#fff;
+                         border:0.5px solid #e0e0e0;cursor:grab;user-select:none;height:340px;
+                         display:flex;align-items:center;justify-content:center;position:relative;">
+
+                        <div class="position-absolute top-0 end-0 m-2 d-flex gap-1" style="z-index:5">
+                            <button class="btn btn-sm btn-light border" onclick="svgZoom(-1)">−</button>
+                            <button class="btn btn-sm btn-light border" onclick="svgZoom(1)">+</button>
+                            <button class="btn btn-sm btn-light border" onclick="svgReset()">⟳</button>
+                            <span id="svgZoomLabel" class="small text-muted" style="line-height:31px;margin-left:2px">100%</span>
+                        </div>
+
+                        <div id="svgInner" style="transform-origin:center center;width:100%;height:100%;
+                             display:flex;align-items:center;justify-content:center">
+                            @Html.Raw(Model.SvgProfile)
+                        </div>
+                    </div>
+                    <p class="text-muted text-center" style="font-size:10px;margin-top:4px">
+                        Scroll to zoom · drag to pan
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        @* Right: dimension table *@
+        <div class="col-lg-4">
+            <div class="card shadow-sm">
+                <div class="card-header py-2 px-3">
+                    <span class="small fw-medium text-uppercase text-muted">Key Dimensions</span>
+                </div>
+                <div class="card-body p-3">
+                    @{
+                        var d = Model.Dimensions;
+                        void DimRow(string label, double val, string unit, bool hi = false)
+                        {
+                            <div class="d-flex justify-content-between align-items-center py-1"
+                                 style="border-bottom:0.5px solid #f0f0f0">
+                                <span class="small text-secondary">@label</span>
+                                <span class="small @(hi ? "fw-semibold" : "") text-dark">
+                                    @val.ToString("F2") <span class="text-muted" style="font-size:10px">@unit</span>
+                                </span>
+                            </div>
+                        }
+                    }
+                    @{ DimRow("Chord", d.ChordMm, "mm", true); }
+                    @{ DimRow("Max thickness", d.MaxThicknessMm, "mm", true); }
+                    @{ DimRow("Max thickness", d.MaxThicknessPct, "%"); }
+                    @{ DimRow("Thickness location", d.MaxThicknessXPct, "% chord"); }
+                    @{ DimRow("Max camber", d.MaxCamberMm, "mm", true); }
+                    @{ DimRow("Max camber", d.MaxCamberPct, "%"); }
+                    @{ DimRow("Camber location", d.MaxCamberXPct, "% chord"); }
+                    @{ DimRow("LE radius", d.LeadingEdgeRadiusMm, "mm"); }
+                    @{ DimRow("LE radius", d.LeadingEdgeRadiusPct, "% chord"); }
+                    @{ DimRow("TE thickness", d.TrailingEdgeThickMm, "mm"); }
+                    @{ DimRow("Mean line angle", d.MeanLineAngle, "°"); }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @* ── Aerodynamic parameters ───────────────────────────────────────── *@
+    <div class="row g-4 mt-1">
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header py-2 px-3">
+                    <span class="small fw-medium text-uppercase text-muted">Aerodynamic Parameters</span>
+                </div>
+                <div class="card-body p-3">
+                    @{
+                        var a = Model.AeroParams;
+                    }
+                    <div class="row row-cols-2 row-cols-md-4 g-3">
+                        @{
+                            void AeroCard(string label, string val, string sub = "")
+                            {
+                                <div class="col">
+                                    <div class="border rounded p-2 text-center bg-light">
+                                        <div class="fw-semibold small">@val</div>
+                                        <div class="text-muted" style="font-size:10px">@label</div>
+                                        @if (!string.IsNullOrEmpty(sub))
+                                        {
+                                            <div class="text-muted" style="font-size:9px">@sub</div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        }
+                        @{ AeroCard("Design Cl",      a.DesignLiftCoeff.ToString("F3")); }
+                        @{ AeroCard("Thickness ratio", a.ThicknessRatio.ToString("F3")); }
+                        @{ AeroCard("Lift curve slope", a.LiftCurveSlope.ToString("F3"), "per degree"); }
+                        @{ AeroCard("Zero-lift α",     a.ApproxZeroLiftAngle.ToString("F1") + "°"); }
+                        @{ AeroCard("Stall α (approx)", a.ApproxStallAngle.ToString("F1") + "°"); }
+                        @{ AeroCard("Max Cl (approx)", a.ApproxMaxCl.ToString("F3")); }
+                        @{ AeroCard("Min Cd (approx)", a.ApproxMinDrag.ToString("F4")); }
+                        @{ AeroCard("TE angle",        a.TrailingEdgeAngle.ToString("F1") + "°"); }
+                    </div>
+                    @if (!string.IsNullOrEmpty(a.ReynoldsRange) || !string.IsNullOrEmpty(a.Note))
+                    {
+                        <div class="mt-3 text-muted small">
+                            @if (!string.IsNullOrEmpty(a.ReynoldsRange))
+                            {
+                                <span class="me-3"><strong>Reynolds range:</strong> @a.ReynoldsRange</span>
+                            }
+                            @if (!string.IsNullOrEmpty(a.Note))
+                            {
+                                <span>@a.Note</span>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @* ── Station ordinate table ───────────────────────────────────────── *@
+    <div class="row g-4 mt-1">
+        <div class="col-lg-6">
+            <div class="card shadow-sm">
+                <div class="card-header py-2 px-3">
+                    <span class="small fw-medium text-uppercase text-muted">Station Ordinate Table</span>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive" style="max-height:360px;overflow-y:auto">
+                        <table class="table table-sm table-hover mb-0" style="font-size:11px">
+                            <thead class="table-light sticky-top">
+                                <tr>
+                                    <th class="text-end">x %</th>
+                                    <th class="text-end">x mm</th>
+                                    <th class="text-end">y upper</th>
+                                    <th class="text-end">y lower</th>
+                                    <th class="text-end">y camber</th>
+                                    <th class="text-end">thick mm</th>
+                                    <th class="text-end">thick %</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var row in Model.StationTable)
+                                {
+                                    <tr>
+                                        <td class="text-end">@row.XPct.ToString("F1")</td>
+                                        <td class="text-end">@row.XMm.ToString("F2")</td>
+                                        <td class="text-end">@row.YUpperMm.ToString("F3")</td>
+                                        <td class="text-end">@row.YLowerMm.ToString("F3")</td>
+                                        <td class="text-end">@row.YCamberMm.ToString("F3")</td>
+                                        <td class="text-end">@row.ThicknessMm.ToString("F3")</td>
+                                        <td class="text-end">@row.ThicknessPct.ToString("F2")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* Station diagram SVG *@
+        <div class="col-lg-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-header py-2 px-3">
+                    <span class="small fw-medium text-uppercase text-muted">Station Diagram (DWG-004)</span>
+                </div>
+                <div class="card-body p-2 d-flex align-items-center justify-content-center">
+                    <div style="width:100%;overflow:auto">
+                        @Html.Raw(Model.SvgStationTable)
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@* ── SVG zoom/pan script ──────────────────────────────────────────────── *@
+@section Scripts {
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+
+        let _scale = 1, _ox = 0, _oy = 0;
+        const inner   = document.getElementById('svgInner');
+        const wrapper = document.getElementById('svgWrapper');
+        const label   = document.getElementById('svgZoomLabel');
+
+        // Guard — if elements don't exist, stop here
+        if (!inner || !wrapper || !label) return;
+
+        let drag = { on: false, sx: 0, sy: 0 };
+
+        function applyTransform() {
+            inner.style.transform = `translate(${_ox}px,${_oy}px) scale(${_scale})`;
+            label.textContent = Math.round(_scale * 100) + '%';
+        }
+
+        // Exposed globally so onclick="svgZoom(1)" buttons work
+        window.svgZoom = function(dir) {
+            _scale = Math.min(5, Math.max(0.3, _scale * (dir > 0 ? 1.25 : 0.8)));
+            applyTransform();
+        };
+        window.svgReset = function() {
+            _scale = 1; _ox = 0; _oy = 0;
+            applyTransform();
+        };
+
+        wrapper.addEventListener('wheel', e => {
+            e.preventDefault();
+            _scale = Math.min(5, Math.max(0.3, _scale - e.deltaY * 0.001));
+            applyTransform();
+        }, { passive: false });
+
+        wrapper.addEventListener('mousedown', e => {
+            drag = { on: true, sx: e.clientX - _ox, sy: e.clientY - _oy };
+            wrapper.style.cursor = 'grabbing';
+        });
+        window.addEventListener('mousemove', e => {
+            if (!drag.on) return;
+            _ox = e.clientX - drag.sx;
+            _oy = e.clientY - drag.sy;
+            applyTransform();
+        });
+        window.addEventListener('mouseup', () => {
+            drag.on = false;
+            wrapper.style.cursor = 'grab';
+        });
+
+    });
+</script>
+}
+
+

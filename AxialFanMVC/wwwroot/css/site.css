@@ -1,0 +1,57 @@
+/* AxialFlow Designer — site.css */
+
+/* Navbar fan icon spin on hover */
+.navbar-brand:hover .bi-fan {
+    display: inline-block;
+    animation: spin 0.6s linear 1;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Card hover lift effect */
+.card {
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+    .card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.10) !important;
+    }
+
+/* Table vertical align */
+.table td, .table th {
+    vertical-align: middle;
+}
+
+/* Progress bar */
+.progress {
+    border-radius: 4px;
+}
+
+/* Chart canvas max height */
+canvas {
+    max-height: 350px;
+}
+
+/* Footer */
+footer {
+    font-size: 0.85rem;
+}
+
+/* Wizard step buttons */
+.btn:disabled {
+    opacity: 0.85;
+}
+
+/* Badge in tables */
+.badge {
+    font-size: 0.75rem;
+}

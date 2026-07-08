@@ -1,0 +1,31 @@
+@model AxialFanMVC.ViewModels.DesignWizardViewModel
+
+<h2 class="dw-panel-title mb-3 fw-bold" style="color:var(--v2-accent)">Project Info</h2>
+<div class="row g-3">
+    <div class="col-md-6">
+        <label class="form-label">Project Name</label>
+        <input type="text" class="form-control" value="@Model.ProjectName" readonly />
+        <div class="form-text">Set when the project was created — not editable here.</div>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="Client" class="form-label">Client</label>
+        <input asp-for="Client" type="text" class="form-control" />
+    </div>
+    <div class="col-md-6">
+        <label asp-for="Application" class="form-label">Application</label>
+        <select asp-for="Application" class="form-select">
+            <option value="Industrial Ventilation">Industrial Ventilation</option>
+            <option value="Cooling Tower">Cooling Tower</option>
+            <option value="Flue Gas Handling">Flue Gas Handling</option>
+            <option value="HVAC">HVAC</option>
+        </select>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="Engineer" class="form-label">Engineer</label>
+        <input asp-for="Engineer" type="text" class="form-control" />
+    </div>
+    <div class="col-md-6">
+        <label asp-for="JobDate" class="form-label">Date</label>
+        <input asp-for="JobDate" type="date" class="form-control" />
+    </div>
+</div>

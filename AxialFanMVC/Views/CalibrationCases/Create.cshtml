@@ -1,0 +1,75 @@
+﻿@model AxialFanMVC.Models.CalibrationCaseCreateViewModel
+@{
+    ViewData["Title"] = "New Calibration Case";
+}
+
+<h2>New Calibration Case</h2>
+<p class="text-muted">Enter real (manufacturer curve / CFD / test bench) data points — this feeds the performance-curve correction model, it is never formula-generated.</p>
+
+<form asp-action="Create" method="post">
+    <div asp-validation-summary="All" class="text-danger"></div>
+
+    <fieldset class="mb-3">
+        <legend>Provenance</legend>
+        <div class="row g-2">
+            <div class="col-md-4">
+                <label asp-for="SourceType" class="form-label"></label>
+                <select asp-for="SourceType" class="form-select">
+                    <option>Manufacturer Curve</option>
+                    <option>CFD</option>
+                    <option>Test Bench</option>
+                </select>
+            </div>
+            <div class="col-md-8">
+                <label asp-for="SourceDescription" class="form-label"></label>
+                <input asp-for="SourceDescription" class="form-control" placeholder="e.g. Acme AXF-500 catalog, 2023 edition, p.12" />
+            </div>
+        </div>
+    </fieldset>
+
+    <fieldset class="mb-3">
+        <legend>Geometry (fixed for this case)</legend>
+        <div class="row g-2">
+            <div class="col-md-2"><label asp-for="TipDiameterMm" class="form-label"></label><input asp-for="TipDiameterMm" class="form-control" /></div>
+            <div class="col-md-2"><label asp-for="HubRatio" class="form-label"></label><input asp-for="HubRatio" class="form-control" /></div>
+            <div class="col-md-2"><label asp-for="BladeAngleDeg" class="form-label"></label><input asp-for="BladeAngleDeg" class="form-control" /></div>
+            <div class="col-md-2"><label asp-for="BladeCount" class="form-label"></label><input asp-for="BladeCount" class="form-control" /></div>
+            <div class="col-md-2"><label asp-for="SpeedRpm" class="form-label"></label><input asp-for="SpeedRpm" class="form-control" /></div>
+            <div class="col-md-2"><label asp-for="DensityKgM3" class="form-label"></label><input asp-for="DensityKgM3" class="form-control" /></div>
+        </div>
+        <div class="row g-2 mt-1">
+            <div class="col-md-3"><label asp-for="TemperatureCelsius" class="form-label"></label><input asp-for="TemperatureCelsius" class="form-control" /></div>
+            <div class="col-md-3"><label asp-for="BladeProfileDesignation" class="form-label"></label><input asp-for="BladeProfileDesignation" class="form-control" /></div>
+            <div class="col-md-3"><label asp-for="MaxCamberPct" class="form-label"></label><input asp-for="MaxCamberPct" class="form-control" /></div>
+            <div class="col-md-3"><label asp-for="MaxThicknessPct" class="form-label"></label><input asp-for="MaxThicknessPct" class="form-control" /></div>
+        </div>
+    </fieldset>
+
+    <fieldset class="mb-3// 7. Mean radius chord
+              double meanRadius=(tipRadius + hubRadius) / 2.0;
+        <legend>Curve points (at least 3 rows required)</legend>
+        <table class="table table-sm">
+            <thead>
+                <tr>
+                    <th>Flow Rate (m³/s)</th>
+                    <th>Pressure Rise (Pa)</th>
+                    <th>Efficiency (%)</th>
+                    <th>Power (kW, optional)</th>
+                </tr>
+            </thead>
+            <tbody>
+                @for (int i = 0; i < Model.Points.Count; i++)
+                {
+                    <tr>
+                        <td><input asp-for="Points[i].FlowRateM3s" class="form-control form-control-sm" /></td>
+                        <td><input asp-for="Points[i].PressureRisePa" class="form-control form-control-sm" /></td>
+                        <td><input asp-for="Points[i].EfficiencyPct" class="form-control form-control-sm" /></td>
+                        <td><input asp-for="Points[i].PowerKw" class="form-control form-control-sm" /></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </fieldset>
+
+    <button type="submit" class="btn btn-primary">Save Calibration Case</button>
+</form>

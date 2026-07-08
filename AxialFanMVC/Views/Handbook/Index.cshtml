@@ -1,0 +1,62 @@
+﻿@model AxialFanMVC.Models.HandbookSearchViewModel
+
+@{
+    ViewData["Title"] = "Handbook Search";
+}
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+    <div>
+        <h2 class="mb-1"><i class="bi bi-book me-2 text-primary"></i>Fan Handbook Reference</h2>
+        <p class="text-muted mb-0">Search axial-fan design guidance from the Bleier handbook.</p>
+    </div>
+</div>
+
+<form asp-controller="Handbook" asp-action="Index" method="get"
+      class="d-flex flex-wrap align-items-center gap-2 mb-4">
+    <input type="text" name="query" value="@Model.Query"
+           class="form-control" style="max-width:420px"
+           placeholder="e.g. blade tip clearance, static pressure loss..." />
+    <button type="submit" class="btn btn-primary">
+        <i class="bi bi-search me-1"></i>Search
+    </button>
+</form>
+
+@if (!string.IsNullOrWhiteSpace(Model.Query))
+{
+    <p class="text-muted small mb-3">
+        @Model.Results.Count result(s) for "<strong>@Model.Query</strong>"
+    </p>
+
+    if (Model.Results.Count == 0)
+    {
+        <div class="alert alert-secondary">
+            No matches found. Try different or fewer keywords.
+        </div>
+    }
+
+    @foreach (var r in Model.Results)
+    {
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <h6 class="mb-0">
+                        @if (r.Chapter.HasValue)
+                        {
+                            <span class="badge bg-secondary me-2">Ch. @r.Chapter</span>
+                        }
+                        @r.ChapterTitle
+                    </h6>
+                    @if (r.Page.HasValue)
+                    {
+                        <span class="text-muted small">p. @r.Page</span>
+                    }
+                </div>
+                @if (!string.IsNullOrWhiteSpace(r.Section))
+                {
+                    <p class="text-muted small mb-2">@r.Section</p>
+                }
+                <p class="mb-0" style="white-space: pre-wrap;">@r.Text</p>
+            </div>
+        </div>
+    }
+}

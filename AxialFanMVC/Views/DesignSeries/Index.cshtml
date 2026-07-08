@@ -1,0 +1,59 @@
+﻿@model AxialFanMVC.ViewModels.DesignSeriesListViewModel
+@{
+    ViewData["Title"] = "Design Series";
+}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-1">
+                <li class="breadcrumb-item"><a asp-controller="Projects" asp-action="Index">Projects</a></li>
+                <li class="breadcrumb-item active">@Model.ProjectName — Series</li>
+            </ol>
+        </nav>
+        <h2><i class="bi bi-layers me-2 text-primary"></i>Design Series</h2>
+    </div>
+    <a asp-controller="Projects"
+       asp-action="Index"
+       class="btn btn-primary">
+        <i class="bi bi-plus-circle me-1"></i>New Series
+    </a>
+</div>
+
+@if (!Model.Series.Any())
+{
+    <div class="alert alert-light border text-center py-5">
+        <i class="bi bi-layers fs-1 text-muted d-block mb-2"></i>
+        No design series yet for this project.
+    </div>
+}
+else
+{
+    <div class="card shadow-sm">
+        <div class="table-responsive">
+            <table class="table mb-0 align-middle">
+                <thead>
+                    <tr>
+                        <th>Series Name</th>
+                        <th>Base Design</th>
+                        <th>Variants</th>
+                        <th>Flow Range</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var s in Model.Series)
+                    {
+                        <tr>
+                            <td>@s.Name</td>
+                            <td>@s.BaseDesignLabel</td>
+                            <td>@s.VariantCount</td>
+                            <td>@s.MinFlowM3s.ToString("F1") – @s.MaxFlowM3s.ToString("F1") m³/s</td>
+                            <td><a asp-controller="DesignSeries" asp-action="Details" asp-route-seriesId="@s.Id" class="btn btn-sm btn-outline-primary">View</a></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}

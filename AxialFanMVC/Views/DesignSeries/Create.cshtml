@@ -1,0 +1,70 @@
+﻿@model AxialFanMVC.ViewModels.DesignSeriesCreateViewModel
+@{
+    ViewData["Title"] = "New Design Series";
+}
+
+<div class="mb-4">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a asp-controller="Projects" asp-action="Index">Projects</a></li>
+            <li class="breadcrumb-item active">New Design Series</li>
+        </ol>
+    </nav>
+    <h2><i class="bi bi-layers me-2 text-primary"></i>New Design Series — @Model.ProjectName</h2>
+</div>
+
+<form asp-controller="DesignSeries" asp-action="Create" method="post">
+    @Html.AntiForgeryToken()
+    <input type="hidden" asp-for="ProjectId" />
+
+    <div class="card shadow-sm">
+        <div class="card-body p-4">
+            <div class="mb-3">
+                <label asp-for="Name" class="form-label fw-semibold">Series Name</label>
+                <input asp-for="Name" class="form-control" placeholder="e.g. ID Fan Series 100" />
+                <span asp-validation-for="Name" class="text-danger small"></span>
+            </div>
+
+            <div class="mb-3">
+                <label asp-for="BaseDesignInputId" class="form-label fw-semibold">Base Design</label>
+                <select asp-for="BaseDesignInputId" class="form-select">
+                    <option value="">— Select a design to scale from —</option>
+                    @foreach (var d in Model.AvailableBaseDesigns)
+                    {
+                        <option value="@d.Id">@d.Label</option>
+                    }
+                </select>
+                <span asp-validation-for="BaseDesignInputId" class="text-danger small"></span>
+                <div class="form-text">Blade count, hub ratio, blade angle, and profile are kept identical across the series — only size-dependent values (flow, pressure, power) are scaled.</div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Sizes to Generate</label>
+                <div class="row g-2">
+                    @foreach (var d in Model.CatalogDiametersMm)
+                    {
+                        <div class="col-md-3 col-6">
+                            <div class="form-check border rounded p-2">
+                                <input class="form-check-input" type="checkbox" name="SelectedDiametersMm" value="@d" id="dia@(d)" />
+                                <label class="form-check-label" for="dia@(d)">@d mm</label>
+                            </div>
+                        </div>
+                    }
+                </div>
+                <span asp-validation-for="SelectedDiametersMm" class="text-danger small"></span>
+            </div>
+
+            <div class="alert alert-info small">
+                <i class="bi bi-info-circle-fill me-1"></i>
+                Variants are generated with scaled input values only — no calculation or drawings are run automatically. Open each variant in the wizard afterward to calculate it.
+            </div>
+
+            <div class="d-flex justify-content-between mt-3">
+                <a asp-controller="Projects" asp-action="Index" class="btn btn-outline-secondary">Cancel</a>
+                <button type="submit" class="btn btn-primary px-4">
+                    <i class="bi bi-magic me-1"></i>Generate Series
+                </button>
+            </div>
+        </div>
+    </div>
+</form>

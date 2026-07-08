@@ -1,0 +1,34 @@
+@model AxialFanMVC.ViewModels.DesignWizardViewModel
+
+<h2 class="dw-panel-title mb-3 fw-bold" style="color:var(--v2-accent)">Output &amp; Save</h2>
+<div class="alert alert-info small">
+    <i class="bi bi-info-circle-fill me-1"></i>
+    Review your entries below, then click <strong>Calculate &amp; Save</strong>. DXF drawings and the
+    performance report are generated automatically as part of saving.
+</div>
+<div class="row g-3">
+    <div class="col-md-6">
+        <label class="form-label">Flow Rate</label>
+        <input type="text" class="form-control" value="@Model.FlowRateM3s m³/s" readonly />
+    </div>
+    <div class="col-md-6">
+        <label class="form-label">Static / Total Pressure</label>
+        <input type="text" class="form-control" value="@Model.StaticPressurePa Pa / @Model.TotalPressurePa Pa" readonly />
+    </div>
+    <div class="col-md-6">
+        <label class="form-label">Fan Speed</label>
+        <input type="text" class="form-control" value="@Model.SpeedRpm RPM" readonly />
+    </div>
+    <div class="col-md-6">
+        <label class="form-label">Tip Diameter / Blade Count</label>
+        <input type="text" class="form-control" value="@Model.TipDiameterMm mm / @Model.BladeCount blades" readonly />
+    </div>
+    <div class="col-md-6">
+        <label class="form-label">Motor</label>
+        <input type="text" class="form-control" value="@Model.MotorPowerKw kW, @Model.MotorPoles" readonly />
+    </div>
+    <div class="col-md-6">
+        <label class="form-label">Client / Application</label>
+        <input type="text" class="form-control" value="@Model.Client — @Model.Application" readonly />
+    </div>
+</div>

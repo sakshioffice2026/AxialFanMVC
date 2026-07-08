@@ -1,0 +1,52 @@
+﻿@{
+    ViewData["Title"] = "Reports Preview";
+    Layout = "_LayoutV2";
+}
+
+<h2 class="mb-1"><i class="bi bi-bar-chart me-2"></i>Reports</h2>
+<p class="text-muted mb-4">Dummy preview — not a real feature yet.</p>
+
+<div class="row g-3">
+    <div class="col-md-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white fw-semibold">Designs Created per Month</div>
+            <div class="card-body">
+                <canvas id="reportChart" height="180"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white fw-semibold">Export Summary</div>
+            <div class="card-body">
+                <ul class="list-unstyled mb-0">
+                    <li class="d-flex justify-content-between align-items-center py-1">
+                        <span>DXF Exports</span><strong>128</strong>
+                    </li>
+                    <li class="d-flex justify-content-between align-items-center py-1">
+                        <span>PDF Reports</span><strong>34</strong>
+                    </li>
+                    <li class="d-flex justify-content-between align-items-center py-1">
+                        <span>Print Views</span><strong>52</strong>
+                    </li>
+                </ul>
+                <button type="button" class="btn btn-sm btn-outline-primary mt-2" disabled title="Preview only">
+                    <i class="bi bi-graph-up me-1"></i>Download Charts
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        new Chart(document.getElementById('reportChart'), {
+            type: 'bar',
+            data: {
+                labels: ['Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul'],
+                datasets: [{ label: 'Designs', data: [4, 7, 5, 9, 12, 8], backgroundColor: '#3E7C8C' }]
+            },
+            options: { plugins: { legend: { display: false } } }
+        });
+    </script>
+}
