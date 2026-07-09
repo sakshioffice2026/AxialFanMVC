@@ -29,7 +29,8 @@ public class PerformanceCurve
 
     // ── NEW: Feature 2 — origin tracking ──────────────────────
     [Column("origin_type")]
-    public string Origin { get; set; } = "System";   // Manual | System
+    [DatabaseGenerated(DatabaseGeneratedOption.Computed)]
+    public string? OriginType { get; set; }
 
     [Column("created_by_user_id")]
     public int? CreatedByUserId { get; set; }
