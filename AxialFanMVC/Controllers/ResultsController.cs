@@ -53,7 +53,20 @@ namespace AxialFanMVC.Controllers
                 .OrderByDescending(c => c.GeneratedAt)
                 .ToList();
 
-            var curveJson = BuildCurveJson(baselineCurve, correctedCurve, manualCurves);
+           
+                        var curveJson = JsonSerializer.Serialize(
+                result.PerformanceCurves.Select(c => new
+                {
+                    id = c.Id,
+                    source = c.Source ?? "Unlabeled",
+                    angle = c.BladeAngleDeg,
+                    rpm = c.SpeedRpm,
+                    q = c.QValues.Split(',').Select(double.Parse),
+                    dp = c.DpValues.Split(',').Select(double.Parse),
+                    eta = c.EtaValues.Split(',').Select(double.Parse),
+                    kw = c.KwValues.Split(',').Select(double.Parse)
+                })
+            );
 
             var di = result.DesignInput;
 

@@ -166,9 +166,7 @@ namespace AxialFanMVC.Database
 
             mb.Entity<PerformanceCurve>(e =>
             {
-                e.Property(p => p.Origin)
-                    .HasColumnName("origin_type")
-                    .HasDefaultValue("System");
+               
 
                 e.Property(p => p.ValidationStatus)
                     .HasDefaultValue("not_applicable");

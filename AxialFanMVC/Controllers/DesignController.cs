@@ -283,12 +283,13 @@ namespace AxialFanMVC.Controllers
 
                     var curveData = AeroCalcEngine.GenerateCurves(input, aero, profileData, input.BladeAngleDeg, input.SpeedRpm);
 
-                   
+
                     _db.performance_curves.Add(new PerformanceCurve
                     {
                         DesignResultId = result.Id,
                         BladeAngleDeg = curveData.BladeAngleDeg,
                         SpeedRpm = curveData.SpeedRpm,
+                        Source = "Baseline",   // ← add this
                         QValues = string.Join(",", curveData.QValues),
                         DpValues = string.Join(",", curveData.DpValues),
                         EtaValues = string.Join(",", curveData.EtaValues),
