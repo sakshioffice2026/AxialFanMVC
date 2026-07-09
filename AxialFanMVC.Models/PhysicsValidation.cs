@@ -4,6 +4,7 @@
     {
         public PerformanceCurveData? ComparisonCurveAtDifferentRpm { get; set; }
         public string CurveSource { get; set; } = "";
+        public bool MlModelAvailable { get; set; }
     }
 
     public class PhysicsValidationResult

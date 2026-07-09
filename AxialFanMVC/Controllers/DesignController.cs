@@ -17,11 +17,12 @@ namespace AxialFanMVC.Controllers
         private readonly IWebHostEnvironment _env;
         private readonly ICurveGeneration _curveService;
         private readonly ICalibrationCaseRepository _calibrationRepo;
-        public DesignController(AxialFanDbContext db, IWebHostEnvironment env, ICurveGeneration curveService)
+        public DesignController(AxialFanDbContext db, IWebHostEnvironment env, ICurveGeneration curveService,ICalibrationCaseRepository calibrationRepo)
         {
             _db = db;
             _env = env;
             _curveService = curveService;
+            _calibrationRepo = calibrationRepo;
         }
 
         private int CurrentUserId =>
