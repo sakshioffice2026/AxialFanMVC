@@ -278,25 +278,15 @@ namespace AxialFanMVC.Controllers
                     _db.design_results.Add(result);
                     await _db.SaveChangesAsync();
 
-                    var bladeProfile = input.BladeProfileId.HasValue
-                    ? await _db.blade_profiles.FindAsync(input.BladeProfileId.Value)
-                    : null;
-                    var profileData = BladeProfileEngine.ResolveProfileData(bladeProfile, aero.ChordLengthMm);
 
-                    var curveData = AeroCalcEngine.GenerateCurves(input, aero, profileData, input.BladeAngleDeg, input.SpeedRpm);
+                    // Generates Baseline + PINN curves, runs both through physics
+                    // validation, and saves both — same path used by "Regenerate
+                    // Curves" on the results page, so the very first curve a user
+                    // sees gets a real ValidationStatus instead of the "not_applicable"
+                    // default a raw insert would leave behind.
+                    await _curveService.GenerateAndSaveAsync(
+                        result.Id, CurrentUserId, input.BladeAngleDeg, input.SpeedRpm);
 
-                   
-                    _db.performance_curves.Add(new PerformanceCurve
-                    {
-                        DesignResultId = result.Id,
-                        BladeAngleDeg = curveData.BladeAngleDeg,
-                        SpeedRpm = curveData.SpeedRpm,
-                        QValues = string.Join(",", curveData.QValues),
-                        DpValues = string.Join(",", curveData.DpValues),
-                        EtaValues = string.Join(",", curveData.EtaValues),
-                        KwValues = string.Join(",", curveData.KwValues)
-                    });
-                    await _db.SaveChangesAsync();
 
                     // ── Generate all 7 DXF drawings automatically ─────────
                     // Note: file writes here are not covered by the DB transaction
