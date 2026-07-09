@@ -98,11 +98,28 @@ namespace AxialFanMVC.Controllers
         // Turns every stored calibration point into one training row for the
         // PINN correction model. Each row's "residual" columns are what
         // CurveCorrectionService.Predict is actually supposed to learn:
-        //     residual = actual measured value − AeroCalcEngine's pure baseline
-        // at that same (blade angle, RPM, Q) — computed with the SAME
-        // AeroCalcEngine.EvaluateBaselinePoint used live in the app, so the
-        // exported targets can never drift from what the model will be
-        // correcting at inference time.
+        //     residual = actual measured value − the live app's baseline
+        // at that same (geometry, RPM, Q) — computed with the SAME
+        // BladeElementEngine.EvaluateBaselinePoint the live app uses (via
+        // AeroCalcEngine.GenerateCurves), so the exported targets can never
+        // drift from what the model will be correcting at inference time.
+        //
+        // NOTE — baseline changed from a tuned formula to real Blade
+        // Element Theory: any training CSV exported before this change (or
+        // any ONNX model trained against it) used a different baseline and
+        // must be re-exported/retrained — its residual targets no longer
+        // match what CurveCorrectionService is actually correcting against.
+        //
+        // NOTE — no blade profile object: CalibrationCase stores a profile
+        // *designation* (string) and camber/thickness %, not a full
+        // BladeProfileData/AeroParams object, so this calls
+        // EvaluateBaselinePoint with profile=null, which falls back to
+        // BladeElementEngine's generic flat-plate-like polar rather than
+        // the case's actual profile's real Cl/Cd curve. This understates
+        // how good/bad the case's actual profile is vs. a flat plate —
+        // acceptable for now, but a real fix would resolve
+        // BladeProfileDesignation back to a BladeProfileData the same way
+        // BladeProfileEngine does for live designs.
         //
         // NOTE on Φ/Ψ/specific speed: the live app computes these once per
         // design (at the design's duty-point flow) and holds them fixed while
@@ -130,8 +147,9 @@ namespace AxialFanMVC.Controllers
             {
                 foreach (var p in c.Points)
                 {
-                    var (baselineDp, baselineEta) = AeroCalcEngine.EvaluateBaselinePoint(
-                        c.BladeAngleDeg, c.SpeedRpm, p.FlowRateM3s);
+                    var (baselineDp, baselineEta, _, _) = BladeElementEngine.EvaluateBaselinePoint(
+                        p.FlowRateM3s, c.TipDiameterMm, c.HubRatio, c.ChordLengthMm,
+                        c.BladeCount, c.BladeAngleDeg, c.SpeedRpm, c.DensityKgM3);
 
                     double specificSpeed = 0;
                     if (c.DensityKgM3 > 0 && p.PressureRisePa > 0 && p.FlowRateM3s > 0)
