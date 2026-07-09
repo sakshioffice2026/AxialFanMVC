@@ -4,11 +4,24 @@ namespace AxialFanMVC.Repositories.Inteface
 {
     public interface ICalibrationCaseRepository
     {
-        // Dataset is expected to stay small (manually curated calibration
-        // library, not per-design data) — fetching all with points and
-        // matching in memory is fine here. If this grows into the
-        // thousands, revisit with DB-side pre-filtering by SpecificSpeed
-        // range before pulling full records.
+        /// <summary>
+        /// All calibration cases with their points loaded — the training/
+        /// validation set for BladeElementEngine accuracy checks and the
+        /// PINN correction model's data-fit loss term.
+        /// </summary>
         Task<List<CalibrationCase>> GetAllWithPointsAsync();
+
+        /// <summary>
+        /// Cases whose captured geometry is "close enough" to the given
+        /// design to be a fair comparison — same blade count, and hub
+        /// ratio / tip diameter within the given tolerances. Used to find
+        /// relevant calibration cases for a specific design rather than
+        /// pulling the entire table every time.
+        /// </summary>
+        Task<List<CalibrationCase>> GetSimilarAsync(
+            double tipDiameterMm, double hubRatio, int bladeCount,
+            double tipDiameterTolerancePct = 15.0, double hubRatioTolerance = 0.05);
+
+        Task<CalibrationCase?> GetByIdWithPointsAsync(int id);
     }
 }

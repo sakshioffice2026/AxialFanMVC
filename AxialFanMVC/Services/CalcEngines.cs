@@ -111,8 +111,41 @@ namespace AxialFanMVC.Services
             return solidity * 2 * Math.PI * meanRadius / bladeCount * 1000;
         }
 
-        public static AeroCalcResult Calculate(
-     DesignInput d, BladeProfileData? profile = null, List<CalibrationCase>? calibrationCandidates = null)
+        // Overload used by DesignController once a blade profile and the
+        // calibration-case candidate set are available. Deliberately does
+        // NOT change any of Calculate(DesignInput)'s core math yet — profile
+        // aero data already feeds BladeElementEngine/PinnFeatureEngine
+        // separately, so re-deriving anything from it here would duplicate
+        // logic. What this overload adds is a calibration cross-check
+        // disclosure: whether real data exists for a geometry this close,
+        // so the user knows whether "PINN Corrected" is backed by anything
+        // real or is currently BEM-only with no ground truth to compare to.
+        // (Same wire-first-behavior-later pattern as MlModelAvailable.)
+        public static AeroCalcResult Calculate(DesignInput d, BladeProfileData? profile, List<CalibrationCase> calibrationCandidates)
+        {
+            var result = Calculate(d);
+
+            const double diameterTolerancePct = 15.0;
+            const double hubRatioTolerance = 0.05;
+
+            var similar = calibrationCandidates.Where(c =>
+                c.BladeCount == d.BladeCount &&
+                Math.Abs(c.TipDiameterMm - d.TipDiameterMm) / d.TipDiameterMm <= diameterTolerancePct / 100.0 &&
+                Math.Abs(c.HubRatio - d.HubRatio) <= hubRatioTolerance
+            ).ToList();
+
+            result.Warnings.Add(similar.Count > 0
+                ? $"Info: {similar.Count} calibration case(s) with similar geometry (blade count {d.BladeCount}, " +
+                  $"tip diameter within {diameterTolerancePct:F0}%, hub ratio within {hubRatioTolerance:F2}) exist " +
+                  "in the database — available to cross-check this design's curve once calibration-based " +
+                  "validation is wired into PhysicsValidationEngine."
+                : "Info: no calibration cases with similar geometry exist yet — this design's performance curve " +
+                  "is currently blade-element-theory-only, with no real/manufacturer data to cross-check it against.");
+
+            return result;
+        }
+
+        public static AeroCalcResult Calculate(DesignInput d)
         {
             var r = new AeroCalcResult();
 
@@ -213,40 +246,15 @@ namespace AxialFanMVC.Services
             r.ChordLengthMm = ComputeMeanChordMm(d.TipDiameterMm, d.HubRatio, d.BladeCount);
 
             // 8. Shaft power and efficiency
-          
             double hydraulicPower = d.FlowRateM3s * d.TotalPressurePa;
-
-            // Speed of sound at this design's temperature — needed for the tip Mach
-            // term in the calibration-matching distance metric. (Standard linear
-            // approximation; good to a few tenths of a percent in this temp range.)
-            double speedOfSound = 331.3 + 0.606 * d.TemperatureCelsius;
-            double tipMach = r.TipSpeedMs / speedOfSound;
-
-            var effResult = EfficiencyEstimator.Estimate(d, r, tipMach, calibrationCandidates ?? new());
-            r.OverallEfficiencyPct = Math.Round(effResult.EfficiencyPct, 2);
+            r.OverallEfficiencyPct = d.TargetEfficiencyPct;
             r.ShaftPowerKw = hydraulicPower / (r.OverallEfficiencyPct / 100.0) / 1000.0;
 
-            // Keep the user's TargetEfficiencyPct as a sanity check now that we
-            // have a real estimate to check it against, instead of just accepting
-            // it — a large gap here usually means either the target is unrealistic
-            // or the calculated design isn't hitting its intended operating point.
-            double targetGap = Math.Abs(d.TargetEfficiencyPct - r.OverallEfficiencyPct);
-            if (targetGap > 10.0)
-                r.Warnings.Add($"Target efficiency ({d.TargetEfficiencyPct:F1}%) differs from the " +
-                    $"{effResult.Method}-based estimate ({r.OverallEfficiencyPct:F1}%) by {targetGap:F1} points " +
-                    $"— {string.Join(" ", effResult.Notes)}");
-            else
-                r.Warnings.Add($"Info: efficiency estimated via {effResult.Method}" +
-                    (effResult.MatchedCaseDescription != null ? $" ({effResult.MatchedCaseDescription})" : "") + ".");
-
             // 9. Tip clearance
-            const double targetClearanceFraction = 0.005;  // 0.5% of tip diameter
-            const double minClearanceMm = 1.5;             // manufacturing floor
-
-            r.TipClearanceMm = Math.Max(minClearanceMm, d.TipDiameterMm * targetClearanceFraction);
-
+            r.TipClearanceMm = 3.0;
             if (r.TipClearanceMm / d.TipDiameterMm > 0.01)
-                r.Warnings.Add($"Tip clearance {r.TipClearanceMm:F2} mm exceeds 1% of tip diameter — efficiency loss expected.");
+                r.Warnings.Add("Tip clearance exceeds 1% of tip diameter — efficiency loss expected.");
+
             // 10. Stall check
             if (r.FlowCoefficient < 0.15)
                 r.Warnings.Add("Flow coefficient < 0.15 — risk of blade stall. Increase flow rate or reduce RPM.");
@@ -366,6 +374,9 @@ namespace AxialFanMVC.Services
         public static PerformanceCurveData GenerateCurves(DesignInput input, AeroCalcResult aero, BladeProfileData? profile, double bladeAngleDeg, int rpm)
         {
             var curve = new PerformanceCurveData { BladeAngleDeg = bladeAngleDeg, SpeedRpm = rpm };
+            double rScale = Math.Pow(rpm / 1450.0, 2);
+            double aFactor = (bladeAngleDeg - 22.0) / 22.0;
+            double peakQ = 5.0 + (bladeAngleDeg - 22.0) * 0.15;
 
             // NOTE: features/CurveCorrectionService intentionally NOT used here.
             // This method must stay a pure baseline — GenerateCorrectedCurves()
@@ -374,24 +385,11 @@ namespace AxialFanMVC.Services
             // GenerateCorrectedCurves() applied it again on top — a double
             // correction. Fixed here.)
 
-            // The curve used to always stop at Q=10 m3/s regardless of the
-            // design's own flow rate. Designs above 10 m3/s (e.g. 20 m3/s)
-            // never had their actual operating point represented on the
-            // curve — ResultsController.BuildComparison would silently fall
-            // back to the last point (Q=10), which usually isn't the real
-            // duty point and can even land on a Baseline value of exactly
-            // 0 Pa, producing a nonsensical "∞%" difference on the Result
-            // page. Extend the sampled range to always cover the design's
-            // flow rate (with 20% headroom past it), while keeping the same
-            // 21-point resolution the rest of the app (charts, DB storage)
-            // already assumes.
-            double qMax = Math.Max(10.0, input.FlowRateM3s * 1.2);
-            double step = qMax / 20.0;
-
-            for (int i = 0; i <= 20; i++)
+            for (double q = 0; q <= 10.0; q += 0.5)
             {
-                double q = i * step;
-                var (dp, eta) = EvaluateBaselinePoint(bladeAngleDeg, rpm, q);
+                double dp = Math.Max(0, ((580 + aFactor * 160) - q * q * 5.8 * (1 - aFactor * 0.3)) * rScale);
+                double d2 = q - peakQ;
+                double eta = Math.Max(0, Math.Min(92, 82.0 * Math.Exp(-0.07 * d2 * d2) + (bladeAngleDeg - 22.0) * 0.25));
                 double kw = eta > 1 ? (q * dp) / (eta / 100.0 * 1000.0) : 0;
 
                 curve.QValues.Add(Math.Round(q, 2));
@@ -400,25 +398,6 @@ namespace AxialFanMVC.Services
                 curve.KwValues.Add(Math.Round(kw, 3));
             }
             return curve;
-        }
-
-        // Pure baseline formula for a single (bladeAngleDeg, rpm, q) point —
-        // extracted out of GenerateCurves so it has exactly one implementation.
-        // Used by GenerateCurves itself, and by CalibrationCasesController's
-        // training-data export, so the "what the PINN model is correcting
-        // against" baseline can never silently drift between the live app
-        // and the offline training pipeline.
-        public static (double DpPa, double EtaPct) EvaluateBaselinePoint(double bladeAngleDeg, int rpm, double q)
-        {
-            double rScale = Math.Pow(rpm / 1450.0, 2);
-            double aFactor = (bladeAngleDeg - 22.0) / 22.0;
-            double peakQ = 5.0 + (bladeAngleDeg - 22.0) * 0.15;
-
-            double dp = Math.Max(0, ((580 + aFactor * 160) - q * q * 5.8 * (1 - aFactor * 0.3)) * rScale);
-            double d2 = q - peakQ;
-            double eta = Math.Max(0, Math.Min(92, 82.0 * Math.Exp(-0.07 * d2 * d2) + (bladeAngleDeg - 22.0) * 0.25));
-
-            return (dp, eta);
         }
     }
 
