@@ -152,30 +152,6 @@
                         <tr><td class="text-muted ps-3">Tip Diameter</td><td class="fw-semibold">@Model.TipDiameterMm.ToString("F0") mm</td></tr>
                         <tr><td class="text-muted ps-3">Blade Angle</td><td class="fw-semibold">@Model.BladeAngleDeg.ToString("F1") °</td></tr>
                         <tr><td class="text-muted ps-3">Blade Profile</td><td class="fw-semibold">@(Model.BladeProfileName ?? "—")</td></tr>
-                        <tr>
-                            <td>Overall Noise</td>
-                            <td>@(Model.OverallNoiseDbA?.ToString("F1") ?? "—") dB(A)</td>
-                        </tr>
-
-                        <tr>
-                            <td>Sound Power</td>
-                            <td>@(Model.SoundPowerLevelDb?.ToString("F1") ?? "—") dB</td>
-                        </tr>
-
-                        <tr>
-                            <td>Blade Passing Frequency</td>
-                            <td>@(Model.BladePassingFrequencyHz?.ToString("F1") ?? "—") Hz</td>
-                        </tr>
-
-                        <tr>
-                            <td>Tip Mach Number</td>
-                            <td>@(Model.TipMachNumber?.ToString("F3") ?? "—")</td>
-                        </tr>
-
-                        <tr>
-                            <td>Noise Rating</td>
-                            <td>@Model.NoiseRating (@(Model.NoiseRatingValue?.ToString("F1") ?? "—"))</td>
-                        </tr>
                     </tbody>
                 </table>
             </div>
@@ -250,11 +226,54 @@
         </div>
     </div>
 
-   
+    <div class="col-lg-3">
+        <div class="card shadow-sm">
+            <div class="card-header bg-secondary text-white fw-semibold">
+                <i class="bi bi-volume-up me-1"></i>Acoustic Results
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                    <tbody>
+                        <tr>
+                            <td class="text-muted ps-3">Overall Noise</td>
+                            <td class="fw-semibold">@(Model.OverallNoiseDbA?.ToString("F1") ?? "—") dB(A)</td>
+                        </tr>
+                        <tr>
+                            <td class="text-muted ps-3">Sound Power</td>
+                            <td class="fw-semibold">@(Model.SoundPowerLevelDb?.ToString("F1") ?? "—") dB</td>
+                        </tr>
+                        <tr>
+                            <td class="text-muted ps-3">Blade Passing Frequency</td>
+                            <td class="fw-semibold">@(Model.BladePassingFrequencyHz?.ToString("F1") ?? "—") Hz</td>
+                        </tr>
+                        <tr>
+                            <td class="text-muted ps-3">Tip Mach Number</td>
+                            <td class="fw-semibold">@(Model.TipMachNumber?.ToString("F3") ?? "—")</td>
+                        </tr>
+                        <tr>
+                            <td class="text-muted ps-3">Noise Rating</td>
+                            <td class="fw-semibold">@Model.NoiseRating (@(Model.NoiseRatingValue?.ToString("F1") ?? "—"))</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+
     @if (Model.BaselineComparison != null && Model.PinnComparison != null)
     {
         var pressureDiff = Model.PinnComparison.PressurePa - Model.BaselineComparison.PressurePa;
-        var pressurePct = pressureDiff / Model.BaselineComparison.PressurePa * 100.0;
+        // Baseline pressure can legitimately be 0 Pa — e.g. the design's
+        // flow rate is beyond what this geometry can deliver at all, so the
+        // curve is already flatlined at zero there. Dividing by that zero
+        // used to render as "∞%", which reads as a bug rather than the
+        // (correct) fact that there's no baseline value to express a
+        // percentage change against.
+        var pressurePctValid = Math.Abs(Model.BaselineComparison.PressurePa) > 0.01;
+        var pressurePct = pressurePctValid
+        ? pressureDiff / Model.BaselineComparison.PressurePa * 100.0
+        : 0.0;
 
         var effDiff = Model.PinnComparison.EfficiencyPct - Model.BaselineComparison.EfficiencyPct;
         var powerDiff = Model.PinnComparison.PowerKw - Model.BaselineComparison.PowerKw;
@@ -304,7 +323,7 @@
                                     @pressureDiff.ToString("F1") Pa
                                     <br />
                                     <small class="text-muted">
-                                        (@pressurePct.ToString("F2")%)
+                                        @(pressurePctValid ? $"({pressurePct:F2}%)" : "(baseline is 0 Pa — likely beyond this design's capability at the requested flow)")
                                     </small>
                                 </td>
                             </tr>

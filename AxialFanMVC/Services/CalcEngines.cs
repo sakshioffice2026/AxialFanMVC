@@ -208,7 +208,7 @@ namespace AxialFanMVC.Services
             r.PressureCoefficient = d.TotalPressurePa / (d.DensityKgM3 * Math.Pow(r.TipSpeedMs, 2));
 
             // 7. Mean radius chord
-  
+
             r.ChordLengthMm = ComputeMeanChordMm(d.TipDiameterMm, d.HubRatio, d.BladeCount);
 
             // 8. Shaft power and efficiency
@@ -317,7 +317,7 @@ namespace AxialFanMVC.Services
         public static PerformanceCurveData GenerateCorrectedCurves(
             DesignInput input, AeroCalcResult aero, BladeProfileData? profile, double bladeAngleDeg, int rpm)
         {
-            var baseline = GenerateCurves(input,aero,profile, bladeAngleDeg, rpm);
+            var baseline = GenerateCurves(input, aero, profile, bladeAngleDeg, rpm);
             var corrected = new PerformanceCurveData { BladeAngleDeg = bladeAngleDeg, SpeedRpm = rpm };
             var features = PinnFeatureEngine.Compute(input, aero, profile);
 
@@ -340,9 +340,6 @@ namespace AxialFanMVC.Services
         public static PerformanceCurveData GenerateCurves(DesignInput input, AeroCalcResult aero, BladeProfileData? profile, double bladeAngleDeg, int rpm)
         {
             var curve = new PerformanceCurveData { BladeAngleDeg = bladeAngleDeg, SpeedRpm = rpm };
-            double rScale = Math.Pow(rpm / 1450.0, 2);
-            double aFactor = (bladeAngleDeg - 22.0) / 22.0;
-            double peakQ = 5.0 + (bladeAngleDeg - 22.0) * 0.15;
 
             // NOTE: features/CurveCorrectionService intentionally NOT used here.
             // This method must stay a pure baseline — GenerateCorrectedCurves()
@@ -351,11 +348,24 @@ namespace AxialFanMVC.Services
             // GenerateCorrectedCurves() applied it again on top — a double
             // correction. Fixed here.)
 
-            for (double q = 0; q <= 10.0; q += 0.5)
+            // The curve used to always stop at Q=10 m3/s regardless of the
+            // design's own flow rate. Designs above 10 m3/s (e.g. 20 m3/s)
+            // never had their actual operating point represented on the
+            // curve — ResultsController.BuildComparison would silently fall
+            // back to the last point (Q=10), which usually isn't the real
+            // duty point and can even land on a Baseline value of exactly
+            // 0 Pa, producing a nonsensical "∞%" difference on the Result
+            // page. Extend the sampled range to always cover the design's
+            // flow rate (with 20% headroom past it), while keeping the same
+            // 21-point resolution the rest of the app (charts, DB storage)
+            // already assumes.
+            double qMax = Math.Max(10.0, input.FlowRateM3s * 1.2);
+            double step = qMax / 20.0;
+
+            for (int i = 0; i <= 20; i++)
             {
-                double dp = Math.Max(0, ((580 + aFactor * 160) - q * q * 5.8 * (1 - aFactor * 0.3)) * rScale);
-                double d2 = q - peakQ;
-                double eta = Math.Max(0, Math.Min(92, 82.0 * Math.Exp(-0.07 * d2 * d2) + (bladeAngleDeg - 22.0) * 0.25));
+                double q = i * step;
+                var (dp, eta) = EvaluateBaselinePoint(bladeAngleDeg, rpm, q);
                 double kw = eta > 1 ? (q * dp) / (eta / 100.0 * 1000.0) : 0;
 
                 curve.QValues.Add(Math.Round(q, 2));
@@ -364,6 +374,25 @@ namespace AxialFanMVC.Services
                 curve.KwValues.Add(Math.Round(kw, 3));
             }
             return curve;
+        }
+
+        // Pure baseline formula for a single (bladeAngleDeg, rpm, q) point —
+        // extracted out of GenerateCurves so it has exactly one implementation.
+        // Used by GenerateCurves itself, and by CalibrationCasesController's
+        // training-data export, so the "what the PINN model is correcting
+        // against" baseline can never silently drift between the live app
+        // and the offline training pipeline.
+        public static (double DpPa, double EtaPct) EvaluateBaselinePoint(double bladeAngleDeg, int rpm, double q)
+        {
+            double rScale = Math.Pow(rpm / 1450.0, 2);
+            double aFactor = (bladeAngleDeg - 22.0) / 22.0;
+            double peakQ = 5.0 + (bladeAngleDeg - 22.0) * 0.15;
+
+            double dp = Math.Max(0, ((580 + aFactor * 160) - q * q * 5.8 * (1 - aFactor * 0.3)) * rScale);
+            double d2 = q - peakQ;
+            double eta = Math.Max(0, Math.Min(92, 82.0 * Math.Exp(-0.07 * d2 * d2) + (bladeAngleDeg - 22.0) * 0.25));
+
+            return (dp, eta);
         }
     }
 

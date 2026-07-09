@@ -92,5 +92,83 @@ namespace AxialFanMVC.Controllers
             TempData["Success"] = $"Calibration case saved with {entity.Points.Count} points.";
             return RedirectToAction(nameof(Index));
         }
+
+        // GET /CalibrationCases/ExportTrainingCsv
+        //
+        // Turns every stored calibration point into one training row for the
+        // PINN correction model. Each row's "residual" columns are what
+        // CurveCorrectionService.Predict is actually supposed to learn:
+        //     residual = actual measured value − AeroCalcEngine's pure baseline
+        // at that same (blade angle, RPM, Q) — computed with the SAME
+        // AeroCalcEngine.EvaluateBaselinePoint used live in the app, so the
+        // exported targets can never drift from what the model will be
+        // correcting at inference time.
+        //
+        // NOTE on Φ/Ψ/specific speed: the live app computes these once per
+        // design (at the design's duty-point flow) and holds them fixed while
+        // sweeping Q. A calibration case has no single "duty point" — it's a
+        // full measured curve — so this export instead computes Φ/Ψ/specific
+        // speed PER POINT, from that point's own flow rate. That is the more
+        // physically correct pairing (local flow condition vs. local Q), but
+        // it's a genuine mismatch against how CurveCorrectionService.Predict
+        // is called live (fixed features + swept q). If you retrain against
+        // this export, consider also changing CurveCorrectionService to
+        // recompute Φ/Ψ per q rather than once per design — see chat.
+        public async Task<IActionResult> ExportTrainingCsv()
+        {
+            var cases = await _db.calibration_cases
+                .Include(c => c.Points)
+                .AsNoTracking()
+                .ToListAsync();
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("case_id,source_type,flow_coefficient,pressure_coefficient,specific_speed," +
+                          "tip_mach_number,solidity,reynolds_number,max_camber_pct,max_thickness_pct,q_m3s," +
+                          "baseline_dp_pa,baseline_eta_pct,actual_dp_pa,actual_eta_pct,dp_residual,eta_residual");
+
+            foreach (var c in cases)
+            {
+                foreach (var p in c.Points)
+                {
+                    var (baselineDp, baselineEta) = AeroCalcEngine.EvaluateBaselinePoint(
+                        c.BladeAngleDeg, c.SpeedRpm, p.FlowRateM3s);
+
+                    double specificSpeed = 0;
+                    if (c.DensityKgM3 > 0 && p.PressureRisePa > 0 && p.FlowRateM3s > 0)
+                    {
+                        double omega = 2 * Math.PI * c.SpeedRpm / 60.0;
+                        specificSpeed = omega * Math.Pow(p.FlowRateM3s, 0.5)
+                            * Math.Pow(p.PressureRisePa / c.DensityKgM3, -0.75);
+                    }
+
+                    double dpResidual = p.PressureRisePa - baselineDp;
+                    double etaResidual = p.EfficiencyPct - baselineEta;
+
+                    sb.AppendLine(string.Join(",", new[]
+                    {
+                        c.Id.ToString(),
+                        c.SourceType,
+                        p.FlowCoefficient.ToString("G6"),
+                        p.PressureCoefficient.ToString("G6"),
+                        specificSpeed.ToString("G6"),
+                        c.TipMachNumber.ToString("G6"),
+                        c.Solidity.ToString("G6"),
+                        c.ReynoldsNumber.ToString("G6"),
+                        (c.MaxCamberPct ?? 0).ToString("G6"),
+                        (c.MaxThicknessPct ?? 0).ToString("G6"),
+                        p.FlowRateM3s.ToString("G6"),
+                        baselineDp.ToString("G6"),
+                        baselineEta.ToString("G6"),
+                        p.PressureRisePa.ToString("G6"),
+                        p.EfficiencyPct.ToString("G6"),
+                        dpResidual.ToString("G6"),
+                        etaResidual.ToString("G6"),
+                    }));
+                }
+            }
+
+            var bytes = System.Text.Encoding.UTF8.GetBytes(sb.ToString());
+            return File(bytes, "text/csv", "pinn_training_data.csv");
+        }
     }
 }
