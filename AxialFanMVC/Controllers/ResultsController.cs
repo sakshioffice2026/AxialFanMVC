@@ -53,9 +53,7 @@ namespace AxialFanMVC.Controllers
                 .OrderByDescending(c => c.GeneratedAt)
                 .ToList();
 
-
             var curveJson = BuildCurveJson(baselineCurve, correctedCurve, manualCurves);
-            
 
             var di = result.DesignInput;
 
