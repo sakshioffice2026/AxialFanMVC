@@ -163,6 +163,24 @@ namespace AxialFanMVC.Database
                  .HasForeignKey(p => p.CalibrationCaseId)
                  .OnDelete(DeleteBehavior.Cascade);
             });
+
+            mb.Entity<PerformanceCurve>(e =>
+            {
+                e.Property(p => p.Origin)
+                    .HasColumnName("origin_type")
+                    .HasDefaultValue("System");
+
+                e.Property(p => p.ValidationStatus)
+                    .HasDefaultValue("not_applicable");
+
+                e.Property(p => p.ValidationFlagsJson)
+                    .HasColumnType("mediumtext");
+
+                e.HasOne(p => p.CreatedByUser)
+                    .WithMany()
+                    .HasForeignKey(p => p.CreatedByUserId)
+                    .OnDelete(DeleteBehavior.SetNull);
+            });
         }
     }
 }

@@ -1,7 +1,6 @@
 using AxialFanMVC.Database;
 using AxialFanMVC.Repositories;
 using AxialFanMVC.Repositories.Inteface;
-
 using AxialFanMVC.Services;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.EntityFrameworkCore;
@@ -15,6 +14,10 @@ var connStr = builder.Configuration.GetConnectionString("DefaultConnection")
 
 builder.Services.AddDbContext<AxialFanDbContext>(options =>
     options.UseMySql(connStr, ServerVersion.AutoDetect(connStr)));
+
+builder.Services.AddScoped<IDesignResultRepository, DesignResultRepository>();
+builder.Services.AddScoped<IPhysicsValidationEngine, PhysicsValidationEngine>();
+builder.Services.AddScoped<ICurveGeneration, CurveGeneration>();
 
 builder.Services.AddScoped<IHandbookChunkRepository, HandbookChunkRepository>();
 
@@ -42,9 +45,10 @@ builder.Services.AddAuthorization();
 // THIS LINE IS REQUIRED — registers ExportService
 builder.Services.AddScoped<ExportService>();
 
-var app = builder.Build();
-CurveCorrectionService.Initialize(
-    Path.Combine(builder.Environment.ContentRootPath, "MLModels", "efficiency_correction.onnx"));
+var app = builder.Build(); 
+
+CurveCorrectionService.Initialize(Path.Combine(builder.Environment.ContentRootPath, "MLModels", "efficiency_correction.onnx"),
+    app.Logger);
 
 if (!app.Environment.IsDevelopment())
 {

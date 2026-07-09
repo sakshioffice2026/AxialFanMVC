@@ -163,20 +163,5 @@ namespace AxialFanMVC.Services
     // Feature vector consumed by the correction model. Kept as a distinct,
     // explicit type (not a Dictionary<string,double>) so the exact input
     // contract to the model is visible and refactor-safe at compile time.
-    public class PinnFeatureVector
-    {
-        public double FlowCoefficient { get; set; }
-        public double PressureCoefficient { get; set; }
-        public double SpecificSpeed { get; set; }
-        public double TipMachNumber { get; set; }
-        public double Solidity { get; set; }
-        public double ReynoldsNumber { get; set; }
-        public double TipSpeedMs { get; set; }
-        public double ChordLengthMm { get; set; }
-        public double HubRatio { get; set; }
-        public int BladeCount { get; set; }
-        public double? MaxCamberPct { get; set; }
-        public double? MaxThicknessPct { get; set; }
-        public bool HasBladeProfile { get; set; }
-    }
+    
 }

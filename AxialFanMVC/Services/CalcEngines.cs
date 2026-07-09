@@ -1,5 +1,6 @@
 using AxialFanMVC.Database;
 using AxialFanMVC.Models;
+using AxialFanMVC.Repositories;
 
 namespace AxialFanMVC.Services
 {
@@ -338,25 +339,23 @@ namespace AxialFanMVC.Services
 
         public static PerformanceCurveData GenerateCurves(DesignInput input, AeroCalcResult aero, BladeProfileData? profile, double bladeAngleDeg, int rpm)
         {
-
-
-
             var curve = new PerformanceCurveData { BladeAngleDeg = bladeAngleDeg, SpeedRpm = rpm };
             double rScale = Math.Pow(rpm / 1450.0, 2);
             double aFactor = (bladeAngleDeg - 22.0) / 22.0;
             double peakQ = 5.0 + (bladeAngleDeg - 22.0) * 0.15;
 
-            var features = PinnFeatureEngine.Compute(input, aero, profile);
+            // NOTE: features/CurveCorrectionService intentionally NOT used here.
+            // This method must stay a pure baseline — GenerateCorrectedCurves()
+            // is the only place the ONNX correction is applied. (Previously this
+            // method applied CurveCorrectionService.Predict() itself AND
+            // GenerateCorrectedCurves() applied it again on top — a double
+            // correction. Fixed here.)
 
             for (double q = 0; q <= 10.0; q += 0.5)
             {
                 double dp = Math.Max(0, ((580 + aFactor * 160) - q * q * 5.8 * (1 - aFactor * 0.3)) * rScale);
                 double d2 = q - peakQ;
                 double eta = Math.Max(0, Math.Min(92, 82.0 * Math.Exp(-0.07 * d2 * d2) + (bladeAngleDeg - 22.0) * 0.25));
-
-                var (dpCorr, etaCorr) = CurveCorrectionService.Predict(features, q);
-                dp = Math.Max(0, dp + dpCorr);
-                eta = Math.Clamp(eta + etaCorr, 0, 100);
                 double kw = eta > 1 ? (q * dp) / (eta / 100.0 * 1000.0) : 0;
 
                 curve.QValues.Add(Math.Round(q, 2));
@@ -418,9 +417,8 @@ namespace AxialFanMVC.Services
         }
     }
 
-    // ─────────────────────────────────────────────
-    // Result transfer objects (no EF dependencies)
-    // ─────────────────────────────────────────────
+
+
     public class AeroCalcResult
     {
         public double HubDiameterMm { get; set; }
@@ -446,13 +444,5 @@ namespace AxialFanMVC.Services
         public List<string> Warnings { get; set; } = new();
     }
 
-    public class PerformanceCurveData
-    {
-        public double BladeAngleDeg { get; set; }
-        public int SpeedRpm { get; set; }
-        public List<double> QValues { get; set; } = new();
-        public List<double> DpValues { get; set; } = new();
-        public List<double> EtaValues { get; set; } = new();
-        public List<double> KwValues { get; set; } = new();
-    }
+
 }

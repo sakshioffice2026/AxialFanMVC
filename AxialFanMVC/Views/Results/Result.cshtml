@@ -137,7 +137,6 @@
 
 <div class="row g-4">
 
-
     <div class="col-lg-3">
         <div class="card shadow-sm">
             <div class="card-header bg-light fw-semibold">
@@ -195,9 +194,6 @@
                         <tr><td class="text-muted ps-3">Tip Speed</td><td class="fw-semibold">@Model.TipSpeedMs.ToString("F2") m/s</td></tr>
                         <tr><td class="text-muted ps-3">Hub Diameter</td><td class="fw-semibold">@Model.HubDiameterMm.ToString("F1") mm</td></tr>
                         <tr><td class="text-muted ps-3">Blade Span</td><td class="fw-semibold">@Model.BladeSpanMm.ToString("F1") mm</td></tr>
-                        @* <tr><td class="text-muted ps-3">Chord Length</td><td class="fw-semibold">@Model.ChordLengthMm.ToString("F1") mm</td></tr> *@
-                        @* <tr><td class="text-muted ps-3">Flow Coefficient Φ</td><td class="fw-semibold">@Model.FlowCoefficient.ToString("F4")</td></tr> *@
-                        @* <tr><td class="text-muted ps-3">Pressure Coefficient Ψ</td><td class="fw-semibold">@Model.PressureCoefficient.ToString("F4")</td></tr> *@
                         <tr class="table-success"><td class="ps-3 fw-semibold">Overall Efficiency</td><td class="fw-bold text-success">@Model.OverallEfficiencyPct.ToString("F1") %</td></tr>
                         <tr class="table-primary"><td class="ps-3 fw-semibold">Shaft Power</td><td class="fw-bold">@Model.ShaftPowerKw.ToString("F3") kW</td></tr>
                     </tbody>
@@ -254,54 +250,7 @@
         </div>
     </div>
 
-    <div class="col-lg-3">
-        <div class="card shadow-sm">
-            <div class="card-header bg-warning text-dark fw-semibold">
-                <i class="bi bi-shield-check me-1"></i>Structural Results
-            </div>
-            <div class="card-body p-0">
-                <table class="table table-sm mb-0">
-                    <tbody>
-                        <tr><td class="text-muted ps-3">Material</td><td class="fw-semibold">Al 6061-T6</td></tr>
-                        <tr><td class="text-muted ps-3">Yield Strength</td><td class="fw-semibold">270 MPa</td></tr>
-                        <tr><td class="text-muted ps-3">Tip Clearance</td><td class="fw-semibold">@Model.TipClearanceMm.ToString("F1") mm</td></tr>
-                        <tr><td class="text-muted ps-3">Blade Stress</td><td class="fw-semibold">@Model.BladeStressMpa.ToString("F2") MPa</td></tr>
-                        <tr>
-                            <td class="ps-3 fw-semibold">Safety Factor</td>
-                            @* <td>
-                                @{
-                                    var sfClass = Model.SafetyFactor >= 2.0 ? "text-success fw-bold" : "text-danger fw-bold";
-                                }
-                                <span class="@sfClass">@Model.SafetyFactor.ToString("F2")</span>
-                                @if (Model.SafetyFactor >= 2.0)
-                                {
-                                    <i class="bi bi-check-circle text-success ms-1"></i>
-                                }
-                                else
-                                {
-                                    <i class="bi bi-exclamation-triangle text-danger ms-1"></i>
-                                }
-                            </td> *@
-                        </tr>
-                    </tbody>
-                </table>
-                <div class="p-3">
-                    <div class="d-flex justify-content-between small text-muted mb-1">
-                        <span>Safety margin</span>
-                        <span>Min: 2.0</span>
-                    </div>
-                    @* @{
-                        var sfPct = Math.Min((Model.SafetyFactor / 4.0) * 100, 100);
-                        var sfBarClass = Model.SafetyFactor >= 2.0 ? "bg-success" : "bg-danger";
-                    } *@
-                    <div class="progress" style="height: 12px;">
-                        <div class="progress-bar @sfBarClass" style="width: @sfPct.ToString("F0")%"></div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
+   
     @if (Model.BaselineComparison != null && Model.PinnComparison != null)
     {
         var pressureDiff = Model.PinnComparison.PressurePa - Model.BaselineComparison.PressurePa;
@@ -604,6 +553,50 @@
                     </div>
                 </div>
 
+                @* {{!-- Manual Curve Entry (Feature 2) --}} *@
+                <div class="mt-3 mb-2">
+                    <button class="btn btn-outline-secondary btn-sm" type="button"
+                            data-bs-toggle="collapse" data-bs-target="#manualCurveForm">
+                        <i class="bi bi-pencil-square me-1"></i>Add Manual Curve
+                    </button>
+                    <div class="collapse mt-2" id="manualCurveForm">
+                        <div class="card card-body">
+                            <p class="small text-muted mb-2">
+                                Enter comma-separated values (all four fields must have the same count).
+                                This curve is <strong>not</strong> run through physics validation — it's
+                                stored and displayed exactly as entered, and is always shown as
+                                <strong>unverified</strong> to distinguish it from system-calculated curves.
+                            </p>
+                            <div class="row g-2">
+                                <div class="col-md-3">
+                                    <input class="form-control form-control-sm" id="manualLabel"
+                                           placeholder="Label (e.g. Vendor test data)">
+                                </div>
+                                <div class="col-md-9">
+                                    <input class="form-control form-control-sm" id="manualQ"
+                                           placeholder="Q values (m³/s): 1.0, 2.0, 3.0 ...">
+                                </div>
+                                <div class="col-md-12">
+                                    <input class="form-control form-control-sm" id="manualDp"
+                                           placeholder="ΔP values (Pa)">
+                                </div>
+                                <div class="col-md-12">
+                                    <input class="form-control form-control-sm" id="manualEta"
+                                           placeholder="η values (%)">
+                                </div>
+                                <div class="col-md-12">
+                                    <input class="form-control form-control-sm" id="manualKw"
+                                           placeholder="Power values (kW)">
+                                </div>
+                            </div>
+                            <button class="btn btn-sm btn-primary mt-2" id="btnSaveManualCurve"
+                                    style="width:fit-content">
+                                <i class="bi bi-save me-1"></i>Save Curve
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 @* {{!-- NEW: Curve Comparison / Pin table --}} *@
                 <div class="mt-3" id="curveCompareBlock">
                     <div class="d-flex justify-content-between align-items-center mb-2">
@@ -620,6 +613,7 @@
                                     <th>Curve</th>
                                     <th>Blade Angle</th>
                                     <th>Speed</th>
+                                    <th>Status</th>
                                     <th style="width:70px">Pin</th>
                                     <th style="width:40px"></th>
                                 </tr>
@@ -652,6 +646,21 @@
                         <div class="col-md-3">
                             <span class="badge bg-danger me-1">kW</span>
                             Shaft power (kilowatts)
+                        </div>
+                    </div>
+                    <hr class="my-2" />
+                    <div class="row g-2 align-items-center">
+                        <div class="col-md-4">
+                            <svg width="28" height="10"><line x1="0" y1="5" x2="28" y2="5" stroke="#495057" stroke-width="2" /></svg>
+                            <span class="ms-1">Solid — primary system-calculated curve</span>
+                        </div>
+                        <div class="col-md-4">
+                            <svg width="28" height="10"><line x1="0" y1="5" x2="28" y2="5" stroke="#495057" stroke-width="2" stroke-dasharray="5,3" /></svg>
+                            <span class="ms-1">Dashed — other system-generated comparisons</span>
+                        </div>
+                        <div class="col-md-4">
+                            <svg width="28" height="10"><line x1="0" y1="5" x2="28" y2="5" stroke="#495057" stroke-width="2" stroke-dasharray="2,2" /></svg>
+                            <span class="ms-1">Dotted — manually entered, unverified</span>
                         </div>
                     </div>
                 </div>
@@ -701,15 +710,14 @@
                                         <p class="small text-muted mb-0">CAD Drawing Ready</p>
                                     </div>
                                     <div class="card-footer">
-                                        @*  @if (drw.HasDxf)
-                                        {
-                                            <a asp-controller="Results" asp-action="Download"
-                                               asp-route-drawingId="@drw.Id" asp-route-format="dxf"
-                                               class="btn btn-sm btn-primary w-100">
-                                                <i class="bi bi-download me-1"></i>Download DXF
-                                            </a>
-                                        } *@
                                         <div class="card-footer">
+                                            @* NOTE: this "Download PDF Summary" link is rendered once per
+                                               drawing card in the original file, producing duplicate
+                                               id="btnDownloadPdf" elements. document.getElementById only
+                                               ever binds the first one, so the click handler below still
+                                               works, but only from the first drawing card. Left as-is —
+                                               not in scope for Features 1/2 — flagging so it's a known
+                                               issue rather than a surprise. *@
                                             <li>
                                                 <a class="dropdown-item" href="#" id="btnDownloadPdf">
                                                     <i class="bi bi-filetype-pdf me-2 text-danger"></i>
@@ -775,6 +783,7 @@
             '#212529', // black
             '#0dcaf0', // cyan
         ];
+        const MANUAL_COLOR_PALETTE = ['#6c757d', '#495057', '#adb5bd'];
         const DESIGN_COLOR = '#0d6efd'; // blue — reserved for the design curve only
 
         // Line weights tuned for a "premium" look: thin, crisp lines with
@@ -785,8 +794,10 @@
         const CURVE_KW_WIDTH     = 1;
 
         // ── Curve state ───────────────────────────────────────────────
-        // Each curve: { id, label, angle, rpm, color, pinned, isDesign, temporary, q, dp, eta, kw }
-               let curves = [];
+        // Each curve: { id, label, angle, rpm, color, pinned, isDesign,
+        //   temporary, origin ('System'|'Manual'), validationStatus
+        //   ('ok'|'corrected'|'flagged'|'not_applicable'), q, dp, eta, kw }
+        let curves = [];
 
         if (initialCurves.baseline) {
             curves.push({
@@ -798,6 +809,8 @@
                 pinned: true,
                 isDesign: true,
                 temporary: false,
+                origin: "System",
+                validationStatus: initialCurves.baseline.validationStatus || "ok",
 
                 q: initialCurves.baseline.q,
                 dp: initialCurves.baseline.dp,
@@ -816,6 +829,8 @@
                 pinned: true,
                 isDesign: false,
                 temporary: false,
+                origin: "System",
+                validationStatus: initialCurves.corrected.validationStatus || "ok",
 
                 q: initialCurves.corrected.q,
                 dp: initialCurves.corrected.dp,
@@ -824,11 +839,33 @@
             });
         }
 
+        // NEW — manually-entered curves (Feature 2)
+        (initialCurves.manual || []).forEach((m, i) => {
+            curves.push({
+                id: "manual-" + m.id,
+                label: m.label || "Manual curve",
+                angle: designAngle,
+                rpm: designRpm,
+                color: MANUAL_COLOR_PALETTE[i % MANUAL_COLOR_PALETTE.length],
+                pinned: true,
+                isDesign: false,
+                temporary: false,
+                origin: "Manual",
+                validationStatus: "not_applicable",
+
+                q: m.q, dp: m.dp, eta: m.eta, kw: m.kw
+            });
+        });
+
         let usedColors = new Set();
         function nextColor() {
             const free = COLOR_PALETTE.find(c => !usedColors.has(c));
             if (free) { usedColors.add(free); return free; }
             return COLOR_PALETTE[curves.length % COLOR_PALETTE.length];
+        }
+        function nextManualColor() {
+            const usedManual = curves.filter(c => c.origin === 'Manual').length;
+            return MANUAL_COLOR_PALETTE[usedManual % MANUAL_COLOR_PALETTE.length];
         }
         function releaseColor(color) {
             usedColors.delete(color);
@@ -874,6 +911,18 @@
             }
         });
 
+        // Line style is decided purely by origin/role, per the plain-terms
+        // rule: solid = primary system curve, dashed = other system
+        // curves, dotted = manual/unverified. This must stay consistent
+        // wherever a curve is drawn (both charts) so there's never a case
+        // where the same curve looks "verified" in one place and not
+        // the other.
+        function lineDashFor(c) {
+            if (c.origin === 'Manual') return [2, 2];
+            if (c.isDesign) return [];
+            return [5, 3];
+        }
+
         // ── Render everything from `curves` state ─────────────────────
         function render() {
             const labelSource = curves.reduce((a, b) => (a.q.length >= b.q.length ? a : b));
@@ -887,7 +936,7 @@
                 borderWidth: c.isDesign ? DESIGN_LINE_WIDTH : CURVE_LINE_WIDTH,
                 borderCapStyle: 'round',
                 borderJoinStyle: 'round',
-                borderDash: c.isDesign ? [] : [5, 3],
+                borderDash: lineDashFor(c),
                 fill: c.isDesign,
                 tension: 0.35,
                 cubicInterpolationMode: 'monotone',
@@ -908,7 +957,7 @@
                     borderWidth: c.isDesign ? DESIGN_LINE_WIDTH : CURVE_LINE_WIDTH,
                     borderCapStyle: 'round',
                     borderJoinStyle: 'round',
-                    borderDash: c.isDesign ? [] : [5, 3],
+                    borderDash: lineDashFor(c),
                     fill: false,
                     tension: 0.35,
                     cubicInterpolationMode: 'monotone',
@@ -926,7 +975,7 @@
                     borderWidth: c.isDesign ? DESIGN_KW_WIDTH : CURVE_KW_WIDTH,
                     borderCapStyle: 'round',
                     borderJoinStyle: 'round',
-                    borderDash: c.isDesign ? [2, 2] : [1, 3],
+                    borderDash: c.origin === 'Manual' ? [1, 2] : (c.isDesign ? [2, 2] : [1, 3]),
                     fill: false,
                     tension: 0.35,
                     cubicInterpolationMode: 'monotone',
@@ -941,6 +990,25 @@
             chartEta.update();
 
             renderTable();
+        }
+
+        // ── Validation / origin badge — the single place this HTML is
+        // generated, so the comparison table, PDF payload labels, and
+        // any future surface all stay in sync with one definition. ──
+        function validationBadge(c) {
+            if (c.origin === 'Manual') {
+                return '<span class="badge bg-secondary">✎ Manual — unverified</span>';
+            }
+            switch (c.validationStatus) {
+                case 'ok':
+                    return '<span class="badge bg-success">✓ Validated</span>';
+                case 'corrected':
+                    return '<span class="badge bg-warning text-dark">⚠ Auto-corrected</span>';
+                case 'flagged':
+                    return '<span class="badge bg-danger">⚠ Needs review</span>';
+                default:
+                    return '<span class="badge bg-light text-muted">—</span>';
+            }
         }
 
         function renderTable() {
@@ -965,6 +1033,10 @@
                 const rpmTd = document.createElement('td');
                 rpmTd.textContent = c.rpm + ' RPM';
                 tr.appendChild(rpmTd);
+
+                const statusTd = document.createElement('td');
+                statusTd.innerHTML = validationBadge(c);
+                tr.appendChild(statusTd);
 
                 const pinTd = document.createElement('td');
                 if (c.isDesign) {
@@ -1016,17 +1088,21 @@
             const c = curves.find(x => x.id === id);
             if (!c || c.isDesign) return;
             curves = curves.filter(x => x.id !== id);
-            releaseColor(c.color);
+            if (c.origin !== 'Manual') releaseColor(c.color);
             render();
         }
 
-        function addCurve(newCurveData, angle, rpm, label) {
-            // Replace the current temporary (unpinned, non-design) curve if one exists,
-            // otherwise just append — this is what makes "change slider, Regenerate" swap
-            // only the latest unpinned curve while pinned ones stay put.
+        function addCurve(newCurveData, angle, rpm, label, origin, validationStatus) {
+            origin = origin || 'System';
+            validationStatus = validationStatus || (origin === 'Manual' ? 'not_applicable' : 'ok');
+
+            // Replace the current temporary (unpinned, non-design) curve if one
+            // exists, otherwise just append — this is what makes "change slider,
+            // Regenerate" swap only the latest unpinned curve while pinned ones
+            // stay put. Manual curves are never "temporary" so they're excluded.
             const tempIndex = curves.findIndex(c => c.temporary && !c.pinned && !c.isDesign);
             if (tempIndex !== -1) {
-                releaseColor(curves[tempIndex].color);
+                if (curves[tempIndex].origin !== 'Manual') releaseColor(curves[tempIndex].color);
                 curves.splice(tempIndex, 1);
             }
 
@@ -1034,7 +1110,7 @@
             if (curves.length >= MAX_CURVES) {
                 const evictIndex = curves.findIndex(c => !c.pinned && !c.isDesign);
                 if (evictIndex !== -1) {
-                    releaseColor(curves[evictIndex].color);
+                    if (curves[evictIndex].origin !== 'Manual') releaseColor(curves[evictIndex].color);
                     curves.splice(evictIndex, 1);
                     limitHit = true;
                 } else {
@@ -1045,14 +1121,15 @@
                 }
             }
 
-            const color = nextColor();
+            const color = origin === 'Manual' ? nextManualColor() : nextColor();
             curves.push({
                 id: 'curve-' + Date.now(),
-               label: label,
+                label: label,
                 angle, rpm, color,
-                pinned: false,
+                pinned: origin === 'Manual', // manual entries are pinned by default, same as before
                 isDesign: false,
-                temporary: true,
+                temporary: origin !== 'Manual',
+                origin, validationStatus,
                 q: newCurveData.q, dp: newCurveData.dp, eta: newCurveData.eta, kw: newCurveData.kw
             });
 
@@ -1112,32 +1189,35 @@
                 );
 
                 if (resp.ok) {
-                           const d = await resp.json();
+                    const d = await resp.json();
 
-        addCurve(
-        {
-            q: d.baseline.q,
-            dp: d.baseline.dp,
-            eta: d.baseline.eta,
-            kw: d.baseline.kw
-        },
-        angle,
-        rpm);
+                    addCurve(
+                        { q: d.baseline.q, dp: d.baseline.dp, eta: d.baseline.eta, kw: d.baseline.kw },
+                        angle, rpm, 'Baseline', 'System', d.baseline.validationStatus
+                    );
 
-        addCurve(
-        {
-            q: d.corrected.q,
-            dp: d.corrected.dp,
-            eta: d.corrected.eta,
-            kw: d.corrected.kw
-        },
-        angle,
-        rpm);
+                    addCurve(
+                        { q: d.corrected.q, dp: d.corrected.dp, eta: d.corrected.eta, kw: d.corrected.kw },
+                        angle, rpm, 'PINN Corrected', 'System', d.corrected.validationStatus
+                    );
 
+                    const anyFlagged =
+                        (d.baseline.validationStatus === 'flagged') ||
+                        (d.corrected.validationStatus === 'flagged');
+                    const anyCorrected =
+                        (d.baseline.validationStatus === 'corrected') ||
+                        (d.corrected.validationStatus === 'corrected');
 
-                    displayStatus.textContent = '✓ Updated';
-                    displayStatus.className   =
-                        'fw-bold text-success fs-5';
+                    if (anyFlagged) {
+                        displayStatus.textContent = '⚠ Needs review';
+                        displayStatus.className   = 'fw-bold text-danger fs-5';
+                    } else if (anyCorrected) {
+                        displayStatus.textContent = '⚠ Auto-corrected';
+                        displayStatus.className   = 'fw-bold text-warning fs-5';
+                    } else {
+                        displayStatus.textContent = '✓ Updated';
+                        displayStatus.className   = 'fw-bold text-success fs-5';
+                    }
                 } else {
                     displayStatus.textContent = '✗ Error';
                     displayStatus.className   =
@@ -1146,6 +1226,60 @@
             } catch (e) {
                 displayStatus.textContent = '✗ Failed';
                 displayStatus.className   = 'fw-bold text-danger fs-5';
+            }
+        });
+
+        // ── Save Manual Curve (Feature 2) ─────────────────────────────
+        document.getElementById('btnSaveManualCurve').addEventListener('click', async () => {
+            const parseList = s => s.split(',').map(v => parseFloat(v.trim())).filter(v => !isNaN(v));
+            const q   = parseList(document.getElementById('manualQ').value);
+            const dp  = parseList(document.getElementById('manualDp').value);
+            const eta = parseList(document.getElementById('manualEta').value);
+            const kw  = parseList(document.getElementById('manualKw').value);
+            const label = document.getElementById('manualLabel').value || 'Manual curve';
+
+            if (!(q.length === dp.length && q.length === eta.length && q.length === kw.length && q.length > 0)) {
+                alert('All four fields need the same number of comma-separated values.');
+                return;
+            }
+
+            const btn = document.getElementById('btnSaveManualCurve');
+            const originalHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = 'Saving...';
+
+            try {
+                const token = document.querySelector('input[name=__RequestVerificationToken]')?.value || '';
+                const resp = await fetch('/Results/SaveManualCurve', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': token },
+                    body: JSON.stringify({
+                        resultId, label,
+                        bladeAngleDeg: designAngle, speedRpm: designRpm,
+                        q, dp, eta, kw
+                    })
+                });
+
+                if (!resp.ok) { alert('Could not save manual curve.'); return; }
+                const d = await resp.json();
+
+                addCurve(
+                    { q: d.q, dp: d.dp, eta: d.eta, kw: d.kw },
+                    designAngle, designRpm, d.label, 'Manual', 'not_applicable'
+                );
+
+                // Clear the form and collapse it
+                document.getElementById('manualLabel').value = '';
+                document.getElementById('manualQ').value = '';
+                document.getElementById('manualDp').value = '';
+                document.getElementById('manualEta').value = '';
+                document.getElementById('manualKw').value = '';
+                bootstrap.Collapse.getInstance(document.getElementById('manualCurveForm'))?.hide();
+            } catch (e) {
+                alert('Could not save manual curve: ' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
             }
         });
 
@@ -1170,8 +1304,12 @@
             displayAngle.textContent = designAngle + ' °';
             displayRpm.textContent   = designRpm + ' RPM';
 
-            // Remove every curve except the original design curve (pinned or not)
-            curves.filter(c => !c.isDesign).forEach(c => releaseColor(c.color));
+            // Remove every curve except the original design curve (pinned or not).
+            // Manual curves are intentionally cleared too — Reset returns to the
+            // pure design-point view; manually-added curves can be re-added.
+            curves.filter(c => !c.isDesign).forEach(c => {
+                if (c.origin !== 'Manual') releaseColor(c.color);
+            });
             curves = curves.filter(c => c.isDesign);
 
             document.getElementById('curveLimitAlert').classList.add('d-none');
@@ -1198,19 +1336,27 @@
 
                 // Only send the curve comparison rows if more than the design
                 // curve is on screen — otherwise there's nothing to compare.
+                // origin/validationStatus travel with each row so the PDF can
+                // label manual/auto-corrected/flagged curves the same way the
+                // on-screen table does.
                 const curvePayload = curves.length > 1
                     ? curves.map(c => ({
                         label: c.label,
                         angle: c.angle,
                         rpm: c.rpm,
                         color: c.color,
-                        isDesign: c.isDesign
+                        isDesign: c.isDesign,
+                        origin: c.origin,
+                        validationStatus: c.validationStatus
                     }))
                     : [];
 
                 const token = document.querySelector('input[name=__RequestVerificationToken]')?.value || '';
 
-                const resp = await fetch('/Export/PdfWithCharts', {
+                // FIX: this previously pointed at /Export/PdfWithCharts, which
+                // is commented out server-side and 404s. The live endpoint that
+                // does the same job is ChartsOnlyPdfWithSnapshot.
+                const resp = await fetch('/Export/ChartsOnlyPdfWithSnapshot', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

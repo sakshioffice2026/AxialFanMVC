@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\AxialFanMVC.Database\AxialFanMVC.Database.csproj" />
+    <ProjectReference Include="..\AxialFanMVC.Models\AxialFanMVC.Models.csproj" />
   </ItemGroup>
 
 </Project>

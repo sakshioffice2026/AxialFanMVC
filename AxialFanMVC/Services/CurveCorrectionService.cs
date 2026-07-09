@@ -1,4 +1,5 @@
-﻿using Microsoft.ML.OnnxRuntime;
+﻿using AxialFanMVC.Models;
+using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 
 namespace AxialFanMVC.Services
@@ -7,13 +8,34 @@ namespace AxialFanMVC.Services
     {
         private static InferenceSession? _session;
 
-        public static void Initialize(string onnxModelPath)
+        // NEW — lets callers (and the physics validator) know whether the
+        // ONNX model actually loaded, instead of silently returning (0,0)
+        // with no way to tell a real zero-correction result apart from
+        // "the model was never there."
+        public static bool IsModelAvailable => _session != null;
+
+        public static void Initialize(string onnxModelPath, ILogger? logger = null)
         {
             if (File.Exists(onnxModelPath))
+            {
                 _session = new InferenceSession(onnxModelPath);
-            // Missing file → _session stays null → Predict() falls back
-            // to zero correction. The app must never break if the model
-            // isn't present yet.
+                logger?.LogInformation("PINN correction model loaded from {Path}", onnxModelPath);
+            }
+            else
+            {
+                // Previously silent. This is a real operational gap, not
+                // just a log-noise concern — "PINN Corrected" curves will
+                // be numerically identical to baseline with nothing in the
+                // UI explaining why, unless this is surfaced loudly.
+                logger?.LogWarning(
+                    "PINN correction model not found at {Path} — all 'PINN Corrected' curves " +
+                    "will be generated with zero ML correction (identical to Baseline) until this " +
+                    "file is deployed.", onnxModelPath);
+            }
+            // _session stays null → Predict() falls back to zero correction.
+            // The app must never break if the model isn't present yet —
+            // it must instead be flagged, which is now handled in
+            // PhysicsValidationEngine.
         }
 
         public static (double dPCorrection, double etaCorrection) Predict(PinnFeatureVector f, double q)
