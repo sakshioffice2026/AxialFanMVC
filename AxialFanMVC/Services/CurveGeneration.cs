@@ -8,25 +8,38 @@ namespace AxialFanMVC.Services
     {
         private readonly IDesignResultRepository _repo;
         private readonly IPhysicsValidationEngine _validator;
-
-        public CurveGeneration(IDesignResultRepository repo, IPhysicsValidationEngine validator)
+        private readonly ICalibrationCaseRepository _calibrationRepo;
+        public CurveGeneration(IDesignResultRepository repo, IPhysicsValidationEngine validator, ICalibrationCaseRepository calibrationRepo)
         {
             _repo = repo;
             _validator = validator;
+            _calibrationRepo = calibrationRepo;
         }
 
-        public async Task<CurveGenerationResult> GenerateAndSaveAsync(  
-            int resultId, int userId, double bladeAngleDeg, int speedRpm)
+        public async Task<CurveGenerationResult> GenerateAndSaveAsync(
+    int resultId, int userId, double bladeAngleDeg, int speedRpm)
         {
             var result = await _repo.GetResultForUserAsync(resultId, userId)
                 ?? throw new InvalidOperationException($"DesignResult {resultId} not found or not owned by user {userId}.");
 
-            var aero = AeroCalcEngine.Calculate(result.DesignInput);
-
+            // ── Profile resolved BEFORE Calculate now, same reordering as
+            // DesignController.Wizard — Calculate needs profile + calibration
+            // candidates to produce a real OverallEfficiencyPct instead of
+            // falling back to the generic Cordier correlation every time this
+            // runs. Uses a provisional chord (geometry-only, doesn't depend on
+            // efficiency) since aero.ChordLengthMm isn't available yet at this
+            // point — matches DesignController's approach exactly, so both
+            // entry points stay consistent with each other. ──
             var bladeProfile = result.DesignInput.BladeProfileId.HasValue
                 ? await _repo.GetBladeProfileAsync(result.DesignInput.BladeProfileId.Value)
                 : null;
-            var profileData = BladeProfileEngine.ResolveProfileData(bladeProfile, aero.ChordLengthMm);
+            double provisionalChordMm = AeroCalcEngine.ComputeMeanChordMm(
+                result.DesignInput.TipDiameterMm, result.DesignInput.HubRatio, result.DesignInput.BladeCount);
+            var profileData = BladeProfileEngine.ResolveProfileData(bladeProfile, provisionalChordMm);
+
+            var calibrationCandidates = await _calibrationRepo.GetAllWithPointsAsync();
+
+            var aero = AeroCalcEngine.Calculate(result.DesignInput, profileData, calibrationCandidates);
 
             var features = PinnFeatureEngine.Compute(result.DesignInput, aero, profileData);
 
@@ -60,7 +73,8 @@ namespace AxialFanMVC.Services
                 corrected, features, new PhysicsValidationContext
                 {
                     CurveSource = "PINN",
-                    ComparisonCurveAtDifferentRpm = null // affinity check needs a second call; see Phase 3 note
+                    MlModelAvailable = CurveCorrectionService.IsModelAvailable,
+                    ComparisonCurveAtDifferentRpm = null
                 });
 
             var correctedEntity = new PerformanceCurve
@@ -78,9 +92,6 @@ namespace AxialFanMVC.Services
             };
             await _repo.AddPerformanceCurveAsync(correctedEntity);
 
-            // Single SaveChanges for both inserts — one round trip, and
-            // it's the ONLY save in this whole flow (this is what makes
-            // the old duplicate-save bug structurally impossible now).
             await _repo.SaveChangesAsync();
 
             return new CurveGenerationResult

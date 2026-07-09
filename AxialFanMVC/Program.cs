@@ -18,6 +18,7 @@ builder.Services.AddDbContext<AxialFanDbContext>(options =>
 builder.Services.AddScoped<IDesignResultRepository, DesignResultRepository>();
 builder.Services.AddScoped<IPhysicsValidationEngine, PhysicsValidationEngine>();
 builder.Services.AddScoped<ICurveGeneration, CurveGeneration>();
+builder.Services.AddScoped<ICalibrationCaseRepository, CalibrationCaseRepository>();
 
 builder.Services.AddScoped<IHandbookChunkRepository, HandbookChunkRepository>();
 

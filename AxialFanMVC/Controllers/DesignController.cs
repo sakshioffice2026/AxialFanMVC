@@ -1,4 +1,5 @@
 ﻿using AxialFanMVC.Database;
+using AxialFanMVC.Repositories.Inteface;
 using AxialFanMVC.Services;
 using AxialFanMVC.ViewModels;
 using Microsoft.AspNetCore.Authorization;
@@ -15,6 +16,7 @@ namespace AxialFanMVC.Controllers
         private readonly AxialFanDbContext _db;
         private readonly IWebHostEnvironment _env;
         private readonly ICurveGeneration _curveService;
+        private readonly ICalibrationCaseRepository _calibrationRepo;
         public DesignController(AxialFanDbContext db, IWebHostEnvironment env, ICurveGeneration curveService)
         {
             _db = db;
@@ -218,7 +220,20 @@ namespace AxialFanMVC.Controllers
                 DesignResult result;
                 try
                 {
+                    // AFTER — profile resolved first; note ResolveProfileData needs chord
+                    // length, which needs geometry math that doesn't depend on efficiency,
+                    // so this ordering is safe — nothing here actually needs OverallEfficiencyPct.
                     _db.design_inputs.Add(input);
+                    await _db.SaveChangesAsync();
+
+                    var bladeProfile = input.BladeProfileId.HasValue
+                        ? await _db.blade_profiles.FindAsync(input.BladeProfileId.Value)
+                        : null;
+                    double provisionalChordMm = AeroCalcEngine.ComputeMeanChordMm(input.TipDiameterMm, input.HubRatio, input.BladeCount);
+                    var profileData = BladeProfileEngine.ResolveProfileData(bladeProfile, provisionalChordMm);
+
+                    var calibrationCandidates = await _calibrationRepo.GetAllWithPointsAsync(); // new DI dependency
+                    var aero = AeroCalcEngine.Calculate(input, profileData, calibrationCandidates);
 
                     try
                     {
@@ -230,7 +245,7 @@ namespace AxialFanMVC.Controllers
                     }
 
                     // Run calculations
-                    var aero = AeroCalcEngine.Calculate(input);
+                    
                     var struct_ = StructCalcEngine.Calculate(input, aero);
                     var sound = SoundCalcEngine.Calculate(input, aero);
 

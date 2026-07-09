@@ -111,7 +111,8 @@ namespace AxialFanMVC.Services
             return solidity * 2 * Math.PI * meanRadius / bladeCount * 1000;
         }
 
-        public static AeroCalcResult Calculate(DesignInput d)
+        public static AeroCalcResult Calculate(
+     DesignInput d, BladeProfileData? profile = null, List<CalibrationCase>? calibrationCandidates = null)
         {
             var r = new AeroCalcResult();
 
@@ -212,15 +213,40 @@ namespace AxialFanMVC.Services
             r.ChordLengthMm = ComputeMeanChordMm(d.TipDiameterMm, d.HubRatio, d.BladeCount);
 
             // 8. Shaft power and efficiency
+          
             double hydraulicPower = d.FlowRateM3s * d.TotalPressurePa;
-            r.OverallEfficiencyPct = d.TargetEfficiencyPct;
+
+            // Speed of sound at this design's temperature — needed for the tip Mach
+            // term in the calibration-matching distance metric. (Standard linear
+            // approximation; good to a few tenths of a percent in this temp range.)
+            double speedOfSound = 331.3 + 0.606 * d.TemperatureCelsius;
+            double tipMach = r.TipSpeedMs / speedOfSound;
+
+            var effResult = EfficiencyEstimator.Estimate(d, r, tipMach, calibrationCandidates ?? new());
+            r.OverallEfficiencyPct = Math.Round(effResult.EfficiencyPct, 2);
             r.ShaftPowerKw = hydraulicPower / (r.OverallEfficiencyPct / 100.0) / 1000.0;
 
-            // 9. Tip clearance
-            r.TipClearanceMm = 3.0;
-            if (r.TipClearanceMm / d.TipDiameterMm > 0.01)
-                r.Warnings.Add("Tip clearance exceeds 1% of tip diameter — efficiency loss expected.");
+            // Keep the user's TargetEfficiencyPct as a sanity check now that we
+            // have a real estimate to check it against, instead of just accepting
+            // it — a large gap here usually means either the target is unrealistic
+            // or the calculated design isn't hitting its intended operating point.
+            double targetGap = Math.Abs(d.TargetEfficiencyPct - r.OverallEfficiencyPct);
+            if (targetGap > 10.0)
+                r.Warnings.Add($"Target efficiency ({d.TargetEfficiencyPct:F1}%) differs from the " +
+                    $"{effResult.Method}-based estimate ({r.OverallEfficiencyPct:F1}%) by {targetGap:F1} points " +
+                    $"— {string.Join(" ", effResult.Notes)}");
+            else
+                r.Warnings.Add($"Info: efficiency estimated via {effResult.Method}" +
+                    (effResult.MatchedCaseDescription != null ? $" ({effResult.MatchedCaseDescription})" : "") + ".");
 
+            // 9. Tip clearance
+            const double targetClearanceFraction = 0.005;  // 0.5% of tip diameter
+            const double minClearanceMm = 1.5;             // manufacturing floor
+
+            r.TipClearanceMm = Math.Max(minClearanceMm, d.TipDiameterMm * targetClearanceFraction);
+
+            if (r.TipClearanceMm / d.TipDiameterMm > 0.01)
+                r.Warnings.Add($"Tip clearance {r.TipClearanceMm:F2} mm exceeds 1% of tip diameter — efficiency loss expected.");
             // 10. Stall check
             if (r.FlowCoefficient < 0.15)
                 r.Warnings.Add("Flow coefficient < 0.15 — risk of blade stall. Increase flow rate or reduce RPM.");
