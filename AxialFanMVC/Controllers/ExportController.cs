@@ -860,6 +860,24 @@ Always verify with physical testing.
     //    return File(bytes, "application/pdf", fileName);
     //}
 
+    // ── GET /Export/FullReportPdf?resultId=15 ─────────────────────────
+    // The one canonical, complete PDF report — Input, Aerodynamic,
+    // Structural, AND Acoustic sections, plus server-rendered ΔP/η
+    // charts. Fixes the two gaps every prior PDF path had (missing
+    // Acoustic section; charts only present in some paths, and even
+    // those needed a client-side snapshot). No request body needed —
+    // charts are rendered server-side via SkiaSharp, same as ChartsOnlyPdf.
+    [HttpGet]
+    public async Task<IActionResult> FullReportPdf(int resultId)
+    {
+        var result = await LoadResult(resultId);
+        if (result == null) return NotFound();
+
+        await LogExport(result.DesignInput.ProjectId, "pdf");
+        var (bytes, fileName) = _exportSvc.ExportFullPdfReport(result);
+        return File(bytes, "application/pdf", fileName);
+    }
+
     // ── GET /Export/ChartsOnlyPdf?resultId=15 ─────────────────────────
     [HttpGet]
     public async Task<IActionResult> ChartsOnlyPdf(int resultId)

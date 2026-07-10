@@ -646,6 +646,157 @@ For engineering reference only.
         return (bytes, $"AxialFan_Charts_{result.Id}.pdf");
     }
 
+    // ── Full PDF Report ──────────────────────────────────────────────
+    // Consolidates what used to be scattered across four separate,
+    // each-incomplete PDF paths:
+    //   - EyeshotPdf(resultId)        → Input/Aero/Structural, no Acoustic, no charts
+    //   - EyeshotPdf(POST w/ charts)  → Input/Structural (no Aero table!), no Acoustic
+    //   - PdfWithCharts               → commented out / dead
+    //   - ChartsOnlyPdf               → charts + curve table only, no result data at all
+    // None of them included Acoustic Results, and only two of the four
+    // included charts at all — which is exactly the pair of gaps reported.
+    // This is now the ONE canonical "full report" PDF: every section the
+    // Results page shows (Input, Aerodynamic, Structural, Acoustic),
+    // warnings, AND the same server-rendered ΔP/η charts ChartsOnlyPdf
+    // already used SkiaSharp for — so it needs no client-side chart
+    // snapshot and works from a single GET request.
+    public (byte[] Bytes, string FileName) ExportFullPdfReport(DesignResult result)
+    {
+        var di = result.DesignInput;
+        var warnings = result.WarningMessages != null
+            ? System.Text.Json.JsonSerializer.Deserialize<List<string>>(result.WarningMessages) ?? new()
+            : new List<string>();
+
+        List<double> q, dp, eta, kw;
+        string curveLabel;
+        var saved = result.PerformanceCurves?
+            .Where(c => c.Source == "PINN")
+            .OrderByDescending(c => c.GeneratedAt)
+            .FirstOrDefault()
+            ?? result.PerformanceCurves?.FirstOrDefault();
+
+        if (saved != null)
+        {
+            q = saved.QValues.Split(',').Select(double.Parse).ToList();
+            dp = saved.DpValues.Split(',').Select(double.Parse).ToList();
+            eta = saved.EtaValues.Split(',').Select(double.Parse).ToList();
+            kw = saved.KwValues.Split(',').Select(double.Parse).ToList();
+            curveLabel = $"{saved.BladeAngleDeg:F0}° / {saved.SpeedRpm} RPM ({saved.Source})";
+        }
+        else
+        {
+            var aero = AeroCalcEngine.Calculate(di);
+            var profileData = BladeProfileEngine.ResolveProfileData(di.BladeProfile, aero.ChordLengthMm);
+            var generated = BladeElementEngine.GenerateCurves(di, aero, profileData, di.BladeAngleDeg, di.SpeedRpm);
+            q = generated.QValues; dp = generated.DpValues; eta = generated.EtaValues; kw = generated.KwValues;
+            curveLabel = $"{di.BladeAngleDeg:F0}° / {di.SpeedRpm} RPM (no saved curve — regenerated for this export)";
+        }
+
+        const int chartWidth = 480, chartHeight = 220;
+        byte[] qdpPng = RenderChartPng(chartWidth, chartHeight, (canvas, size) =>
+            DrawSingleLineChart(canvas, size, q, dp,
+                "Flow Rate Q (m³/s)", "ΔP (Pa)", new SKColor(0x0d, 0x6e, 0xfd), fillArea: true));
+
+        byte[] etaPng = RenderChartPng(chartWidth, chartHeight, (canvas, size) =>
+            DrawDualLineChart(canvas, size, q, eta, kw,
+                "Flow Rate Q (m³/s)", "η (%)", "kW",
+                new SKColor(0x0d, 0x6e, 0xfd), new SKColor(0x19, 0x87, 0x54)));
+
+        var document = Document.Create(container =>
+        {
+            container.Page(page =>
+            {
+                page.Margin(30);
+                page.Size(PageSizes.A4);
+                page.DefaultTextStyle(x => x.FontSize(9.5f));
+
+                page.Header().Text($"AxialFlow Designer — Design Report #{result.Id}").FontSize(16).Bold();
+
+                page.Content().Column(col =>
+                {
+                    col.Spacing(4);
+
+                    col.Item().PaddingTop(6).Text(
+                        $"Project: {di.Project?.Name}   |   Status: {result.Status.ToUpper()}   |   Calculated: {result.CalculatedAt:dd MMM yyyy HH:mm}");
+
+                    if (warnings.Any())
+                    {
+                        col.Item().PaddingTop(8).Text("Warnings").Bold();
+                        foreach (var w in warnings)
+                            col.Item().Text($"⚠ {w}").FontSize(8.5f);
+                    }
+
+                    void SectionTable(string title, params (string Label, string Value)[] rows)
+                    {
+                        col.Item().PaddingTop(12).Text(title).Bold().FontSize(11);
+                        col.Item().Table(table =>
+                        {
+                            table.ColumnsDefinition(c => { c.RelativeColumn(); c.RelativeColumn(); });
+                            foreach (var (label, value) in rows)
+                            {
+                                table.Cell().Text(label);
+                                table.Cell().Text(value);
+                            }
+                        });
+                    }
+
+                    SectionTable("Input Parameters",
+                        ("Media Type", di.MediaType),
+                        ("Flow Rate", $"{di.FlowRateM3s:F3} m³/s"),
+                        ("Total Pressure", $"{di.TotalPressurePa:F0} Pa"),
+                        ("Fan Speed", $"{di.SpeedRpm} RPM"),
+                        ("Blade Count", $"{di.BladeCount}"),
+                        ("Tip Diameter", $"{di.TipDiameterMm:F0} mm"),
+                        ("Hub Ratio", $"{di.HubRatio:F2}"),
+                        ("Blade Angle", $"{di.BladeAngleDeg:F1} °"),
+                        ("Blade Profile", di.BladeProfile?.Name ?? "—"),
+                        ("Motor Power", $"{di.MotorPowerKw:F2} kW"));
+
+                    SectionTable("Aerodynamic Results",
+                        ("Specific Speed (Ωs)", $"{result.SpecificSpeed:F4}"),
+                        ("Tip Speed", $"{result.TipSpeedMs:F2} m/s"),
+                        ("Hub Diameter", $"{result.HubDiameterMm:F1} mm"),
+                        ("Blade Span", $"{result.BladeSpanMm:F1} mm"),
+                        ("Chord Length", $"{result.ChordLengthMm:F1} mm"),
+                        ("Flow Coefficient (Φ)", $"{result.FlowCoefficient:F4}"),
+                        ("Pressure Coefficient (Ψ)", $"{result.PressureCoefficient:F4}"),
+                        ("Overall Efficiency", $"{result.OverallEfficiencyPct:F2} %"),
+                        ("Shaft Power", $"{result.ShaftPowerKw:F3} kW"));
+
+                    SectionTable("Structural Results",
+                        ("Material", "Al 6061-T6"),
+                        ("Yield Strength", "270 MPa"),
+                        ("Tip Clearance", $"{result.TipClearanceMm:F1} mm"),
+                        ("Blade Stress", $"{result.BladeStressMpa:F2} MPa"),
+                        ("Safety Factor", $"{result.SafetyFactor:F2} ({(result.SafetyFactor >= 2.0 ? "PASS" : "FAIL")})"));
+
+                    // Previously missing from every PDF export path — the
+                    // whole reason this method exists.
+                    SectionTable("Acoustic Results",
+                        ("Overall Noise (Lp)", $"{result.OverallNoiseDbA:F1} dB(A)"),
+                        ("Sound Power Level (Lw)", $"{result.SoundPowerLevelDb:F1} dB"),
+                        ("Blade Passing Frequency", $"{result.BladePassingFrequencyHz:F1} Hz"),
+                        ("Tip Mach Number", $"{result.TipMachNumber:F3}"),
+                        ("Noise Rating (NR)", $"{result.NoiseRatingValue:F1} ({result.NoiseRating})"));
+
+                    col.Item().PaddingTop(14).Text($"Performance Curve — {curveLabel}").Bold().FontSize(11);
+                    col.Item().Row(row =>
+                    {
+                        row.RelativeItem().Border(1).BorderColor(Colors.Grey.Lighten1).Padding(4)
+                            .Image(qdpPng).FitWidth();
+                        row.ConstantItem(8);
+                        row.RelativeItem().Border(1).BorderColor(Colors.Grey.Lighten1).Padding(4)
+                            .Image(etaPng).FitWidth();
+                    });
+                });
+
+                page.Footer().AlignCenter().Text("Generated by AxialFlow Designer — for engineering reference only.");
+            });
+        });
+
+        return (document.GeneratePdf(), $"AxialFan_FullReport_{result.Id}.pdf");
+    }
+
     // ── Offscreen SkiaSharp render → PNG bytes ──────────────────────────
     // QuestPDF no longer exposes a live canvas to draw on, so charts are
     // rasterized independently here, then embedded into the PDF as images.

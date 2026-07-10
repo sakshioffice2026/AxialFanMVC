@@ -54,13 +54,13 @@
 
     <div class="v2-shell @(showSidebar ? "" : "v2-no-sidebar")">
 
-@if (User.Identity?.IsAuthenticated == true)
-{
+        @if (User.Identity?.IsAuthenticated == true)
+        {
             <partial name="_ChatWidget" />
-}
+        }
 
-@if (showSidebar)
-{
+        @if (showSidebar)
+        {
             <aside class="v2-sidebar">
 
                 <a asp-controller="Home"
@@ -81,15 +81,13 @@
 
                     <li class="v2-nav-item">
 
-                        <a class="v2-nav-link soon">
+                        <a asp-controller="Dashboard"
+                           asp-action="Index"
+                           class="@NavClass("Dashboard")">
 
                             <i class="bi bi-speedometer2 v2-nav-icon"></i>
 
                             <span>Dashboard</span>
-
-                            <span class="v2-soon-tag">
-                                Soon
-                            </span>
 
                         </a>
 
@@ -332,7 +330,7 @@
                 </div>
 
             </aside>
-}
+        }
 
         <div class="v2-main">
             <div class="v2-topbar">

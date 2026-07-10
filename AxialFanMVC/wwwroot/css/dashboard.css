@@ -1,0 +1,259 @@
+/* wwwroot/css/dashboard.css
+   Extends layout-v2.css's token system — no new brand identity, just
+   dashboard-specific components and two additional status accents
+   (warning amber, flagged rose) that stay in the same tonal family as
+   --v2-accent instead of reaching for generic bootstrap red/yellow. */
+
+:root {
+    --dash-warning: #C9793B;
+    --dash-warning-bg: #FBF0E6;
+    --dash-flagged: #B5504A;
+    --dash-flagged-bg: #FBEBEA;
+    --dash-ok: #3E7C8C;
+    --dash-ok-bg: #EAF2F3;
+}
+
+.dash-greeting {
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: var(--v2-text);
+    margin-bottom: .15rem;
+}
+.dash-subtext {
+    color: var(--v2-sidebar-text-muted);
+    font-size: .9rem;
+}
+
+/* ── Hero row ── */
+.dash-hero {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 1.25rem;
+    margin: 1.5rem 0;
+}
+@media (max-width: 860px) {
+    .dash-hero { grid-template-columns: 1fr; }
+}
+
+.dash-rotor-card {
+    background: linear-gradient(160deg, var(--v2-sidebar-bg) 0%, #2E464C 100%);
+    border-radius: 1rem;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    color: #fff;
+}
+.dash-rotor-label {
+    font-size: .8rem;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--v2-sidebar-text-muted);
+    margin-top: .5rem;
+}
+.dash-rotor-value {
+    font-size: 1.8rem;
+    font-weight: 700;
+}
+.dash-rotor-blade {
+    transition: opacity .4s ease;
+}
+.dash-rotor-card:hover .dash-rotor-blade {
+    opacity: 1 !important;
+}
+
+.dash-capsules {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.25rem;
+}
+@media (max-width: 640px) {
+    .dash-capsules { grid-template-columns: 1fr; }
+}
+
+.dash-capsule {
+    background: var(--v2-surface);
+    border: 1px solid var(--v2-border);
+    border-radius: .85rem;
+    padding: 1.1rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+.dash-capsule-icon {
+    width: 2.4rem;
+    height: 2.4rem;
+    border-radius: .6rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    margin-bottom: .75rem;
+    background: var(--dash-ok-bg);
+    color: var(--dash-ok);
+}
+.dash-capsule-icon.warn { background: var(--dash-warning-bg); color: var(--dash-warning); }
+.dash-capsule-icon.flag { background: var(--dash-flagged-bg); color: var(--dash-flagged); }
+
+.dash-capsule-value {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--v2-text);
+    line-height: 1;
+}
+.dash-capsule-label {
+    font-size: .82rem;
+    color: var(--v2-sidebar-text-muted);
+    margin-top: .3rem;
+}
+.dash-capsule-link {
+    margin-top: .6rem;
+    font-size: .8rem;
+    color: var(--v2-accent);
+    text-decoration: none;
+    font-weight: 600;
+}
+.dash-capsule-link:hover { color: var(--v2-accent-hover); }
+
+/* ── Two-column analytics row ── */
+.dash-row2 {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 1.25rem;
+    margin-bottom: 1.25rem;
+}
+@media (max-width: 860px) {
+    .dash-row2 { grid-template-columns: 1fr; }
+}
+
+.dash-panel {
+    background: var(--v2-surface);
+    border: 1px solid var(--v2-border);
+    border-radius: .85rem;
+    padding: 1.25rem;
+}
+.dash-panel-title {
+    font-weight: 600;
+    font-size: .95rem;
+    color: var(--v2-text);
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.dash-health-bar {
+    display: flex;
+    height: .6rem;
+    border-radius: .4rem;
+    overflow: hidden;
+    margin-bottom: 1rem;
+}
+.dash-health-seg.ok { background: var(--dash-ok); }
+.dash-health-seg.warn { background: var(--dash-warning); }
+.dash-health-seg.error { background: var(--dash-flagged); }
+
+.dash-health-legend {
+    display: flex;
+    flex-direction: column;
+    gap: .6rem;
+}
+.dash-health-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: .85rem;
+}
+.dash-health-dot {
+    width: .55rem; height: .55rem; border-radius: 50%;
+    display: inline-block; margin-right: .5rem;
+}
+
+/* ── Recent designs feed (cards, not table rows) ── */
+.dash-feed {
+    display: flex;
+    flex-direction: column;
+    gap: .6rem;
+}
+.dash-feed-card {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: .85rem 1rem;
+    border: 1px solid var(--v2-border);
+    border-radius: .7rem;
+    text-decoration: none;
+    color: var(--v2-text);
+    transition: border-color .15s ease, background-color .15s ease;
+}
+.dash-feed-card:hover {
+    border-color: var(--v2-accent);
+    background: var(--v2-bg);
+    color: var(--v2-text);
+}
+
+.dash-ring {
+    flex-shrink: 0;
+    width: 3rem;
+    height: 3rem;
+}
+.dash-ring-track { stroke: var(--v2-border); }
+.dash-ring-fill { stroke: var(--v2-accent); transition: stroke-dashoffset .5s ease; }
+.dash-ring-text { font-size: .62rem; font-weight: 700; fill: var(--v2-text); }
+
+.dash-feed-main { flex: 1; min-width: 0; }
+.dash-feed-title { font-weight: 600; font-size: .92rem; }
+.dash-feed-meta { font-size: .78rem; color: var(--v2-sidebar-text-muted); margin-top: .1rem; }
+
+.dash-pill {
+    display: inline-block;
+    font-size: .72rem;
+    font-weight: 600;
+    padding: .18rem .55rem;
+    border-radius: 1rem;
+    text-transform: capitalize;
+}
+.dash-pill.ok { background: var(--dash-ok-bg); color: var(--dash-ok); }
+.dash-pill.warning { background: var(--dash-warning-bg); color: var(--dash-warning); }
+.dash-pill.error { background: var(--dash-flagged-bg); color: var(--dash-flagged); }
+
+.dash-feed-date {
+    font-size: .78rem;
+    color: var(--v2-sidebar-text-muted);
+    white-space: nowrap;
+}
+
+/* ── Blade profile usage chips ── */
+.dash-usage-row {
+    display: grid;
+    grid-template-columns: 130px 1fr 2rem;
+    align-items: center;
+    gap: .75rem;
+    margin-bottom: .6rem;
+    font-size: .85rem;
+}
+.dash-usage-track {
+    height: .5rem;
+    background: var(--v2-bg);
+    border-radius: .3rem;
+    overflow: hidden;
+}
+.dash-usage-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--v2-accent), var(--v2-accent-hover));
+    border-radius: .3rem;
+}
+
+/* ── Empty state ── */
+.dash-empty {
+    text-align: center;
+    padding: 3rem 1.5rem;
+    background: var(--v2-surface);
+    border: 1px dashed var(--v2-border);
+    border-radius: 1rem;
+}
+.dash-empty i {
+    font-size: 2.2rem;
+    color: var(--v2-accent);
+    margin-bottom: .75rem;
+}

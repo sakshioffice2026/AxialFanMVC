@@ -1,0 +1,240 @@
+﻿@model AxialFanMVC.Models.DashboardViewModel
+@{
+    ViewData["Title"] = "Dashboard";
+    Layout = "_LayoutV2";
+
+    var hour = DateTime.Now.Hour;
+    var greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+
+    // ── Rotor gauge geometry ──
+    // 12 blades radiating from a hub, filled proportionally to fleet
+    // average efficiency (e.g. 65% → ~8 of 12 blades solid). A radial
+    // dial made of blade shapes rather than a generic ring/donut —
+    // the one deliberately bold element on this page.
+    const int bladeCount = 12;
+    const double cx = 90, cy = 90, hubR = 26, tipR = 78, rootHalfDeg = 11, tipHalfDeg = 4;
+    int filledBlades = (int)Math.Round(Model.AvgEfficiencyPct / 100.0 * bladeCount);
+
+    (double x, double y) Polar(double angleDeg, double r) =>
+        (cx + r * Math.Cos(angleDeg * Math.PI / 180.0), cy + r * Math.Sin(angleDeg * Math.PI / 180.0));
+
+    string BladePath(int index)
+    {
+        double angle = index * (360.0 / bladeCount) - 90;
+        var (x1, y1) = Polar(angle - rootHalfDeg, hubR);
+        var (x2, y2) = Polar(angle - tipHalfDeg, tipR);
+        var (x3, y3) = Polar(angle + tipHalfDeg, tipR);
+        var (x4, y4) = Polar(angle + rootHalfDeg, hubR);
+        return $"M {x1:F1} {y1:F1} L {x2:F1} {y2:F1} L {x3:F1} {y3:F1} L {x4:F1} {y4:F1} Z";
+    }
+
+    string StatusPillClass(string status) => status switch
+    {
+        "ok" => "dash-pill ok",
+        "warning" => "dash-pill warning",
+        _ => "dash-pill error"
+    };
+}
+
+<link rel="stylesheet" href="~/css/dashboard.css" asp-append-version="true" />
+
+<div class="dash-greeting">@greeting, @User.Identity?.Name</div>
+<div class="dash-subtext">Here's how your fleet of designs is performing.</div>
+
+@if (Model.TotalDesigns == 0)
+{
+    <div class="dash-empty mt-4">
+        <i class="bi bi-fan"></i>
+        <h5>No designs calculated yet</h5>
+        <p class="text-muted">Start a new design and its performance will show up here — efficiency, structural safety, and acoustic compliance, all in one place.</p>
+        <a asp-controller="Design" asp-action="Wizard" class="btn btn-primary mt-2">
+            <i class="bi bi-plus-circle me-1"></i> New Design
+        </a>
+    </div>
+}
+else
+{
+    <div class="dash-hero">
+        <div class="dash-rotor-card">
+            <svg viewBox="0 0 180 180" width="180" height="180">
+                <circle cx="@cx" cy="@cy" r="@(hubR - 4)" fill="rgba(255,255,255,0.06)" />
+                @for (int i = 0; i < bladeCount; i++)
+                {
+                    bool filled = i < filledBlades;
+                    <path class="dash-rotor-blade" d="@BladePath(i)"
+                          fill="@(filled ? "#4A8E9F" : "rgba(255,255,255,0.10)")"
+                          opacity="@(filled ? "1" : "0.7")" />
+                }
+                <circle cx="@cx" cy="@cy" r="@(hubR - 8)" fill="#2E464C" />
+                <text x="@cx" y="@(cy - 2)" text-anchor="middle" fill="#fff" font-size="22" font-weight="700">@Model.AvgEfficiencyPct.ToString("F0")%</text>
+                <text x="@cx" y="@(cy + 14)" text-anchor="middle" fill="#9DB5B2" font-size="8">AVG EFFICIENCY</text>
+            </svg>
+            <div class="dash-rotor-label">Fleet-wide across @Model.TotalDesigns design@(Model.TotalDesigns == 1 ? "" : "s")</div>
+        </div>
+
+        <div class="dash-capsules">
+            <div class="dash-capsule">
+                <div>
+                    <div class="dash-capsule-icon"><i class="bi bi-folder2-open"></i></div>
+                    <div class="dash-capsule-value">@Model.ProjectCount</div>
+                    <div class="dash-capsule-label">Active Projects</div>
+                </div>
+                <a asp-controller="Projects" asp-action="Index" class="dash-capsule-link">View projects →</a>
+            </div>
+
+            <div class="dash-capsule">
+                <div>
+                    <div class="dash-capsule-icon"><i class="bi bi-cpu"></i></div>
+                    <div class="dash-capsule-value">@Model.TotalDesigns</div>
+                    <div class="dash-capsule-label">Designs Calculated</div>
+                </div>
+                <a asp-controller="Design" asp-action="Wizard" class="dash-capsule-link">New design →</a>
+            </div>
+
+            <div class="dash-capsule">
+                <div>
+                    <div class="dash-capsule-icon @(Model.FlaggedCurveDesignCount > 0 ? "flag" : "")">
+                        <i class="bi bi-shield-exclamation"></i>
+                    </div>
+                    <div class="dash-capsule-value">@Model.FlaggedCurveDesignCount</div>
+                    <div class="dash-capsule-label">Designs with Flagged Curves</div>
+                </div>
+                <span class="dash-capsule-link" style="visibility:@(Model.FlaggedCurveDesignCount > 0 ? "visible" : "hidden")">Needs review</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="dash-row2">
+        <div class="dash-panel">
+            <div class="dash-panel-title">
+                <span>Efficiency Trend</span>
+                <span class="text-muted" style="font-weight:400;font-size:.8rem;">Last @Model.EfficiencyTrend.Count designs</span>
+            </div>
+            <canvas id="dashTrendChart" height="90"></canvas>
+        </div>
+
+        <div class="dash-panel">
+            <div class="dash-panel-title">Design Health</div>
+            <div class="dash-health-bar">
+                @{
+                    double okPct = Model.TotalDesigns > 0 ? Model.OkCount * 100.0 / Model.TotalDesigns : 0;
+                    double warnPct = Model.TotalDesigns > 0 ? Model.WarningCount * 100.0 / Model.TotalDesigns : 0;
+                    double errPct = Model.TotalDesigns > 0 ? Model.ErrorCount * 100.0 / Model.TotalDesigns : 0;
+                }
+                <div class="dash-health-seg ok" style="width:@(okPct.ToString("F1"))%"></div>
+                <div class="dash-health-seg warn" style="width:@(warnPct.ToString("F1"))%"></div>
+                <div class="dash-health-seg error" style="width:@(errPct.ToString("F1"))%"></div>
+            </div>
+            <div class="dash-health-legend">
+                <div class="dash-health-row">
+                    <span><span class="dash-health-dot" style="background:var(--dash-ok)"></span>OK</span>
+                    <strong>@Model.OkCount</strong>
+                </div>
+                <div class="dash-health-row">
+                    <span><span class="dash-health-dot" style="background:var(--dash-warning)"></span>Warning</span>
+                    <strong>@Model.WarningCount</strong>
+                </div>
+                <div class="dash-health-row">
+                    <span><span class="dash-health-dot" style="background:var(--dash-flagged)"></span>Error</span>
+                    <strong>@Model.ErrorCount</strong>
+                </div>
+                <hr class="my-1" />
+                <div class="dash-health-row">
+                    <span>Avg. Safety Factor</span>
+                    <strong>@Model.AvgSafetyFactor.ToString("F2")</strong>
+                </div>
+                <div class="dash-health-row">
+                    <span>Exports (7 days)</span>
+                    <strong>@Model.RecentExportCount</strong>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="dash-row2" style="grid-template-columns: 1.4fr 1fr;">
+        <div class="dash-panel">
+            <div class="dash-panel-title">
+                <span>Recent Designs</span>
+                <a asp-controller="Projects" asp-action="Index" style="font-size:.8rem;font-weight:600;">View all →</a>
+            </div>
+            <div class="dash-feed">
+                @foreach (var d in Model.RecentDesigns)
+                {
+                    double eff = Math.Clamp(d.OverallEfficiencyPct, 0, 100);
+                    double circumference = 2 * Math.PI * 20;
+                    double offset = circumference * (1 - eff / 100.0);
+                    <a asp-controller="Results" asp-action="Result" asp-route-resultId="@d.ResultId" class="dash-feed-card">
+                        <svg class="dash-ring" viewBox="0 0 48 48">
+                            <circle class="dash-ring-track" cx="24" cy="24" r="20" fill="none" stroke-width="4" />
+                            <circle class="dash-ring-fill" cx="24" cy="24" r="20" fill="none" stroke-width="4"
+                                    stroke-dasharray="@circumference.ToString("F1")" stroke-dashoffset="@offset.ToString("F1")"
+                                    stroke-linecap="round" transform="rotate(-90 24 24)" />
+                            <text class="dash-ring-text" x="24" y="27" text-anchor="middle">@eff.ToString("F0")%</text>
+                        </svg>
+                        <div class="dash-feed-main">
+                            <div class="dash-feed-title">@d.ProjectName</div>
+                            <div class="dash-feed-meta">
+                                @d.FlowRateM3s.ToString("F1") m³/s · @d.TotalPressurePa.ToString("F0") Pa · @d.BladeProfileName
+                            </div>
+                        </div>
+                        <span class="@StatusPillClass(d.Status)">@d.Status</span>
+                        <span class="dash-feed-date">@d.CalculatedAt.ToString("dd MMM")</span>
+                    </a>
+                }
+            </div>
+        </div>
+
+        <div class="dash-panel">
+            <div class="dash-panel-title">Blade Profile Usage</div>
+            @if (Model.BladeProfileUsage.Any())
+            {
+                int maxCount = Model.BladeProfileUsage.Max(p => p.Count);
+                foreach (var p in Model.BladeProfileUsage)
+                {
+                    double widthPct = maxCount > 0 ? p.Count * 100.0 / maxCount : 0;
+                    <div class="dash-usage-row">
+                        <span>@p.ProfileName</span>
+                        <div class="dash-usage-track"><div class="dash-usage-fill" style="width:@(widthPct.ToString("F0"))%"></div></div>
+                        <span class="text-end">@p.Count</span>
+                    </div>
+                }
+            }
+            else
+            {
+                <p class="text-muted" style="font-size:.85rem;">No blade profile selected on any design yet.</p>
+            }
+        </div>
+    </div>
+}
+
+@section Scripts {
+    @if (Model.TotalDesigns > 0)
+    {
+        <script>
+            const trendLabels = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.EfficiencyTrend.Select(t => t.Label)));
+            const trendValues = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.EfficiencyTrend.Select(t => t.EfficiencyPct)));
+
+            new Chart(document.getElementById('dashTrendChart'), {
+                type: 'line',
+                data: {
+                    labels: trendLabels,
+                    datasets: [{
+                        data: trendValues,
+                        borderColor: '#3E7C8C',
+                        backgroundColor: 'rgba(62,124,140,0.12)',
+                        fill: true,
+                        tension: 0.35,
+                        pointRadius: 3,
+                        pointBackgroundColor: '#3E7C8C'
+                    }]
+                },
+                options: {
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, max: 100, ticks: { callback: v => v + '%' } }
+                    }
+                }
+            });
+        </script>
+    }
+}
