@@ -815,7 +815,8 @@
         // ── Curve state ───────────────────────────────────────────────
         // Each curve: { id, label, angle, rpm, color, pinned, isDesign,
         //   temporary, origin ('System'|'Manual'), validationStatus
-        //   ('ok'|'corrected'|'flagged'|'not_applicable'), q, dp, eta, kw }
+        //   ('ok'|'corrected'|'flagged'|'not_applicable'), flags (array,
+        //   empty for Manual/'ok'), q, dp, eta, kw }
         let curves = [];
 
         if (initialCurves.baseline) {
@@ -830,6 +831,7 @@
                 temporary: false,
                 origin: "System",
                 validationStatus: initialCurves.baseline.validationStatus || "ok",
+                flags: initialCurves.baseline.flags || [],
 
                 q: initialCurves.baseline.q,
                 dp: initialCurves.baseline.dp,
@@ -850,6 +852,7 @@
                 temporary: false,
                 origin: "System",
                 validationStatus: initialCurves.corrected.validationStatus || "ok",
+                flags: initialCurves.corrected.flags || [],
 
                 q: initialCurves.corrected.q,
                 dp: initialCurves.corrected.dp,
@@ -1011,6 +1014,24 @@
             renderTable();
         }
 
+        // Flag objects arrive with different casing depending on which server
+        // path produced them (BuildCurveJson serializes raw PascalCase;
+        // the GenerateCurve AJAX endpoint goes through Controller.Json(),
+        // which camelCases by default) — read both until that's unified.
+        function flagField(f, name) {
+            return f[name] ?? f[name.charAt(0).toLowerCase() + name.slice(1)];
+        }
+
+        // Escaped, newline-joined flag messages for a native title tooltip —
+        // no Bootstrap popover component needed, so nothing to re-initialize
+        // when rows are re-rendered via innerHTML.
+        function flagsTooltip(flags) {
+            return (flags || [])
+                .map(f => `[${flagField(f, 'Severity') || ''}] ${flagField(f, 'Message') || ''}`)
+                .join('\n')
+                .replace(/"/g, '&quot;');
+        }
+
         // ── Validation / origin badge — the single place this HTML is
         // generated, so the comparison table, PDF payload labels, and
         // any future surface all stay in sync with one definition. ──
@@ -1018,13 +1039,18 @@
             if (c.origin === 'Manual') {
                 return '<span class="badge bg-secondary">✎ Manual — unverified</span>';
             }
+
+            const hasFlags = c.flags && c.flags.length > 0;
+            const tooltip = hasFlags ? ` title="${flagsTooltip(c.flags)}"` : '';
+            const cursor = hasFlags ? ' style="cursor:help"' : '';
+
             switch (c.validationStatus) {
                 case 'ok':
                     return '<span class="badge bg-success">✓ Validated</span>';
                 case 'corrected':
-                    return '<span class="badge bg-warning text-dark">⚠ Auto-corrected</span>';
+                    return `<span class="badge bg-warning text-dark"${tooltip}${cursor}>⚠ Auto-corrected${hasFlags ? ' ⓘ' : ''}</span>`;
                 case 'flagged':
-                    return '<span class="badge bg-danger">⚠ Needs review</span>';
+                    return `<span class="badge bg-danger"${tooltip}${cursor}>⚠ Needs review${hasFlags ? ' ⓘ' : ''}</span>`;
                 default:
                     return '<span class="badge bg-light text-muted">—</span>';
             }
@@ -1111,9 +1137,10 @@
             render();
         }
 
-        function addCurve(newCurveData, angle, rpm, label, origin, validationStatus) {
+        function addCurve(newCurveData, angle, rpm, label, origin, validationStatus, flags) {
             origin = origin || 'System';
             validationStatus = validationStatus || (origin === 'Manual' ? 'not_applicable' : 'ok');
+            flags = flags || [];
 
             // Replace the current temporary (unpinned, non-design) curve if one
             // exists, otherwise just append — this is what makes "change slider,
@@ -1148,7 +1175,7 @@
                 pinned: origin === 'Manual', // manual entries are pinned by default, same as before
                 isDesign: false,
                 temporary: origin !== 'Manual',
-                origin, validationStatus,
+                origin, validationStatus, flags,
                 q: newCurveData.q, dp: newCurveData.dp, eta: newCurveData.eta, kw: newCurveData.kw
             });
 
@@ -1212,12 +1239,12 @@
 
                     addCurve(
                         { q: d.baseline.q, dp: d.baseline.dp, eta: d.baseline.eta, kw: d.baseline.kw },
-                        angle, rpm, 'Baseline', 'System', d.baseline.validationStatus
+                        angle, rpm, 'Baseline', 'System', d.baseline.validationStatus, d.baseline.flags
                     );
 
                     addCurve(
                         { q: d.corrected.q, dp: d.corrected.dp, eta: d.corrected.eta, kw: d.corrected.kw },
-                        angle, rpm, 'PINN Corrected', 'System', d.corrected.validationStatus
+                        angle, rpm, 'PINN Corrected', 'System', d.corrected.validationStatus, d.corrected.flags
                     );
 
                     const anyFlagged =

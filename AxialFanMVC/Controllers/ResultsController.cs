@@ -54,19 +54,14 @@ namespace AxialFanMVC.Controllers
                 .ToList();
 
 
-            var curveJson = JsonSerializer.Serialize(
-    result.PerformanceCurves.Select(c => new
-    {
-        id = c.Id,
-        source = c.Source ?? "Unlabeled",
-        angle = c.BladeAngleDeg,
-        rpm = c.SpeedRpm,
-        q = c.QValues.Split(',').Select(double.Parse),
-        dp = c.DpValues.Split(',').Select(double.Parse),
-        eta = c.EtaValues.Split(',').Select(double.Parse),
-        kw = c.KwValues.Split(',').Select(double.Parse)
-    })
-);
+            // BuildCurveJson (below) already produces the {baseline, corrected,
+            // manual} shape the view's JS expects (initialCurves.baseline /
+            // .corrected / .manual), including validationStatus and the
+            // deserialized flags — the inline flat-array version this replaces
+            // was a structural mismatch (JS read initialCurves.baseline off an
+            // array, which is always undefined), so curves silently failed to
+            // populate on page load until the user clicked Regenerate.
+            var curveJson = BuildCurveJson(baselineCurve, correctedCurve, manualCurves);
 
             var di = result.DesignInput;
 
