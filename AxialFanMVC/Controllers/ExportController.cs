@@ -132,6 +132,14 @@ public class ExportController : Controller
         Row(ref r, "Blade Stress", result.BladeStressMpa.ToString("F2"), "MPa");
         Row(ref r, "Safety Factor", result.SafetyFactor.ToString("F2"),
             result.SafetyFactor >= 2.0 ? "PASS" : "FAIL");
+        r++;
+
+        SectionHeader(ref r, "Acoustic Results");
+        Row(ref r, "Overall Noise (Lp)", $"{result.OverallNoiseDbA:F1}", "dB(A)");
+        Row(ref r, "Sound Power Level (Lw)", $"{result.SoundPowerLevelDb:F1}", "dB");
+        Row(ref r, "Blade Passing Frequency", $"{result.BladePassingFrequencyHz:F1}", "Hz");
+        Row(ref r, "Tip Mach Number", $"{result.TipMachNumber:F3}");
+        Row(ref r, "Noise Rating (NR)", $"{result.NoiseRatingValue:F1} ({result.NoiseRating})");
 
         ws.Columns().AdjustToContents();
 
@@ -231,6 +239,15 @@ public class ExportController : Controller
                 ("Blade Stress", result.BladeStressMpa.ToString("F2"), "MPa"),
                 ("Safety Factor", result.SafetyFactor.ToString("F2"),
                     result.SafetyFactor >= 2.0 ? "PASS" : "FAIL"));
+
+            Heading("Acoustic Results");
+            KeyValueTable(
+                ("Overall Noise (Lp)", $"{result.OverallNoiseDbA:F1}", "dB(A)"),
+                ("Sound Power Level (Lw)", $"{result.SoundPowerLevelDb:F1}", "dB"),
+                ("Blade Passing Frequency", $"{result.BladePassingFrequencyHz:F1}", "Hz"),
+                ("Tip Mach Number", $"{result.TipMachNumber:F3}", ""),
+                ("Noise Rating (NR)", $"{result.NoiseRatingValue:F1} ({result.NoiseRating})", ""));
+
 
             body.AppendChild(new Paragraph(
                 new Run(new RunProperties(new Italic()),

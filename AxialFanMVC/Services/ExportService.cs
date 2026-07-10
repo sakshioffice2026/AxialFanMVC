@@ -80,6 +80,15 @@ public class ExportService
         sb.AppendLine($"Safety Factor,{result.SafetyFactor:F2},");
         sb.AppendLine();
 
+        sb.AppendLine("ACOUSTIC RESULTS");
+        sb.AppendLine("Parameter,Value,Unit");
+        sb.AppendLine($"Overall Noise (Lp),{result.OverallNoiseDbA:F1},dB(A)");
+        sb.AppendLine($"Sound Power Level (Lw),{result.SoundPowerLevelDb:F1},dB");
+        sb.AppendLine($"Blade Passing Frequency,{result.BladePassingFrequencyHz:F1},Hz");
+        sb.AppendLine($"Tip Mach Number,{result.TipMachNumber:F3},");
+        sb.AppendLine($"Noise Rating (NR),{result.NoiseRatingValue:F1} ({result.NoiseRating}),");
+        sb.AppendLine();
+
         // Performance curve data
         var curve = result.PerformanceCurves?.FirstOrDefault();
         if (curve != null)
@@ -208,6 +217,16 @@ public class ExportService
         Row("Blade Stress", $"{result.BladeStressMpa:F2}", "MPa");
         Row("Safety Factor", $"{result.SafetyFactor:F2}",
             result.SafetyFactor >= 2.0 ? "PASS" : "FAIL");
+        sb.AppendLine("</table>");
+
+        sb.AppendLine(@"<h2>Acoustic Results</h2>
+<table>
+<tr><th>Parameter</th><th>Value</th><th>Unit</th></tr>");
+        Row("Overall Noise (Lp)", $"{result.OverallNoiseDbA:F1}", "dB(A)");
+        Row("Sound Power Level (Lw)", $"{result.SoundPowerLevelDb:F1}", "dB");
+        Row("Blade Passing Frequency", $"{result.BladePassingFrequencyHz:F1}", "Hz");
+        Row("Tip Mach Number", $"{result.TipMachNumber:F3}");
+        Row("Noise Rating (NR)", $"{result.NoiseRatingValue:F1} ({result.NoiseRating})");
         sb.AppendLine("</table>");
 
         var curve = result.PerformanceCurves?.FirstOrDefault();
