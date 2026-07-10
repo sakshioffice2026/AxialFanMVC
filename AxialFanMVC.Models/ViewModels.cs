@@ -201,7 +201,7 @@ namespace AxialFanMVC.ViewModels
 
         [Display(Name = "Tip Diameter (mm)")]
         [Range(100, 5000)]
-        public double TipDiameterMm { get; set; } = 800;
+        public double TipDiameterMm { get; set; } = 1000;
 
         [Display(Name = "Hub Ratio")]
         [Range(0.1, 0.9)]

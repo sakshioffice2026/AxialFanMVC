@@ -1,5 +1,4 @@
-﻿
-using AxialFanMVC.Models;
+﻿using AxialFanMVC.Models;
 using AxialFanMVC.Repositories.Inteface;
 
 namespace AxialFanMVC.Services
@@ -44,7 +43,12 @@ namespace AxialFanMVC.Services
             var features = PinnFeatureEngine.Compute(result.DesignInput, aero, profileData);
 
             // ── Baseline ─────────────────────────────────────────────
-            var baseline = AeroCalcEngine.GenerateCurves(
+            // BladeElementEngine.GenerateCurves (Wallis 1961 / Dixon Ch.7
+            // BET) replaces AeroCalcEngine.GenerateCurves' unsourced tuned-
+            // constant curve fit here — same physics already used for the
+            // single-point efficiency in AeroCalcEngine.Calculate, now also
+            // driving the full saved/exported curve.
+            var baseline = BladeElementEngine.GenerateCurves(
                 result.DesignInput, aero, profileData, bladeAngleDeg, speedRpm);
 
             var baselineValidation = _validator.Validate(
@@ -109,7 +113,7 @@ namespace AxialFanMVC.Services
         {
             // Ownership check even though AddManualCurveAsync doesn't take
             // userId directly for the insert — we must never let a user
-            // attach a curve to a design result they don't own.
+            // attach a curve to a design result they don't own.Z
             var result = await _repo.GetResultForUserAsync(resultId, userId)
                 ?? throw new InvalidOperationException($"DesignResult {resultId} not found or not owned by user {userId}.");
 

@@ -123,7 +123,7 @@ namespace AxialFanMVC.Database
         public int BladeCount { get; set; } = 6;
 
         [Column("tip_diameter_mm")]
-        public double TipDiameterMm { get; set; } = 800;
+        public double TipDiameterMm { get; set; } = 1000;
 
         [Column("hub_ratio")]
         public double HubRatio { get; set; } = 0.45;

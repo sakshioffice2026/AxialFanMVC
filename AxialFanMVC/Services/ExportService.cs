@@ -577,8 +577,11 @@ For engineering reference only.
         {
             var aero = AeroCalcEngine.Calculate(di);
             var profileData = BladeProfileEngine.ResolveProfileData(di.BladeProfile, aero.ChordLengthMm);
-            var generated = AeroCalcEngine.GenerateCurves(di, aero, profileData, di.BladeAngleDeg, di.SpeedRpm);
-            
+            // BladeElementEngine.GenerateCurves (Wallis 1961 / Dixon Ch.7 BET)
+            // instead of AeroCalcEngine.GenerateCurves' tuned-constant fit —
+            // matches the production path in CurveGeneration.cs.
+            var generated = BladeElementEngine.GenerateCurves(di, aero, profileData, di.BladeAngleDeg, di.SpeedRpm);
+
             q = generated.QValues; dp = generated.DpValues; eta = generated.EtaValues; kw = generated.KwValues;
             curveLabel = $"{di.BladeAngleDeg:F0}° / {di.SpeedRpm} RPM";
         }

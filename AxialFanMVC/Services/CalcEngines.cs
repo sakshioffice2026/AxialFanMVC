@@ -372,7 +372,14 @@ namespace AxialFanMVC.Services
         public static PerformanceCurveData GenerateCorrectedCurves(
             DesignInput input, AeroCalcResult aero, BladeProfileData? profile, double bladeAngleDeg, int rpm)
         {
-            var baseline = GenerateCurves(input, aero, profile, bladeAngleDeg, rpm);
+            // Baseline now comes from BladeElementEngine (Wallis 1961 / Dixon
+            // Ch.7 BET, same physics already used for ComputeAtPoint's
+            // single-point efficiency) instead of this class's own tuned-
+            // constant GenerateCurves below — so the ONNX correction is
+            // applied on top of a real physics baseline, not an unsourced
+            // curve fit. GenerateCurves is kept in place (not deleted) as a
+            // documented legacy fallback; see its own comment.
+            var baseline = BladeElementEngine.GenerateCurves(input, aero, profile, bladeAngleDeg, rpm);
             var corrected = new PerformanceCurveData { BladeAngleDeg = bladeAngleDeg, SpeedRpm = rpm };
             var features = PinnFeatureEngine.Compute(input, aero, profile);
 
@@ -392,6 +399,15 @@ namespace AxialFanMVC.Services
             return corrected;
         }
 
+        // LEGACY / no longer on the production path as of this revision.
+        // The Q-ΔP-η shape below is a hand-tuned curve fit (580, 5.8, 82.0,
+        // 0.07, 0.25 — none of these trace to a standard, handbook, or
+        // manufacturer curve) kept only for reference/rollback. Production
+        // baseline curves (CurveGeneration.cs, ExportService.cs,
+        // GenerateCorrectedCurves above) now call BladeElementEngine.
+        // GenerateCurves instead, which is a cited Blade Element Theory
+        // calculation (Wallis 1961 / Dixon Ch.7). Do not wire this method
+        // back into a save/export path without re-flagging that decision.
         public static PerformanceCurveData GenerateCurves(DesignInput input, AeroCalcResult aero, BladeProfileData? profile, double bladeAngleDeg, int rpm)
         {
             var curve = new PerformanceCurveData { BladeAngleDeg = bladeAngleDeg, SpeedRpm = rpm };
