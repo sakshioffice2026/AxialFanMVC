@@ -112,54 +112,18 @@ namespace AxialFanMVC.Services
         }
 
         // Overload used by DesignController once a blade profile and the
-        // calibration-case candidate set are available.
-        //
-        // This overload now also fixes the "separate defect" flagged in
-        // Calculate(DesignInput)'s comments: OverallEfficiencyPct/ShaftPowerKw
-        // used to just echo back the user's own TargetEfficiencyPct input
-        // (circular — the fan was never actually checked against it). Now
-        // that BladeElementEngine exists, we can predict a real efficiency/
-        // shaft-power at the design's own duty point (its Flow Rate + Total
-        // Pressure) instead of assuming the target is met. Calculate(DesignInput)
-        // alone (no profile) still uses the old placeholder, since it has no
-        // profile physics to predict from — this overload is what actually
-        // feeds the Result page via DesignController/CurveGeneration.
+        // calibration-case candidate set are available. Deliberately does
+        // NOT change any of Calculate(DesignInput)'s core math yet — profile
+        // aero data already feeds BladeElementEngine/PinnFeatureEngine
+        // separately, so re-deriving anything from it here would duplicate
+        // logic. What this overload adds is a calibration cross-check
+        // disclosure: whether real data exists for a geometry this close,
+        // so the user knows whether "PINN Corrected" is backed by anything
+        // real or is currently BEM-only with no ground truth to compare to.
+        // (Same wire-first-behavior-later pattern as MlModelAvailable.)
         public static AeroCalcResult Calculate(DesignInput d, BladeProfileData? profile, List<CalibrationCase> calibrationCandidates)
         {
-            var result = Calculate(d);
-
-            double targetEfficiencyPct = d.TargetEfficiencyPct;
-            var (_, betEtaPct, betKw, betStalled) = BladeElementEngine.EvaluateBaselinePoint(
-                d.FlowRateM3s, d.TipDiameterMm, d.HubRatio, result.ChordLengthMm,
-                d.BladeCount, d.BladeAngleDeg, d.SpeedRpm, d.DensityKgM3, profile);
-
-            result.OverallEfficiencyPct = betEtaPct;
-            result.ShaftPowerKw = betKw;
-
-            // Remove the stale warnings Calculate(DesignInput) added using the
-            // old circular numbers — they'd otherwise sit alongside the
-            // corrected ones below and contradict them.
-            result.Warnings.RemoveAll(w =>
-                w.Contains("approaches motor rating") ||
-                w.Contains("is below the min constraint of"));
-
-            result.Warnings.Add($"Info: predicted overall efficiency at this design's duty point " +
-                $"({d.FlowRateM3s:F2} m³/s, {d.TotalPressurePa:F0} Pa) is {betEtaPct:F1}% via Blade Element " +
-                $"Theory — your target was {targetEfficiencyPct:F1}%. This is a preliminary BET estimate, not " +
-                $"a CFD or test-bench result.");
-
-            if (betStalled)
-                result.Warnings.Add("Warning: the blade is estimated to be stalled (or beyond its estimated " +
-                    "stall angle) at some radial station at this exact duty point — the predicted efficiency/" +
-                    "pressure here should be treated with real caution, not just as a rough estimate.");
-
-            if (d.MinEfficiencyPct.HasValue && result.OverallEfficiencyPct < d.MinEfficiencyPct.Value)
-                result.Warnings.Add($"Predicted overall efficiency {result.OverallEfficiencyPct:F1}% is below " +
-                    $"the min constraint of {d.MinEfficiencyPct:F1}%.");
-
-            if (result.ShaftPowerKw > d.MotorPowerKw * 0.95)
-                result.Warnings.Add($"Predicted shaft power {result.ShaftPowerKw:F2} kW approaches motor " +
-                    $"rating {d.MotorPowerKw} kW. Consider upsizing motor.");
+            var result = Calculate(d, profile);
 
             const double diameterTolerancePct = 15.0;
             const double hubRatioTolerance = 0.05;
@@ -181,7 +145,7 @@ namespace AxialFanMVC.Services
             return result;
         }
 
-        public static AeroCalcResult Calculate(DesignInput d)
+        public static AeroCalcResult Calculate(DesignInput d, BladeProfileData? profile = null)
         {
             var r = new AeroCalcResult();
 
@@ -281,10 +245,31 @@ namespace AxialFanMVC.Services
 
             r.ChordLengthMm = ComputeMeanChordMm(d.TipDiameterMm, d.HubRatio, d.BladeCount);
 
-            // 8. Shaft power and efficiency
-            double hydraulicPower = d.FlowRateM3s * d.TotalPressurePa;
-            r.OverallEfficiencyPct = d.TargetEfficiencyPct;
-            r.ShaftPowerKw = hydraulicPower / (r.OverallEfficiencyPct / 100.0) / 1000.0;
+            // 8. Shaft power and efficiency — REAL calculation via
+            //    BladeElementEngine at the design operating point. This
+            //    used to be `r.OverallEfficiencyPct = d.TargetEfficiencyPct;`
+            //    — a pass-through of the user's *target* input, not a
+            //    computed result. An unset/0 target produced 0% efficiency
+            //    and a divide-by-zero shaft power (which surfaces as 0 or
+            //    Infinity depending on how it round-trips through storage).
+            var (designDp, designEta, designKw) = BladeElementEngine.ComputeAtPoint(
+                d, r, profile, d.BladeAngleDeg, d.SpeedRpm, d.FlowRateM3s, out bool designStalled);
+
+            r.OverallEfficiencyPct = designEta;
+            r.ShaftPowerKw = designKw;
+
+            // Runout/free-delivery check: if the BEM model can only deliver
+            // a small fraction of the requested pressure at this flow rate,
+            // the design as specified can't meet its duty point — flag it
+            // explicitly rather than silently showing near-zero results.
+            if (designDp < d.TotalPressurePa * 0.05 || designStalled)
+            {
+                r.Warnings.Add($"Runout warning: at the requested flow rate ({d.FlowRateM3s:F2} m³/s), this " +
+                    $"blade angle/speed/diameter/blade-count combination produces only {designDp:F1} Pa of the " +
+                    $"{d.TotalPressurePa:F0} Pa requested — the design is at or past its aerodynamic capability " +
+                    "(free-delivery/runout) at this operating point. Increase blade angle, increase RPM, " +
+                    "reduce tip diameter or hub ratio, or reduce the target flow rate.");
+            }
 
             // 9. Tip clearance
             r.TipClearanceMm = 3.0;
@@ -407,21 +392,34 @@ namespace AxialFanMVC.Services
             return corrected;
         }
 
-        // Delegates to BladeElementEngine's real Blade Element Theory (BET)
-        // calculation instead of the old hand-tuned-constant curve fit.
-        // This is the ONE place that decision is made — GenerateCorrectedCurves,
-        // CurveGeneration, and ExportService all call this method, so they all
-        // pick up BET automatically without needing their own changes.
-        //
-        // IMPORTANT — if you're reading this after retraining the PINN model:
-        // the ONNX correction model currently deployed (MLModels/efficiency_correction.onnx)
-        // was trained against residuals from the OLD tuned-constant baseline,
-        // not this one. Its corrections are now being added on top of a
-        // different baseline than the one it learned from — retrain against
-        // calibration data using this new baseline before trusting "PINN
-        // Corrected" numbers. See train_pinn_model.py / chat discussion.
         public static PerformanceCurveData GenerateCurves(DesignInput input, AeroCalcResult aero, BladeProfileData? profile, double bladeAngleDeg, int rpm)
-            => BladeElementEngine.GenerateCurves(input, aero, profile, bladeAngleDeg, rpm);
+        {
+            var curve = new PerformanceCurveData { BladeAngleDeg = bladeAngleDeg, SpeedRpm = rpm };
+            double rScale = Math.Pow(rpm / 1450.0, 2);
+            double aFactor = (bladeAngleDeg - 22.0) / 22.0;
+            double peakQ = 5.0 + (bladeAngleDeg - 22.0) * 0.15;
+
+            // NOTE: features/CurveCorrectionService intentionally NOT used here.
+            // This method must stay a pure baseline — GenerateCorrectedCurves()
+            // is the only place the ONNX correction is applied. (Previously this
+            // method applied CurveCorrectionService.Predict() itself AND
+            // GenerateCorrectedCurves() applied it again on top — a double
+            // correction. Fixed here.)
+
+            for (double q = 0; q <= 10.0; q += 0.5)
+            {
+                double dp = Math.Max(0, ((580 + aFactor * 160) - q * q * 5.8 * (1 - aFactor * 0.3)) * rScale);
+                double d2 = q - peakQ;
+                double eta = Math.Max(0, Math.Min(92, 82.0 * Math.Exp(-0.07 * d2 * d2) + (bladeAngleDeg - 22.0) * 0.25));
+                double kw = eta > 1 ? (q * dp) / (eta / 100.0 * 1000.0) : 0;
+
+                curve.QValues.Add(Math.Round(q, 2));
+                curve.DpValues.Add(Math.Round(dp, 1));
+                curve.EtaValues.Add(Math.Round(eta, 2));
+                curve.KwValues.Add(Math.Round(kw, 3));
+            }
+            return curve;
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════

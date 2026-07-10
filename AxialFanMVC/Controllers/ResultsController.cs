@@ -53,7 +53,20 @@ namespace AxialFanMVC.Controllers
                 .OrderByDescending(c => c.GeneratedAt)
                 .ToList();
 
-            var curveJson = BuildCurveJson(baselineCurve, correctedCurve, manualCurves);
+
+            var curveJson = JsonSerializer.Serialize(
+    result.PerformanceCurves.Select(c => new
+    {
+        id = c.Id,
+        source = c.Source ?? "Unlabeled",
+        angle = c.BladeAngleDeg,
+        rpm = c.SpeedRpm,
+        q = c.QValues.Split(',').Select(double.Parse),
+        dp = c.DpValues.Split(',').Select(double.Parse),
+        eta = c.EtaValues.Split(',').Select(double.Parse),
+        kw = c.KwValues.Split(',').Select(double.Parse)
+    })
+);
 
             var di = result.DesignInput;
 
@@ -103,7 +116,7 @@ namespace AxialFanMVC.Controllers
                 // was dead code. Now populated from the same curves used
                 // for CurveJson, so both stay in sync.
                 BaselineComparison = baselineCurve != null
-                    ? BuildComparison(baselineCurve, di) : null,
+                    ? await BuildBaselineComparisonAsync(baselineCurve, di, result) : null,
                 PinnComparison = correctedCurve != null
                     ? BuildComparison(correctedCurve, di) : null,
 
@@ -241,6 +254,47 @@ namespace AxialFanMVC.Controllers
             });
         }
 
+        private async Task<CurveComparisonViewModel> BuildBaselineComparisonAsync(
+            PerformanceCurve curve, DesignInput di, DesignResult result)
+        {
+            var dp = curve.DpValues.Split(',').Select(double.Parse).ToList();
+            var eta = curve.EtaValues.Split(',').Select(double.Parse).ToList();
+
+            // Baseline row now recomputes the EXACT design-point value via
+            // the same ComputeAtPoint call DesignController uses for the
+            // top summary panel (result.OverallEfficiencyPct/ShaftPowerKw) —
+            // instead of the old nearest-0.5-m³/s-sample lookup below, which
+            // is what let this row and the top panel disagree (e.g. 0.0%
+            // top panel vs 14.25% here) even though both were "using BEM":
+            // they were evaluating BEM at two different flow rates.
+            var bladeProfile = di.BladeProfileId.HasValue
+                ? await _repo.GetBladeProfileAsync(di.BladeProfileId.Value)
+                : null;
+            var profileData = BladeProfileEngine.ResolveProfileData(bladeProfile, result.ChordLengthMm);
+            var aeroForChord = new AeroCalcResult { ChordLengthMm = result.ChordLengthMm };
+
+            var (exactDp, exactEta, exactKw) = BladeElementEngine.ComputeAtPoint(
+                di, aeroForChord, profileData, di.BladeAngleDeg, di.SpeedRpm, di.FlowRateM3s, out _);
+
+            return new CurveComparisonViewModel
+            {
+                PressurePa = exactDp,
+                PeakPressurePa = dp.Max(),
+                EfficiencyPct = exactEta,
+                PeakEfficiencyPct = eta.Max(),
+                PowerKw = exactKw
+            };
+        }
+
+        // Corrected/PINN row still uses the nearest-sample lookup — its
+        // design-point value includes the ONNX correction applied per-Q
+        // during curve generation, which isn't something ComputeAtPoint
+        // (BEM only, no ML correction) can reproduce exactly. This carries
+        // up to ~0.25 m³/s of discretization error, smaller and more
+        // defensible than the baseline mismatch this fixes, but a known
+        // follow-up would be exposing a single-point corrected evaluation
+        // (BEM + ONNX at the exact Q) the same way ComputeAtPoint does for
+        // baseline-only.
         private static CurveComparisonViewModel BuildComparison(PerformanceCurve curve, DesignInput di)
         {
             var q = curve.QValues.Split(',').Select(double.Parse).ToList();

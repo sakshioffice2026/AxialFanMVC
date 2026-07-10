@@ -78,30 +78,17 @@ namespace AxialFanMVC.Services
             double bladeAngleDeg, int rpm, List<string>? warnings = null)
         {
             var curve = new PerformanceCurveData { BladeAngleDeg = bladeAngleDeg, SpeedRpm = rpm };
-            int bladeCount = Math.Max(1, input.BladeCount);
             bool anyStationStalled = false;
 
-            // Sample out to at least the design's own flow rate (with 20%
-            // headroom), not just a fixed 10 m3/s — otherwise designs above
-            // 10 m3/s never have their real duty point represented on their
-            // own curve (same issue discussed for the old tuned-formula
-            // baseline; applies here too since this is now the baseline).
-            double qMax = Math.Max(10.0, input.FlowRateM3s * 1.2);
-            double step = qMax / 20.0;
-
-            for (int i = 0; i <= 20; i++)
+            for (double q = 0; q <= 10.0; q += 0.5)
             {
-                double q = i * step;
-                var (dp, eta, kw, stalled) = EvaluateBaselinePoint(
-                    q, input.TipDiameterMm, input.HubRatio, aero.ChordLengthMm,
-                    bladeCount, bladeAngleDeg, rpm, input.DensityKgM3, profile);
-
+                var point = ComputeAtPoint(input, aero, profile, bladeAngleDeg, rpm, q, out bool stalled);
                 if (stalled) anyStationStalled = true;
 
                 curve.QValues.Add(Math.Round(q, 2));
-                curve.DpValues.Add(Math.Round(dp, 1));
-                curve.EtaValues.Add(Math.Round(eta, 2));
-                curve.KwValues.Add(Math.Round(kw, 3));
+                curve.DpValues.Add(point.DeltaPPa);
+                curve.EtaValues.Add(point.EfficiencyPct);
+                curve.KwValues.Add(point.ShaftPowerKw);
             }
 
             if (anyStationStalled)
@@ -114,33 +101,52 @@ namespace AxialFanMVC.Services
             return curve;
         }
 
-        // Baseline ΔP/η/kW (+ whether this station stalled) at a single (Q)
-        // operating point, from raw geometry values rather than a full
-        // DesignInput — so callers that don't have a DesignInput (e.g.
-        // CalibrationCasesController's training-data export, which only has
-        // a CalibrationCase's own geometry snapshot) can compute the exact
-        // same baseline the live app uses, without constructing a fake
-        // DesignInput just to call GenerateCurves. This is the ONE
-        // implementation both paths share — see AeroCalcEngine.GenerateCurves'
-        // comment about why that matters for PINN residual training targets
-        // not drifting from inference. Callers that don't care about stall
-        // (e.g. the CSV export) can just discard the 4th tuple element.
-        public static (double DpPa, double EtaPct, double KwPa, bool Stalled) EvaluateBaselinePoint(
-            double q, double tipDiameterMm, double hubRatio, double chordLengthMm,
-            int bladeCount, double bladeAngleDeg, int rpm, double densityKgM3,
-            BladeProfileData? profile = null)
+        // Single-operating-point BEM calculation. Shared by GenerateCurves
+        // (the full sweep, above) AND anywhere else that needs one point —
+        // so results are guaranteed to come from the exact same physics as
+        // what runs in production, no drift between callers.
+        public static (double DeltaPPa, double EfficiencyPct, double ShaftPowerKw) ComputeAtPoint(
+            DesignInput input, AeroCalcResult aero, BladeProfileData? profile,
+            double bladeAngleDeg, int rpm, double flowRateM3s, out bool stalled)
+        {
+            double tipRadius = input.TipDiameterMm / 2000.0;
+            double hubRadius = tipRadius * input.HubRatio;
+            double chordM = aero.ChordLengthMm / 1000.0;
+            double omega = 2 * Math.PI * rpm / 60.0;
+            int bladeCount = Math.Max(1, input.BladeCount);
+            var polar = ResolvePolar(profile);
+
+            var station = IntegrateStations(
+                flowRateM3s, omega, tipRadius, hubRadius, chordM, bladeCount,
+                bladeAngleDeg, input.DensityKgM3, polar, out stalled);
+
+            return (Math.Round(station.DeltaPPa, 1), Math.Round(station.EfficiencyPct, 2), Math.Round(station.ShaftPowerKw, 3));
+        }
+
+        // Scalar-parameter overload for callers that only have raw geometry
+        // values on hand (e.g. CalibrationCasesController — a CalibrationCase
+        // stores a profile *designation* string and camber/thickness %, not
+        // a full DesignInput/BladeProfileData object). No profile object is
+        // available here, so this always uses ResolvePolar's generic
+        // flat-plate-like fallback polar rather than a real Cl/Cd curve —
+        // understates how good/bad the case's actual profile is. Shares
+        // IntegrateStations with ComputeAtPoint above, so the physics is
+        // identical; only the calling convention differs.
+        public static (double DeltaPPa, double EfficiencyPct, double ShaftPowerKw, bool Stalled) EvaluateBaselinePoint(
+            double flowRateM3s, double tipDiameterMm, double hubRatio, double chordLengthMm,
+            int bladeCount, double bladeAngleDeg, int speedRpm, double densityKgM3)
         {
             double tipRadius = tipDiameterMm / 2000.0;
             double hubRadius = tipRadius * hubRatio;
             double chordM = chordLengthMm / 1000.0;
-            double omega = 2 * Math.PI * rpm / 60.0;
-            var polar = ResolvePolar(profile);
+            double omega = 2 * Math.PI * speedRpm / 60.0;
+            var polar = ResolvePolar(null);
 
             var station = IntegrateStations(
-                q, omega, tipRadius, hubRadius, chordM, Math.Max(1, bladeCount),
+                flowRateM3s, omega, tipRadius, hubRadius, chordM, Math.Max(1, bladeCount),
                 bladeAngleDeg, densityKgM3, polar, out bool stalled);
 
-            return (station.DeltaPPa, station.EfficiencyPct, station.ShaftPowerKw, stalled);
+            return (Math.Round(station.DeltaPPa, 1), Math.Round(station.EfficiencyPct, 2), Math.Round(station.ShaftPowerKw, 3), stalled);
         }
 
         private readonly record struct Polar(
