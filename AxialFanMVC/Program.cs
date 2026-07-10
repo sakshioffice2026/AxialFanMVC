@@ -31,6 +31,16 @@ builder.Services.AddHttpClient<IOllamaChatRepository, OllamaChatRepository>(clie
     client.Timeout = TimeSpan.FromSeconds(180);
 });
 
+// HandbookChunkRepository now calls Ollama directly (for embeddings), so it
+// needs an HttpClient the same way OllamaChatRepository does — same base URL,
+// same config key, just a different endpoint (/api/embed vs /api/chat).
+builder.Services.AddHttpClient<IHandbookChunkRepository, HandbookChunkRepository>(client =>
+{
+    var baseUrl = builder.Configuration["Ollama:BaseUrl"] ?? "http://localhost:11434";
+    client.BaseAddress = new Uri(baseUrl);
+    client.Timeout = TimeSpan.FromSeconds(180);
+});
+
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
@@ -78,6 +88,6 @@ using (var scope = app.Services.CreateScope())
 
 app.MapControllerRoute(
     name: "default",
-    pattern: "{controller=Home}/{action=Index}/{id?}");
+    pattern: "{controller=Dashboard}/{action=Index}/{id?}");
 
 app.Run();

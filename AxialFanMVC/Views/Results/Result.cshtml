@@ -135,6 +135,25 @@
     </div>
 }
 
+<div class="card mb-4">
+    <div class="card-header bg-light d-flex align-items-center">
+        <i class="bi bi-robot me-2"></i>
+        <strong>Design Copilot</strong>
+        <span class="text-muted ms-2 small">Ask about this design — grounded in its actual computed values</span>
+    </div>
+    <div class="card-body">
+        <div id="copilotHistory" class="mb-3" style="max-height:280px;overflow-y:auto;"></div>
+        <div class="input-group">
+            <input type="text" id="copilotInput" class="form-control"
+                   placeholder="e.g. Why is my efficiency 89%? Is my blade angle reasonable?" />
+            <button class="btn btn-primary" id="copilotAsk" type="button">
+                <i class="bi bi-send"></i> Ask
+            </button>
+        </div>
+        <div class="form-text">Runs locally via Ollama. Explanations only — every number it states comes from the results on this page, not from the AI itself.</div>
+    </div>
+</div>
+
 <div class="row g-4">
 
     <div class="col-lg-3">
@@ -788,6 +807,59 @@
         const designAngle  = @Model.BladeAngleDeg;
         const designRpm    = @Model.SpeedRpm;
         const resultId     = @Model.ResultId;
+
+        // ── Design Copilot ────────────────────────────────────────────
+        (function () {
+            const historyEl = document.getElementById('copilotHistory');
+            const inputEl   = document.getElementById('copilotInput');
+            const askBtn    = document.getElementById('copilotAsk');
+            if (!historyEl || !inputEl || !askBtn) return;
+
+            function appendMessage(role, text) {
+                const wrap = document.createElement('div');
+                wrap.className = 'mb-2';
+                const label = role === 'user' ? 'You' : 'Copilot';
+                const badgeClass = role === 'user' ? 'text-primary' : 'text-success';
+                wrap.innerHTML =
+                    '<div class="small fw-bold ' + badgeClass + '">' + label + '</div>' +
+                    '<div style="white-space:pre-wrap;">' + text + '</div>';
+                historyEl.appendChild(wrap);
+                historyEl.scrollTop = historyEl.scrollHeight;
+            }
+
+            async function ask() {
+                const message = inputEl.value.trim();
+                if (!message) return;
+
+                appendMessage('user', message);
+                inputEl.value = '';
+                askBtn.disabled = true;
+                appendMessage('assistant', 'Thinking...');
+                const thinkingEl = historyEl.lastElementChild;
+
+                try {
+                    const resp = await fetch('/Copilot/Ask', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ resultId: resultId, message: message })
+                    });
+                    const data = await resp.json();
+                    thinkingEl.remove();
+                    appendMessage('assistant', data.reply || 'No response.');
+                } catch (err) {
+                    thinkingEl.remove();
+                    appendMessage('assistant', 'Something went wrong reaching the copilot. Please try again.');
+                } finally {
+                    askBtn.disabled = false;
+                }
+            }
+
+            askBtn.addEventListener('click', ask);
+            inputEl.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') { e.preventDefault(); ask(); }
+            });
+        })();
+
 
         const MAX_CURVES = 10;
         const COLOR_PALETTE = [
