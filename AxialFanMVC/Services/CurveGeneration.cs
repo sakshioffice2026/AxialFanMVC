@@ -1,5 +1,6 @@
 ﻿using AxialFanMVC.Models;
 using AxialFanMVC.Repositories.Inteface;
+using System.Text.Json;
 
 namespace AxialFanMVC.Services
 {
@@ -8,6 +9,18 @@ namespace AxialFanMVC.Services
         private readonly IDesignResultRepository _repo;
         private readonly IPhysicsValidationEngine _validator;
         private readonly ICalibrationCaseRepository _calibrationRepo;
+
+        // Matches ASP.NET Core MVC's default JSON output policy (used by
+        // Controller.Json() in GenerateCurve). Keeping ValidationFlagsJson
+        // in the same casing as that endpoint means BuildCurveJson's
+        // pass-through and the AJAX response agree without a client-side
+        // shim — see flagField() in Result.cshtml, which this makes
+        // obsolete for any curve saved after this change.
+        private static readonly JsonSerializerOptions FlagsJsonOptions = new()
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        };
+
         public CurveGeneration(IDesignResultRepository repo, IPhysicsValidationEngine validator, ICalibrationCaseRepository calibrationRepo)
         {
             _repo = repo;
@@ -65,7 +78,7 @@ namespace AxialFanMVC.Services
                 EtaValues = string.Join(",", baselineValidation.CorrectedCurve.EtaValues),
                 KwValues = string.Join(",", baselineValidation.CorrectedCurve.KwValues),
                 ValidationStatus = baselineValidation.OverallStatus,
-                ValidationFlagsJson = System.Text.Json.JsonSerializer.Serialize(baselineValidation.Flags)
+                ValidationFlagsJson = JsonSerializer.Serialize(baselineValidation.Flags, FlagsJsonOptions)
             };
             await _repo.AddPerformanceCurveAsync(baselineEntity);
 
@@ -92,7 +105,7 @@ namespace AxialFanMVC.Services
                 EtaValues = string.Join(",", correctedValidation.CorrectedCurve.EtaValues),
                 KwValues = string.Join(",", correctedValidation.CorrectedCurve.KwValues),
                 ValidationStatus = correctedValidation.OverallStatus,
-                ValidationFlagsJson = System.Text.Json.JsonSerializer.Serialize(correctedValidation.Flags)
+                ValidationFlagsJson = JsonSerializer.Serialize(correctedValidation.Flags, FlagsJsonOptions)
             };
             await _repo.AddPerformanceCurveAsync(correctedEntity);
 

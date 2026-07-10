@@ -874,6 +874,7 @@
                 temporary: false,
                 origin: "Manual",
                 validationStatus: "not_applicable",
+                flags: [],
 
                 q: m.q, dp: m.dp, eta: m.eta, kw: m.kw
             });
@@ -947,6 +948,24 @@
 
         // ── Render everything from `curves` state ─────────────────────
         function render() {
+            // Nothing to show yet (no baseline/corrected/manual curves exist
+            // for this result) — bail out cleanly instead of crashing on
+            // reduce() with no elements to reduce. This happens for results
+            // that were calculated but never had GenerateCurve/Regenerate
+            // run against them yet.
+            if (curves.length === 0) {
+                chartQdp.data.labels = [];
+                chartQdp.data.datasets = [];
+                chartQdp.update();
+
+                chartEta.data.labels = [];
+                chartEta.data.datasets = [];
+                chartEta.update();
+
+                renderTable();
+                return;
+            }
+
             const labelSource = curves.reduce((a, b) => (a.q.length >= b.q.length ? a : b));
 
             chartQdp.data.labels = labelSource.q;

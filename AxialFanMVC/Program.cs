@@ -4,6 +4,7 @@ using AxialFanMVC.Repositories.Inteface;
 using AxialFanMVC.Services;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.EntityFrameworkCore;
+using System;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -62,6 +63,12 @@ app.UseStaticFiles();
 app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
+
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AxialFanDbContext>();
+    await ValidationFlagsBackfill.RunAsync(db);
+}
 
 using (var scope = app.Services.CreateScope())
 {
