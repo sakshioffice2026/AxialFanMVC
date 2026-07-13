@@ -126,7 +126,7 @@ public class ExportController : Controller
         r++;
 
         SectionHeader(ref r, "Structural Results");
-        Row(ref r, "Material", "Al 6061-T6");
+        Row(ref r, "Material", "Alluminium");
         Row(ref r, "Yield Strength", "270", "MPa");
         Row(ref r, "Tip Clearance", result.TipClearanceMm.ToString("F1"), "mm");
         Row(ref r, "Blade Stress", result.BladeStressMpa.ToString("F2"), "MPa");
@@ -233,7 +233,7 @@ public class ExportController : Controller
 
             Heading("Structural Results");
             KeyValueTable(
-                ("Material", "Al 6061-T6", ""),
+                ("Material", "Alluminium", ""),
                 ("Yield Strength", "270", "MPa"),
                 ("Tip Clearance", result.TipClearanceMm.ToString("F1"), "mm"),
                 ("Blade Stress", result.BladeStressMpa.ToString("F2"), "MPa"),
@@ -487,7 +487,7 @@ public class ExportController : Controller
         sb.AppendLine(@"<h2>Structural Results</h2>
 <table>
 <tr><th>Parameter</th><th>Value</th><th>Unit</th></tr>");
-        Row("Material", "Al 6061-T6");
+        Row("Material", "Alluminium");
         Row("Yield Strength", "270", "MPa");
         Row("Tip Clearance", $"{result.TipClearanceMm:F1}", "mm");
         Row("Blade Stress", $"{result.BladeStressMpa:F2}", "MPa");
@@ -668,7 +668,7 @@ Always verify with physical testing.
                             table.Cell().Text(label);
                             table.Cell().Text(val);
                         }
-                        Row("Material", "Al 6061-T6");
+                        Row("Material", "Alluminium");
                         Row("Yield Strength", "270 MPa");
                         Row("Tip Clearance", $"{result.TipClearanceMm:F1} mm");
                         Row("Blade Stress", $"{result.BladeStressMpa:F2} MPa");
@@ -783,7 +783,7 @@ Always verify with physical testing.
                             table.Cell().Text(value);
                         }
 
-                        Row("Material", "Al 6061-T6");
+                        Row("Material", "Alluminium");
                         Row("Yield Strength", "270 MPa");
                         Row("Tip Clearance", $"{result.TipClearanceMm:F1} mm");
                         Row("Blade Stress", $"{result.BladeStressMpa:F2} MPa");

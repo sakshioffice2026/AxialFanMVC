@@ -73,7 +73,7 @@ public class ExportService
 
         sb.AppendLine("STRUCTURAL RESULTS");
         sb.AppendLine("Parameter,Value,Unit");
-        sb.AppendLine("Material,Al 6061-T6,");
+        sb.AppendLine("Material,Alluminium,");
         sb.AppendLine("Yield Strength,270,MPa");
         sb.AppendLine($"Tip Clearance,{result.TipClearanceMm:F1},mm");
         sb.AppendLine($"Blade Stress,{result.BladeStressMpa:F2},MPa");
@@ -211,7 +211,7 @@ public class ExportService
         sb.AppendLine(@"<h2>Structural Results</h2>
 <table>
 <tr><th>Parameter</th><th>Value</th><th>Unit</th></tr>");
-        Row("Material", "Al 6061-T6");
+        Row("Material", "Alluminium");
         Row("Yield Strength", "270", "MPa");
         Row("Tip Clearance", $"{result.TipClearanceMm:F1}", "mm");
         Row("Blade Stress", $"{result.BladeStressMpa:F2}", "MPa");
@@ -344,7 +344,7 @@ For engineering reference only.
 
                         row.RelativeItem().Element(c => Card(c, "Structural Results", Colors.Orange.Darken1, Colors.White, table =>
                         {
-                            Row(table, "Material", "Al 6061-T6");
+                            Row(table, "Material", "Alluminium");
                             Row(table, "Yield Strength", "270 MPa");
                             Row(table, "Tip Clearance", $"{result.TipClearanceMm:F1} mm");
                             Row(table, "Blade Stress", $"{result.BladeStressMpa:F2} MPa");
@@ -783,7 +783,7 @@ For engineering reference only.
                         ("Shaft Power", $"{result.ShaftPowerKw:F3} kW"));
 
                     SectionTable("Structural Results",
-                        ("Material", "Al 6061-T6"),
+                        ("Material", "Alluminium"),
                         ("Yield Strength", "270 MPa"),
                         ("Tip Clearance", $"{result.TipClearanceMm:F1} mm"),
                         ("Blade Stress", $"{result.BladeStressMpa:F2} MPa"),

@@ -110,17 +110,18 @@ namespace AxialFanMVC.Controllers
         // must be re-exported/retrained — its residual targets no longer
         // match what CurveCorrectionService is actually correcting against.
         //
-        // Each case's BladeProfileDesignation (e.g. "NACA 4412") is resolved
-        // into real BladeProfileData via BladeProfileEngine.ResolveFromDesignation
-        // and passed into EvaluateBaselinePoint below — previously this call
-        // always passed profile=null, so every case (regardless of its actual
-        // recorded airfoil) was scored against BladeElementEngine's generic
-        // flat-plate-like fallback polar. That silently mismatched the
-        // baseline against the real profile for anything other than a true
-        // flat plate, which fed wrong dp/eta residual targets into the ONNX
-        // training CSV. Cases with no designation (null/blank) still fall
-        // back to the flat-plate polar, same as before — that's the correct
-        // behavior when no profile was actually recorded.
+        // NOTE — blade profile resolution: CalibrationCase stores a profile
+        // *designation* (string, e.g. "NACA 2412") and camber/thickness %,
+        // not a full BladeProfileData/AeroParams object. This now resolves
+        // that designation via BladeProfileEngine.ResolveProfileDataFromDesignation
+        // (mirrors ResolveProfileData's NACA4/NACA5 dispatch, just from a bare
+        // string instead of a saved BladeProfile entity) and passes the real
+        // profile into EvaluateBaselinePoint, so a case with a known profile
+        // trains against that profile's real Cl/Cd curve instead of the
+        // generic flat-plate-like fallback. Cases with no designation (or an
+        // unparseable one) still fall back to flat-plate, same as before —
+        // that's the correct behavior when there's genuinely no profile
+        // shape info available, not a bug.
         //
         // NOTE on Φ/Ψ/specific speed: the live app computes these once per
         // design (at the design's duty-point flow) and holds them fixed while
@@ -146,10 +147,13 @@ namespace AxialFanMVC.Controllers
 
             foreach (var c in cases)
             {
-                // Resolved once per case (not per point) — same profile applies
-                // to every point on a case's curve. Null (unassigned/unparsable
-                // designation) correctly falls back to the flat-plate polar.
-                var profile = BladeProfileEngine.ResolveFromDesignation(c.BladeProfileDesignation, c.ChordLengthMm);
+                // Resolved once per case (depends only on designation + chord,
+                // not on the per-point flow rate) — null if the case has no
+                // designation or it doesn't parse as NACA4/NACA5, in which case
+                // EvaluateBaselinePoint falls back to the generic flat-plate
+                // polar exactly as before.
+                var profile = BladeProfileEngine.ResolveProfileDataFromDesignation(
+                    c.BladeProfileDesignation, c.ChordLengthMm);
 
                 foreach (var p in c.Points)
                 {

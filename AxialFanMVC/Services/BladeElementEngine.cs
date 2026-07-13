@@ -126,18 +126,14 @@ namespace AxialFanMVC.Services
         // Scalar-parameter overload for callers that only have raw geometry
         // values on hand (e.g. CalibrationCasesController — a CalibrationCase
         // stores a profile *designation* string and camber/thickness %, not
-        // a full DesignInput/BladeProfileData object).
-        //
-        // `profile` defaults to null for backward compatibility with existing
-        // callers, but any caller that HAS a resolvable profile (e.g. via
-        // BladeProfileEngine.ResolveFromDesignation) should pass it in — this
-        // is exactly what was previously missing here: the case's actual
-        // airfoil was silently discarded and every calibration case, no
-        // matter what NACA profile it recorded, was scored against the same
-        // generic flat-plate-like polar. That mismatch fed wrong dp/eta
-        // residual targets into the ONNX training CSV for anything other
-        // than a true flat plate. Shares IntegrateStations with
-        // ComputeAtPoint above, so the physics is identical; only the
+        // a full DesignInput/BladeProfileData object). `profile` is optional
+        // and defaults to null (ResolvePolar's generic flat-plate-like
+        // fallback) for backward compatibility, but callers that CAN resolve
+        // a real profile (e.g. via BladeProfileEngine.ResolveProfileDataFromDesignation)
+        // should pass it — using a real Cl/Cd curve here instead of always
+        // falling back to flat-plate, which previously understated how
+        // good/bad the case's actual profile is. Shares IntegrateStations
+        // with ComputeAtPoint above, so the physics is identical; only the
         // calling convention differs.
         public static (double DeltaPPa, double EfficiencyPct, double ShaftPowerKw, bool Stalled) EvaluateBaselinePoint(
             double flowRateM3s, double tipDiameterMm, double hubRatio, double chordLengthMm,
@@ -266,4 +262,4 @@ namespace AxialFanMVC.Services
             return sum * dr / 3.0;
         }
     }
-}
+} 

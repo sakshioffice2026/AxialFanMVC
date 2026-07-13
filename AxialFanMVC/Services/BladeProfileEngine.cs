@@ -418,7 +418,10 @@ namespace AxialFanMVC.Services
             {
                 if (bp.Type == "NACA")
                 {
-                    return ResolveFromDesignation(bp.Name, chordMm);
+                    string designation = bp.Name.Replace("NACA ", "").Trim();
+                    return designation.Length == 5
+                        ? GenerateNaca5(designation, chordMm)
+                        : GenerateNaca4(designation, chordMm);
                 }
                 // Custom profiles need real CoordinateData to generate from;
                 // if it's missing (e.g. the seeded "Flat plate" entry), there's
@@ -429,28 +432,36 @@ namespace AxialFanMVC.Services
             return null;
         }
 
-        // Same NACA-designation-string resolution as ResolveProfileData's "NACA"
-        // branch above, but for callers that only have a raw designation string
-        // on hand — not a saved BladeProfile entity. This exists specifically
-        // for CalibrationCase.BladeProfileDesignation (e.g. "NACA 4412"), so a
-        // calibration case's actual airfoil can be resolved into real Cl/Cd
-        // data instead of silently falling back to a generic flat-plate polar.
-        // Returns null for a blank/unassigned designation or anything that
-        // doesn't parse as a NACA 4- or 5-digit code — callers must treat null
-        // as "no profile shape info available," same as ResolveProfileData.
-        public static BladeProfileData? ResolveFromDesignation(string? designation, double chordMm)
+        // Resolves a raw NACA designation STRING directly into BladeProfileData,
+        // for callers that only have a designation on hand rather than a saved
+        // BladeProfile entity — specifically CalibrationCase.BladeProfileDesignation,
+        // which stores e.g. "NACA 2412" as free text, not a foreign key. Previously
+        // there was no path from that string back to a real Cl/Cd polar, so
+        // CalibrationCasesController.ExportTrainingCsv always evaluated the baseline
+        // with profile=null (generic flat-plate-like fallback), even for cases with
+        // a real, known profile — silently understating how good/bad that profile
+        // actually is relative to a flat plate. Same NACA4/NACA5 dispatch logic as
+        // ResolveProfileData(BladeProfile?, double) above, factored out so both
+        // entry points resolve identically. Returns null (not an error) if the
+        // designation is missing, blank, or not parseable as NACA4/NACA5 — callers
+        // must treat null exactly like ResolveProfileData's null case: "no profile
+        // shape info available," fall back to the generic polar.
+        public static BladeProfileData? ResolveProfileDataFromDesignation(string? designation, double chordMm)
         {
             if (string.IsNullOrWhiteSpace(designation)) return null;
 
             try
             {
-                string d = designation.Replace("NACA", "").Replace(" ", "").Trim();
-                return d.Length == 5
-                    ? GenerateNaca5(d, chordMm)
-                    : GenerateNaca4(d, chordMm);
+                string cleaned = designation.Replace("NACA", "", StringComparison.OrdinalIgnoreCase).Trim();
+                return cleaned.Length == 5
+                    ? GenerateNaca5(cleaned, chordMm)
+                    : GenerateNaca4(cleaned, chordMm);
             }
-            catch { return null; }
+            catch { /* malformed designation — same defensive pattern as ResolveProfileData */ }
+
+            return null;
         }
+
         private static double GetNaca5MaxCamber(double cl, double p)
             => cl * p / 3.0;  // rough approximation
 
@@ -484,7 +495,5 @@ namespace AxialFanMVC.Services
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // Data transfer objects
-    // ═══════════════════════════════════════════════════════════════
+   
 }
