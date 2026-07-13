@@ -16,6 +16,12 @@ namespace AxialFanMVC.Database
         [Column("design_input_id")]
         public int DesignInputId { get; set; }
 
+        [MaxLength(50), Column("material_used")]
+        public string MaterialUsed { get; set; } = "";
+
+        [Column("yield_strength_mpa")]
+        public double YieldStrengthMpa { get; set; }
+
         // Aerodynamic outputs
         [Column("specific_speed")] public double SpecificSpeed { get; set; }
         [Column("tip_speed_ms")] public double TipSpeedMs { get; set; }

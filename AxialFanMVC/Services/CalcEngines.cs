@@ -447,16 +447,22 @@ namespace AxialFanMVC.Services
         {
             var r = new StructCalcResult();
 
-            double materialDensity = 2700;     // kg/m³ (Al alloy)
-            double yieldStrength = 270e6;    // Pa (Al 6061-T6)
+            var material = MaterialLibrary.Get(d.BladeMaterial);
+            r.MaterialUsed = material.Name;
+            r.YieldStrengthMpa = material.YieldStrengthPa / 1e6;
+
+            if (string.IsNullOrWhiteSpace(d.BladeMaterial))
+                r.Warnings.Add($"Info: no blade material specified — defaulted to {material.Name} " +
+                    "(no material selection exists in the wizard yet).");
+
             double tipRadius = d.TipDiameterMm / 2000.0;
             double hubRadius = tipRadius * d.HubRatio;
             double chordM = aero.ChordLengthMm / 1000.0;
-            double thickness = chordM * 0.12;  // 12% t/c ratio
+            double thickness = chordM * 0.12;
             double omega = 2 * Math.PI * d.SpeedRpm / 60.0;
 
             double bladeVolume = chordM * thickness * (tipRadius - hubRadius);
-            double bladeMass = bladeVolume * materialDensity;
+            double bladeMass = bladeVolume * material.DensityKgM3;       // was materialDensity
             double centroidRadius = (tipRadius + hubRadius) / 2.0;
             double centrifugalForce = bladeMass * omega * omega * centroidRadius;
             double hubArea = chordM * thickness;
@@ -464,26 +470,20 @@ namespace AxialFanMVC.Services
 
             double liftPerSpan = d.TotalPressurePa * chordM;
             double span = tipRadius - hubRadius;
-            // Root bending moment for a UNIFORMLY DISTRIBUTED load on a
-            // CANTILEVER beam (fixed at the hub, free at the tip — which is
-            // exactly how a fan blade is mounted): M_root = w*L^2/2.
-            // Previously this used w*L^2/8, which is the max-moment formula
-            // for a SIMPLY-SUPPORTED beam (supported at both ends) — the
-            // wrong boundary condition for a blade. That understated the
-            // bending-stress component of BladeStressMpa (and therefore
-            // overstated SafetyFactor) by up to 4x. See Wallis, "Axial Flow
-            // Fans and Ducts" / any standard beam-bending reference (e.g.
-            // Gere & Goodno, "Mechanics of Materials") for the cantilever
-            // UDL case.
             double bendingMoment = liftPerSpan * span * span / 2.0;
             double sectionModulus = chordM * Math.Pow(thickness, 2) / 6.0;
             double bendStress = bendingMoment / sectionModulus / 1e6;
 
             r.TotalStressMpa = r.BladeStressMpa + bendStress;
-            r.SafetyFactor = Math.Round(yieldStrength / 1e6 / r.TotalStressMpa, 2);
+            r.SafetyFactor = Math.Round(material.YieldStrengthPa / 1e6 / r.TotalStressMpa, 2);  // was yieldStrength
+
+            double fatigueSf = Math.Round(material.EnduranceLimitPaApprox / 1e6 / r.TotalStressMpa, 2);
+            r.FatigueSafetyFactorMeanOnly = fatigueSf;
 
             if (r.SafetyFactor < 2.0)
-                r.Warnings.Add($"Safety factor {r.SafetyFactor:F2} is below minimum of 2.0 — review blade geometry or material.");
+                r.Warnings.Add($"Static safety factor {r.SafetyFactor:F2} (material: {material.Name}) is below minimum of 2.0.");
+            if (fatigueSf < 3.0)
+                r.Warnings.Add($"Fatigue safety factor {fatigueSf:F2} (mean-stress basis, material: {material.Name}) is below target.");
 
             return r;
         }
@@ -496,6 +496,17 @@ namespace AxialFanMVC.Services
             double meanRadius = (tipRadius + hubRadius) / 2.0;
             const double solidity = 0.45;
             return solidity * 2 * Math.PI * meanRadius / bladeCount * 1000;
+        }
+
+        public class StructCalcResult
+        {
+            public double BladeStressMpa { get; set; }
+            public double TotalStressMpa { get; set; }
+            public double SafetyFactor { get; set; }
+            public double FatigueSafetyFactorMeanOnly { get; set; }
+            public string MaterialUsed { get; set; } = "";
+            public double YieldStrengthMpa { get; set; }   // new — so exports read from here, not a literal
+            public List<string> Warnings { get; set; } = new();
         }
     }
 

@@ -73,8 +73,8 @@ public class ExportService
 
         sb.AppendLine("STRUCTURAL RESULTS");
         sb.AppendLine("Parameter,Value,Unit");
-        sb.AppendLine("Material,Alluminium,");
-        sb.AppendLine("Yield Strength,270,MPa");
+        sb.AppendLine($"Material,{result.MaterialUsed},");
+        sb.AppendLine($"Yield Strength,{result.YieldStrengthMpa:F0},MPa");
         sb.AppendLine($"Tip Clearance,{result.TipClearanceMm:F1},mm");
         sb.AppendLine($"Blade Stress,{result.BladeStressMpa:F2},MPa");
         sb.AppendLine($"Safety Factor,{result.SafetyFactor:F2},");
@@ -211,8 +211,8 @@ public class ExportService
         sb.AppendLine(@"<h2>Structural Results</h2>
 <table>
 <tr><th>Parameter</th><th>Value</th><th>Unit</th></tr>");
-        Row("Material", "Alluminium");
-        Row("Yield Strength", "270", "MPa");
+        Row("Material", result.MaterialUsed);
+        Row("Yield Strength", $"{result.YieldStrengthMpa:F0}", "MPa");
         Row("Tip Clearance", $"{result.TipClearanceMm:F1}", "mm");
         Row("Blade Stress", $"{result.BladeStressMpa:F2}", "MPa");
         Row("Safety Factor", $"{result.SafetyFactor:F2}",
@@ -344,8 +344,8 @@ For engineering reference only.
 
                         row.RelativeItem().Element(c => Card(c, "Structural Results", Colors.Orange.Darken1, Colors.White, table =>
                         {
-                            Row(table, "Material", "Alluminium");
-                            Row(table, "Yield Strength", "270 MPa");
+                            Row(table, "Material", result.MaterialUsed);
+                            Row(table, "Yield Strength", $"{result.YieldStrengthMpa:F0} MPa");
                             Row(table, "Tip Clearance", $"{result.TipClearanceMm:F1} mm");
                             Row(table, "Blade Stress", $"{result.BladeStressMpa:F2} MPa");
                             var sfColor = result.SafetyFactor >= 2.0 ? Colors.Green.Darken1 : Colors.Red.Darken1;
@@ -783,8 +783,8 @@ For engineering reference only.
                         ("Shaft Power", $"{result.ShaftPowerKw:F3} kW"));
 
                     SectionTable("Structural Results",
-                        ("Material", "Alluminium"),
-                        ("Yield Strength", "270 MPa"),
+                        ("Material", result.MaterialUsed),
+                     ("Yield Strength", $"{result.YieldStrengthMpa:F0} MPa"),
                         ("Tip Clearance", $"{result.TipClearanceMm:F1} mm"),
                         ("Blade Stress", $"{result.BladeStressMpa:F2} MPa"),
                         ("Safety Factor", $"{result.SafetyFactor:F2} ({(result.SafetyFactor >= 2.0 ? "PASS" : "FAIL")})"));

@@ -14,6 +14,9 @@ namespace AxialFanMVC.Database
         [Key, Column("id")]
         public int Id { get; set; }
 
+        [MaxLength(50), Column("blade_material")]
+        public string BladeMaterial { get; set; } = "Aluminum ";
+
         [Column("project_id")]
         public int ProjectId { get; set; }
 

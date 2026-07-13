@@ -78,6 +78,10 @@ namespace AxialFanMVC.ViewModels
     {
         public int ProjectId { get; set; }
         public string ProjectName { get; set; } = string.Empty;
+
+        [Display(Name = "Blade Material")]
+        public string BladeMaterial { get; set; } = "Aluminum 6061-T6";
+
         public int CurrentStep { get; set; } = 1;
         public List<BladeProfile> BladeProfiles { get; set; } = new();
 

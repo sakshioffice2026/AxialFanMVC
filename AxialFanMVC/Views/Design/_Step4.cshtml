@@ -21,6 +21,15 @@
         </select>
     </div>
     <div class="col-md-6">
+        <label asp-for="BladeMaterial" class="form-label">Blade Material</label>
+        <select asp-for="BladeMaterial" class="form-select">
+            @foreach (var mat in AxialFanMVC.Services.MaterialLibrary.AvailableMaterials)
+            {
+                <option value="@mat">@mat</option>
+            }
+        </select>
+    </div>
+    <div class="col-md-6">
         <label asp-for="BladeCount" class="form-label">Blade Count</label>
         <input asp-for="BladeCount" type="text" class="form-control" />
     </div>

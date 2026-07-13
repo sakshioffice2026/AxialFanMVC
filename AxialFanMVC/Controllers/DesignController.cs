@@ -175,6 +175,7 @@ namespace AxialFanMVC.Controllers
                     AccBackdraftDamper = vm.AccBackdraftDamper,
                     AccessoryNotes = vm.AccessoryNotes,
                     BladeCount = vm.BladeCount,
+                    BladeMaterial = vm.BladeMaterial,
                     TipDiameterMm = vm.TipDiameterMm,
                     HubRatio = vm.HubRatio,
                     BladeAngleDeg = vm.BladeAngleDeg,
@@ -275,6 +276,8 @@ namespace AxialFanMVC.Controllers
                         // Structural
                         BladeStressMpa = Math.Round(struct_.TotalStressMpa, 2),
                         SafetyFactor = struct_.SafetyFactor,
+                        MaterialUsed = struct_.MaterialUsed,                       // <-- add
+                        YieldStrengthMpa = Math.Round(struct_.YieldStrengthMpa, 1), 
 
                         // ===============================
                         // NEW SOUND RESULTS
@@ -450,6 +453,7 @@ namespace AxialFanMVC.Controllers
                 SpeedRpm = input.SpeedRpm,
                 MotorPoles = input.MotorPoles,
                 BladeCount = input.BladeCount,
+                BladeMaterial = input.BladeMaterial,
                 TipDiameterMm = input.TipDiameterMm,
                 HubRatio = input.HubRatio,
                 BladeAngleDeg = input.BladeAngleDeg,

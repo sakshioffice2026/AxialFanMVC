@@ -126,8 +126,8 @@ public class ExportController : Controller
         r++;
 
         SectionHeader(ref r, "Structural Results");
-        Row(ref r, "Material", "Alluminium");
-        Row(ref r, "Yield Strength", "270", "MPa");
+        Row(ref r, "Material", result.MaterialUsed);
+        Row(ref r, "Yield Strength", result.YieldStrengthMpa.ToString("F0"), "MPa");
         Row(ref r, "Tip Clearance", result.TipClearanceMm.ToString("F1"), "mm");
         Row(ref r, "Blade Stress", result.BladeStressMpa.ToString("F2"), "MPa");
         Row(ref r, "Safety Factor", result.SafetyFactor.ToString("F2"),
@@ -233,8 +233,8 @@ public class ExportController : Controller
 
             Heading("Structural Results");
             KeyValueTable(
-                ("Material", "Alluminium", ""),
-                ("Yield Strength", "270", "MPa"),
+               ("Material", result.MaterialUsed, ""),
+             ("Yield Strength", result.YieldStrengthMpa.ToString("F0"), "MPa"),
                 ("Tip Clearance", result.TipClearanceMm.ToString("F1"), "mm"),
                 ("Blade Stress", result.BladeStressMpa.ToString("F2"), "MPa"),
                 ("Safety Factor", result.SafetyFactor.ToString("F2"),
@@ -487,8 +487,8 @@ public class ExportController : Controller
         sb.AppendLine(@"<h2>Structural Results</h2>
 <table>
 <tr><th>Parameter</th><th>Value</th><th>Unit</th></tr>");
-        Row("Material", "Alluminium");
-        Row("Yield Strength", "270", "MPa");
+        Row("Material", result.MaterialUsed);
+        Row("Yield Strength", $"{result.YieldStrengthMpa:F0}", "MPa");
         Row("Tip Clearance", $"{result.TipClearanceMm:F1}", "mm");
         Row("Blade Stress", $"{result.BladeStressMpa:F2}", "MPa");
         Row("Safety Factor", $"{result.SafetyFactor:F2}",
@@ -668,8 +668,8 @@ Always verify with physical testing.
                             table.Cell().Text(label);
                             table.Cell().Text(val);
                         }
-                        Row("Material", "Alluminium");
-                        Row("Yield Strength", "270 MPa");
+                        Row("Material", result.MaterialUsed);
+                        Row("Yield Strength", $"{result.YieldStrengthMpa:F0} MPa");
                         Row("Tip Clearance", $"{result.TipClearanceMm:F1} mm");
                         Row("Blade Stress", $"{result.BladeStressMpa:F2} MPa");
                         Row("Safety Factor", $"{result.SafetyFactor:F2} ({(result.SafetyFactor >= 2.0 ? "PASS" : "FAIL")})");
@@ -783,8 +783,8 @@ Always verify with physical testing.
                             table.Cell().Text(value);
                         }
 
-                        Row("Material", "Alluminium");
-                        Row("Yield Strength", "270 MPa");
+                        Row("Material", result.MaterialUsed);
+                        Row("Yield Strength", $"{result.YieldStrengthMpa:F0} MPa");
                         Row("Tip Clearance", $"{result.TipClearanceMm:F1} mm");
                         Row("Blade Stress", $"{result.BladeStressMpa:F2} MPa");
                         Row("Safety Factor", $"{result.SafetyFactor:F2}");
