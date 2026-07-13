@@ -264,11 +264,43 @@ namespace AxialFanMVC.Services
             // explicitly rather than silently showing near-zero results.
             if (designDp < d.TotalPressurePa * 0.05 || designStalled)
             {
+                // Direction-aware fix suggestions. There are two distinct
+                // ways this collapse happens, and they call for OPPOSITE
+                // fixes to tip diameter/hub ratio — a single one-size-fits-
+                // all suggestion list (the old text always said "reduce tip
+                // diameter or hub ratio") is actively wrong for one of them:
+                //
+                //   - Annulus too SMALL for the requested flow: axial
+                //     velocity (va = Q/annulusArea) gets driven so high that
+                //     the relative inflow angle at the HUB (where blade
+                //     speed u is smallest, so va/u is largest) exceeds the
+                //     blade angle — angle of attack goes negative there.
+                //     Fix: INCREASE tip diameter/hub-area, increase RPM, or
+                //     reduce flow rate. Reducing tip diameter shrinks the
+                //     annulus further and makes this worse, not better.
+                //
+                //   - Annulus too LARGE (or blade angle too aggressive) for
+                //     the flow: axial velocity is low, so angle of attack at
+                //     the TIP (where u is largest, va/u smallest) exceeds
+                //     the profile's positive stall angle. Fix: reduce blade
+                //     angle, reduce tip diameter/hub ratio, reduce RPM, or
+                //     increase flow rate.
+                double beta1HubDeg = Math.Atan2(r.AxialVelocityMs, omega * hubRadius) * 180.0 / Pi;
+                bool annulusTooSmallForFlow = beta1HubDeg > d.BladeAngleDeg;
+
+                string fixSuggestion = annulusTooSmallForFlow
+                    ? "the annulus is too small for this much flow (axial velocity has outrun the blade speed " +
+                      "near the hub, so the hub is at a negative angle of attack). Increase tip diameter, " +
+                      "increase RPM, or reduce the target flow rate — reducing tip diameter or hub ratio would " +
+                      "make this worse, not better."
+                    : "the blade angle is too aggressive for this much flow (the tip is past its positive stall " +
+                      "angle). Reduce blade angle, reduce tip diameter or hub ratio, reduce RPM, or increase the " +
+                      "target flow rate.";
+
                 r.Warnings.Add($"Runout warning: at the requested flow rate ({d.FlowRateM3s:F2} m³/s), this " +
                     $"blade angle/speed/diameter/blade-count combination produces only {designDp:F1} Pa of the " +
                     $"{d.TotalPressurePa:F0} Pa requested — the design is at or past its aerodynamic capability " +
-                    "(free-delivery/runout) at this operating point. Increase blade angle, increase RPM, " +
-                    "reduce tip diameter or hub ratio, or reduce the target flow rate.");
+                    $"(free-delivery/runout) at this operating point. Most likely cause: {fixSuggestion}");
             }
 
             // 9. Tip clearance
@@ -443,51 +475,96 @@ namespace AxialFanMVC.Services
     // ═══════════════════════════════════════════════════════════════
     public static class StructCalcEngine
     {
+        // 6061-T6 aluminum
+        private const double MaterialDensity = 2700;      // kg/m³
+        private const double YieldStrengthPa = 270e6;      // Pa — first-load / static check only
+        private const double UltimateStrengthPa = 310e6;   // Pa (Su) — for reference/Goodman use later
+
+        // APPROXIMATE uncorrected endurance limit for 6061-T6, ~5e8 cycles (MIL-HDBK-5H, ~14 ksi).
+        // This has NOT been corrected for surface finish, size, or the blade-root fillet stress
+        // concentration (fillet radius isn't in DesignInput yet). Treat as a rough ceiling, not
+        // a certified fatigue allowable, until those inputs exist.
+        private const double EnduranceLimitPaApprox = 96.5e6;
+
+        private const double MinStaticSafetyFactor = 2.0;
+        private const double MinFatigueSafetyFactor = 3.0; // extra margin since Se here is uncorrected
+
         public static StructCalcResult Calculate(DesignInput d, AeroCalcResult aero)
         {
             var r = new StructCalcResult();
 
-            double materialDensity = 2700;     // kg/m³ (Al alloy)
-            double yieldStrength = 270e6;    // Pa (Al 6061-T6)
             double tipRadius = d.TipDiameterMm / 2000.0;
             double hubRadius = tipRadius * d.HubRatio;
             double chordM = aero.ChordLengthMm / 1000.0;
-            double thickness = chordM * 0.12;  // 12% t/c ratio
+            double thickness = chordM * 0.12; // 12% t/c ratio
             double omega = 2 * Math.PI * d.SpeedRpm / 60.0;
+            double span = tipRadius - hubRadius;
 
-            double bladeVolume = chordM * thickness * (tipRadius - hubRadius);
-            double bladeMass = bladeVolume * materialDensity;
+            // --- Centrifugal (axial) stress at blade root — unchanged, this part was correct ---
+            double bladeVolume = chordM * thickness * span;
+            double bladeMass = bladeVolume * MaterialDensity;
             double centroidRadius = (tipRadius + hubRadius) / 2.0;
             double centrifugalForce = bladeMass * omega * omega * centroidRadius;
             double hubArea = chordM * thickness;
-            r.BladeStressMpa = centrifugalForce / hubArea / 1e6;
+            double centrifugalStressPa = centrifugalForce / hubArea;
 
-            double liftPerSpan = d.TotalPressurePa * chordM;
-            double span = tipRadius - hubRadius;
-            double bendingMoment = liftPerSpan * span * span / 8.0;
+            // --- Bending stress — FIXED: cantilever (fixed-free), not simply-supported ---
+            // Blade root is fixed at the hub, tip is free -> M_max = w * L^2 / 2, not L^2 / 8.
+            // (Roark's Formulas for Stress and Strain, cantilever beam / uniform distributed load.)
+            double liftPerSpan = d.TotalPressurePa * chordM; // N/m, approximate uniform loading
+            double bendingMoment = liftPerSpan * span * span / 2.0;   // <-- was / 8.0
             double sectionModulus = chordM * Math.Pow(thickness, 2) / 6.0;
-            double bendStress = bendingMoment / sectionModulus / 1e6;
+            double bendingStressPa = bendingMoment / sectionModulus;
 
-            r.TotalStressMpa = r.BladeStressMpa + bendStress;
-            r.SafetyFactor = Math.Round(yieldStrength / 1e6 / r.TotalStressMpa, 2);
+            double totalStressPa = centrifugalStressPa + bendingStressPa;
 
-            if (r.SafetyFactor < 2.0)
-                r.Warnings.Add($"Safety factor {r.SafetyFactor:F2} is below minimum of 2.0 — review blade geometry or material.");
+            r.BladeStressMpa = centrifugalStressPa / 1e6;
+            r.TotalStressMpa = totalStressPa / 1e6;
+
+            // --- Static (yield) check — first-load survival only ---
+            r.SafetyFactor = Math.Round(YieldStrengthPa / totalStressPa, 2);
+            if (r.SafetyFactor < MinStaticSafetyFactor)
+                r.Warnings.Add($"Static safety factor {r.SafetyFactor:F2} is below minimum of " +
+                    $"{MinStaticSafetyFactor:F1} (basis: yield strength, single load application).");
+
+            // --- Fatigue (mean-stress-only) check — NOT a complete fatigue analysis ---
+            double fatigueSafetyFactor = Math.Round(EnduranceLimitPaApprox / totalStressPa, 2);
+            r.FatigueSafetyFactorMeanOnly = fatigueSafetyFactor;
+
+            if (fatigueSafetyFactor < MinFatigueSafetyFactor)
+                r.Warnings.Add($"Fatigue safety factor {fatigueSafetyFactor:F2} (mean-stress basis) is below " +
+                    $"the {MinFatigueSafetyFactor:F1} target — blade root may be at risk of fatigue cracking " +
+                    "under continuous rotation. This uses an UNCORRECTED endurance limit estimate for 6061-T6 " +
+                    "(no fillet radius or surface finish data available to correct it) and does NOT include " +
+                    "vibratory/alternating stress from inlet flow non-uniformity — treat as a lower-bound check, " +
+                    "not a certified fatigue life.");
+
+            r.Warnings.Add("Note: this fatigue check evaluates mean stress only (centrifugal + steady aero " +
+                "load). It does not account for cyclic/vibratory loading from duct geometry, inlet swirl, or " +
+                "start-stop cycles — a full fatigue certification requires that data plus a documented S-N " +
+                "curve for the actual material/finish/fillet geometry.");
 
             return r;
         }
-        // Shared with PinnFeatureEngine so the 0.45 solidity assumption
-        // and chord formula only exist in one place.
+
         public static double ComputeMeanChordMm(double tipDiameterMm, double hubRatio, int bladeCount)
         {
             double tipRadius = tipDiameterMm / 2000.0;
             double hubRadius = tipRadius * hubRatio;
             double meanRadius = (tipRadius + hubRadius) / 2.0;
-            const double solidity = 0.45;
+            const double solidity = 0.45; // still a flat constant — flagged separately, not fixed here
             return solidity * 2 * Math.PI * meanRadius / bladeCount * 1000;
         }
     }
 
+    public class StructCalcResult
+    {
+        public double BladeStressMpa { get; set; }
+        public double TotalStressMpa { get; set; }
+        public double SafetyFactor { get; set; }                 // yield-based, static
+        public double FatigueSafetyFactorMeanOnly { get; set; }  // endurance-limit-based, mean stress only
+        public List<string> Warnings { get; set; } = new();
+    }
 
 
     public class AeroCalcResult
@@ -507,13 +584,7 @@ namespace AxialFanMVC.Services
         public List<string> Warnings { get; set; } = new();
     }
 
-    public class StructCalcResult
-    {
-        public double BladeStressMpa { get; set; }
-        public double TotalStressMpa { get; set; }
-        public double SafetyFactor { get; set; }
-        public List<string> Warnings { get; set; } = new();
-    }
+  
 
 
 }

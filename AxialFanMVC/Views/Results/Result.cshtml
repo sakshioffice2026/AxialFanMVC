@@ -301,7 +301,7 @@
             <div class="card shadow-sm">
                 <div class="card-header bg-info text-white fw-semibold">
                     <i class="bi bi-columns-gap me-2"></i>
-                    Baseline vs PINN Corrected Comparison
+                    Baseline vs Auto Corrected Comparison
                 </div>
 
                 <div class="card-body p-0">
@@ -316,7 +316,7 @@
                                 </th>
                                 <th class="text-center text-danger">
                                     Response 2<br />
-                                    <small> Corrected </small>
+                                    <small>Auto Corrected </small>
                                 </th>
                                 <th class="text-center">
                                     Difference
@@ -420,25 +420,8 @@
 
                 </div>
 
-                <div class="card-footer bg-light">
-
-                @{
-                        var better =
-                        effDiff > 0 && pressureDiff > 0
-                        ? "PINN correction improves the predicted performance over the baseline."
-                        : "PINN correction shows little or no improvement over the baseline.";
-                    }
-
-                    <span class="fw-semibold">
-                        <i class="bi bi-lightbulb text-warning me-1"></i>
-                        Summary
-                    </span>
-
-                    <div class="mt-2">
-                        @better
-                    </div>
-
-                </div>
+              
+              
             </div>
         </div>
     }
@@ -705,101 +688,7 @@
             </div>
 
         </div>
-    </div>
-    @if (Model.Drawings.Any())
-    {
-        <div class="col-12">
-            <div class="card shadow-sm">
-                <div class="card-header bg-primary text-white fw-semibold">
-                    <i class="bi bi-rulers me-1"></i>Engineering Drawings
-                    <span class="badge bg-light text-primary ms-2">@Model.Drawings.Count DXF files ready</span>
-                </div>
-                <div class="card-body">
-                    @{
-                        var dwgTitles = new Dictionary<string, (string, string, string)>
-                        {
-                            ["front_elevation"] = ("DWG-001", "Front Elevation", "bi-circle"),
-                            ["cross_section"] = ("DWG-002", "Cross Section", "bi-layout-split"),
-                            ["blade_profile"] = ("DWG-003", "Blade Aerofoil Profile", "bi-bezier2"),
-                            ["blade_angle"] = ("DWG-004", "Blade Angle Detail", "bi-triangle"),
-                            ["hub_detail"] = ("DWG-005", "Hub Detail", "bi-gear-wide"),
-                            ["casing_detail"] = ("DWG-006", "Casing + Motor Mounting", "bi-box"),
-                            ["general_arrangement"] = ("DWG-007", "General Arrangement + BOM", "bi-diagram-3"),
-                        };
-                    }
-                    <div class="row g-3">
-                        @foreach (var drw in Model.Drawings)
-                        {
-                            var info = dwgTitles.ContainsKey(drw.DrawingType)
-                            ? dwgTitles[drw.DrawingType]
-                            : ("DWG", drw.DrawingType.Replace("_", " ").ToUpperInvariant(), "bi-file");
-                            string dwgCode = info.Item1;
-                            string dwgTitle = info.Item2;
-                            string dwgIcon = info.Item3;
-                            <div class="col-md-4 col-lg-3">
-                                <div class="card border h-100">
-                                    <div class="card-header small fw-semibold bg-light d-flex align-items-center gap-2">
-                                        <i class="bi @dwgIcon text-primary"></i>
-                                        <span>@dwgCode</span>
-                                    </div>
-                                    <div class="card-body text-center py-3">
-                                        <i class="bi bi-file-earmark-text display-4 text-primary opacity-75"></i>
-                                        <p class="small fw-semibold mt-2 mb-1">@dwgTitle</p>
-                                        <p class="small text-muted mb-0">CAD Drawing Ready</p>
-                                    </div>
-                                    <div class="card-footer">
-                                        <div class="card-footer">
-                                            @* NOTE: this "Download PDF Summary" link is rendered once per
-                                               drawing card in the original file, producing duplicate
-                                               id="btnDownloadPdf" elements. document.getElementById only
-                                               ever binds the first one, so the click handler below still
-                                               works, but only from the first drawing card. Left as-is —
-                                               not in scope for Features 1/2 — flagging so it's a known
-                                               issue rather than a surprise. *@
-                                            <li>
-                                                <a class="dropdown-item" href="#" id="btnDownloadPdf">
-                                                    <i class="bi bi-filetype-pdf me-2 text-danger"></i>
-                                                    Download PDF Summary
-                                                    <small class="text-muted d-block ps-4">
-                                                        Results + charts exactly as shown on screen
-                                                    </small>
-                                                </a>
-                                            </li>
 
-                                            <div class="d-flex flex-column gap-2">
-
-                                                <a asp-controller="Export"
-                                                   asp-action="EyeshotDwg"
-                                                   asp-route-resultId="@Model.ResultId"
-                                                   asp-route-drawing="@drw.DrawingType"
-                                                   class="btn btn-sm btn-primary w-100"
-                                                   onclick="this.innerHTML='Generating DWG...'">
-                                                    <i class="bi bi-download me-1"></i>Download DWG
-                                                </a>
-
-                                                <a asp-controller="Export"
-                                                   asp-action="FullReportPdf"
-                                                   asp-route-resultId="@Model.ResultId"
-                                                   class="btn btn-sm btn-outline-danger w-100"
-                                                   onclick="this.innerHTML='Generating PDF...'">
-                                                    <i class="bi bi-filetype-pdf me-1"></i>Download PDF
-                                                </a>
-
-                                            </div>
-
-                                        </div>
-                                    </div>
-
-                                </div>
-                            </div>
-                        }
-                    </div>
-                </div>
-            </div>
-        </div>
-    }
-
-</div>
 @section Scripts {
     <script>
         // ── Initial curve data from server ───────────────────────────
@@ -914,7 +803,7 @@
         if (initialCurves.corrected) {
             curves.push({
                 id: "pinn",
-                label: "PINN Corrected",
+                label: "Auto Corrected",
                 angle: designAngle,
                 rpm: designRpm,
                 color: "#dc3545",
@@ -1334,7 +1223,7 @@
 
                     addCurve(
                         { q: d.corrected.q, dp: d.corrected.dp, eta: d.corrected.eta, kw: d.corrected.kw },
-                        angle, rpm, 'PINN Corrected', 'System', d.corrected.validationStatus, d.corrected.flags
+                        angle, rpm, 'Auto Corrected', 'System', d.corrected.validationStatus, d.corrected.flags
                     );
 
                     const anyFlagged =

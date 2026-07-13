@@ -418,10 +418,7 @@ namespace AxialFanMVC.Services
             {
                 if (bp.Type == "NACA")
                 {
-                    string designation = bp.Name.Replace("NACA ", "").Trim();
-                    return designation.Length == 5
-                        ? GenerateNaca5(designation, chordMm)
-                        : GenerateNaca4(designation, chordMm);
+                    return ResolveFromDesignation(bp.Name, chordMm);
                 }
                 // Custom profiles need real CoordinateData to generate from;
                 // if it's missing (e.g. the seeded "Flat plate" entry), there's
@@ -430,6 +427,29 @@ namespace AxialFanMVC.Services
             catch { /* malformed designation/coordinate data — same defensive pattern used in AxialFanDrawingService */ }
 
             return null;
+        }
+
+        // Same NACA-designation-string resolution as ResolveProfileData's "NACA"
+        // branch above, but for callers that only have a raw designation string
+        // on hand — not a saved BladeProfile entity. This exists specifically
+        // for CalibrationCase.BladeProfileDesignation (e.g. "NACA 4412"), so a
+        // calibration case's actual airfoil can be resolved into real Cl/Cd
+        // data instead of silently falling back to a generic flat-plate polar.
+        // Returns null for a blank/unassigned designation or anything that
+        // doesn't parse as a NACA 4- or 5-digit code — callers must treat null
+        // as "no profile shape info available," same as ResolveProfileData.
+        public static BladeProfileData? ResolveFromDesignation(string? designation, double chordMm)
+        {
+            if (string.IsNullOrWhiteSpace(designation)) return null;
+
+            try
+            {
+                string d = designation.Replace("NACA", "").Replace(" ", "").Trim();
+                return d.Length == 5
+                    ? GenerateNaca5(d, chordMm)
+                    : GenerateNaca4(d, chordMm);
+            }
+            catch { return null; }
         }
         private static double GetNaca5MaxCamber(double cl, double p)
             => cl * p / 3.0;  // rough approximation

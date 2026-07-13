@@ -126,21 +126,29 @@ namespace AxialFanMVC.Services
         // Scalar-parameter overload for callers that only have raw geometry
         // values on hand (e.g. CalibrationCasesController — a CalibrationCase
         // stores a profile *designation* string and camber/thickness %, not
-        // a full DesignInput/BladeProfileData object). No profile object is
-        // available here, so this always uses ResolvePolar's generic
-        // flat-plate-like fallback polar rather than a real Cl/Cd curve —
-        // understates how good/bad the case's actual profile is. Shares
-        // IntegrateStations with ComputeAtPoint above, so the physics is
-        // identical; only the calling convention differs.
+        // a full DesignInput/BladeProfileData object).
+        //
+        // `profile` defaults to null for backward compatibility with existing
+        // callers, but any caller that HAS a resolvable profile (e.g. via
+        // BladeProfileEngine.ResolveFromDesignation) should pass it in — this
+        // is exactly what was previously missing here: the case's actual
+        // airfoil was silently discarded and every calibration case, no
+        // matter what NACA profile it recorded, was scored against the same
+        // generic flat-plate-like polar. That mismatch fed wrong dp/eta
+        // residual targets into the ONNX training CSV for anything other
+        // than a true flat plate. Shares IntegrateStations with
+        // ComputeAtPoint above, so the physics is identical; only the
+        // calling convention differs.
         public static (double DeltaPPa, double EfficiencyPct, double ShaftPowerKw, bool Stalled) EvaluateBaselinePoint(
             double flowRateM3s, double tipDiameterMm, double hubRatio, double chordLengthMm,
-            int bladeCount, double bladeAngleDeg, int speedRpm, double densityKgM3)
+            int bladeCount, double bladeAngleDeg, int speedRpm, double densityKgM3,
+            BladeProfileData? profile = null)
         {
             double tipRadius = tipDiameterMm / 2000.0;
             double hubRadius = tipRadius * hubRatio;
             double chordM = chordLengthMm / 1000.0;
             double omega = 2 * Math.PI * speedRpm / 60.0;
-            var polar = ResolvePolar(null);
+            var polar = ResolvePolar(profile);
 
             var station = IntegrateStations(
                 flowRateM3s, omega, tipRadius, hubRadius, chordM, Math.Max(1, bladeCount),

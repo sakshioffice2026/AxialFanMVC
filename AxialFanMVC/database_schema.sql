@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS design_inputs (
 
     -- Step 5 – geometry
     blade_count           INT            NOT NULL DEFAULT 6,
-    tip_diameter_mm       DOUBLE         NOT NULL DEFAULT 800,
+    tip_diameter_mm       DOUBLE         NOT NULL DEFAULT 1000,
     hub_ratio             DOUBLE         NOT NULL DEFAULT 0.45,
     blade_angle_deg       DOUBLE         NOT NULL DEFAULT 22,
     target_efficiency_pct DOUBLE         NOT NULL DEFAULT 82,
