@@ -91,6 +91,17 @@ namespace AxialFanMVC.Repositories
     
       // DesignResultRepository.cs — add:
         public async Task<BladeProfile?> GetBladeProfileAsync(int bladeProfileId) =>
+      
             await _db.blade_profiles.FindAsync(bladeProfileId);
+
+        // Backs the sidebar "Results" link (ResultsController.Index), which has
+        // no meaningful "list every result ever" view yet — jumping to the most
+        // recently calculated one is the useful default in the meantime.
+        public async Task<DesignResult?> GetMostRecentResultForUserAsync(int userId) =>
+            await _db.design_results
+                .Include(r => r.DesignInput).ThenInclude(di => di.Project)
+                .Where(r => r.DesignInput.Project.UserId == userId)
+                .OrderByDescending(r => r.CalculatedAt)
+                .FirstOrDefaultAsync();
     }
 }

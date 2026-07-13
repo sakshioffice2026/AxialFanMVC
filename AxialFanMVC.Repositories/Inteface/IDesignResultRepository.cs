@@ -22,6 +22,8 @@ namespace AxialFanMVC.Repositories.Inteface
         // IDesignResultRepository.cs — add:
         Task<BladeProfile?> GetBladeProfileAsync(int bladeProfileId);
 
-      
+        Task<DesignResult?> GetMostRecentResultForUserAsync(int userId);
+
+
     }
 }

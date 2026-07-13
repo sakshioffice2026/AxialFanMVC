@@ -24,6 +24,27 @@ namespace AxialFanMVC.Controllers
         private int CurrentUserId =>
             int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
+        // GET /Results — entry point for the sidebar "Results" link.
+        // There's no "list every result" view yet, and Result(int) needs a
+        // specific id, so this jumps to the most recently calculated result
+        // instead of leaving the link pointing at a route that doesn't
+        // exist (which is what caused the blank 404 previously — Index
+        // wasn't implemented on this controller at all). Falls back to
+        // Projects if the user has no results yet (i.e. hasn't finished a
+        // design wizard run).
+        public async Task<IActionResult> Index()
+        {
+            var result = await _repo.GetMostRecentResultForUserAsync(CurrentUserId);
+            if (result == null)
+            {
+                TempData["Error"] = "No design results yet — finish the New Design wizard to create one.";
+                return RedirectToAction("Index", "Projects");
+            }
+            return RedirectToAction(nameof(Result), new { resultId = result.Id });
+        }
+
+
+
         // GET /Results/Result/7
         public async Task<IActionResult> Result(int resultId)
         {

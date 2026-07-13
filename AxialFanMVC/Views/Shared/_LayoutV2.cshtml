@@ -96,11 +96,14 @@
                     <!-- ========================= -->
                     <!-- DESIGN -->
                     <!-- ========================= -->
-
                     <li class="v2-nav-item">
 
+                        @* Design/New auto-selects the user's most recently updated
+                       project and redirects into that project's wizard — no
+                       picker needed if a project already exists. Falls back to
+                       Projects/Create only when the user has zero projects. *@
                         <a asp-controller="Design"
-                           asp-action="Wizard"
+                           asp-action="New"
                            class="@NavActionClass("Design", "Wizard")">
 
                             <i class="bi bi-plus-circle v2-nav-icon"></i>
@@ -125,7 +128,7 @@
 
                     </li>
 
-                    <li class="v2-nav-item">
+                    @* <li class="v2-nav-item">
 
                         <a asp-controller="DesignSeries"
                            asp-action="Index"
@@ -137,7 +140,7 @@
 
                         </a>
 
-                    </li>
+                    </li> *@
 
                     <li class="v2-nav-item">
 

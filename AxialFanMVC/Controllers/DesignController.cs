@@ -28,14 +28,50 @@ namespace AxialFanMVC.Controllers
         private int CurrentUserId =>
             int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
+
+        // GET /Design/New — entry point for the sidebar "New Design" link.
+        // The wizard requires a projectId (a design always belongs to a
+        // project), so this picks the user's most recently updated project
+        // and jumps straight into that project's wizard — no picker, no
+        // extra click. Only falls back to project creation if the user has
+        // no projects at all yet.
+        public async Task<IActionResult> New()
+        {
+            var project = await _db.Projects
+                .Where(p => p.UserId == CurrentUserId)
+                .OrderByDescending(p => p.UpdatedAt)
+                .FirstOrDefaultAsync();
+
+            if (project == null)
+            {
+                TempData["Error"] = "Create a project first, then start a new design.";
+                return RedirectToAction("Create", "Projects");
+            }
+
+            return RedirectToAction(nameof(Wizard), new { projectId = project.Id });
+        }
+
+
         // GET /Design/Wizard?projectId=5&step=1
+        // Requires a valid, owned projectId — a design always belongs to a
+        // project. Rather than a bare NotFound() (which renders as a dead-end
+        // "page can't be found" screen for anything that links here without
+        // a project, e.g. a stale bookmark), send the user to their project
+        // list with an explanation, since that's always a valid next step.
         public async Task<IActionResult> Wizard(int projectId, int step = 1)
         {
             var project = await _db.Projects
                 .FirstOrDefaultAsync(p => p.Id == projectId && p.UserId == CurrentUserId);
-            if (project == null) return NotFound();
+            if (project == null)
+            {
+                TempData["Error"] = projectId == 0
+                    ? "Pick or create a project to start a new design."
+                    : "That project couldn't be found — pick or create one below.";
+                return RedirectToAction("Index", "Projects");
+            }
 
             var profiles = await _db.blade_profiles.OrderBy(b => b.Name).ToListAsync();
+           
 
             // Load from TempData if navigating between steps
             var vm = TempData.ContainsKey("WizardData")
