@@ -595,9 +595,9 @@ namespace AxialFanMVC.ViewModels
         public DateTime CreatedAt { get; set; }
     }
 
- 
 
-public class CurveComparisonViewModel
+
+    public class CurveComparisonViewModel
     {
         public double PressurePa { get; set; }
 
@@ -610,8 +610,8 @@ public class CurveComparisonViewModel
         public double PowerKw { get; set; }
 
     }
-        //BOM
-     public class BomLineItemViewModel
+    //BOM
+    public class BomLineItemViewModel
     {
         public int Id { get; set; }
         public string Source { get; set; } = "";       // Auto | Manual
@@ -628,10 +628,11 @@ public class CurveComparisonViewModel
         public int ResultId { get; set; }
         public int ProjectId { get; set; }
         public string ProjectName { get; set; } = "";
+        public string MaterialUsed { get; set; } = "";   // <-- add this
         public List<BomLineItemViewModel> Lines { get; set; } = new();
         public double GrandTotal { get; set; }
         public List<string> Warnings { get; set; } = new();
-        public bool HasBeenGenerated { get; set; } // false = never clicked Generate yet, show empty state
+        public bool HasBeenGenerated { get; set; }
     }
 
     public class CostRateRowViewModel
@@ -648,4 +649,3 @@ public class CurveComparisonViewModel
         public List<CostRateRowViewModel> Rates { get; set; } = new();
     }
 }
-

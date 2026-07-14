@@ -25,6 +25,8 @@ namespace AxialFanMVC.Database
 
         public DbSet<CostRate> cost_rates => Set<CostRate>();
         public DbSet<BomLineItem> bom_line_items => Set<BomLineItem>();
+        public ICollection<BomLineItem> BomLineItems { get; set; } = new List<BomLineItem>();
+
         protected override void OnModelCreating(ModelBuilder mb)
         {
             base.OnModelCreating(mb);

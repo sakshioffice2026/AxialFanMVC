@@ -463,6 +463,7 @@ namespace AxialFanMVC.Services
 
             double bladeVolume = chordM * thickness * (tipRadius - hubRadius);
             double bladeMass = bladeVolume * material.DensityKgM3;       // was materialDensity
+            r.BladeMassKg = bladeMass;   // <-- add this line
             double centroidRadius = (tipRadius + hubRadius) / 2.0;
             double centrifugalForce = bladeMass * omega * omega * centroidRadius;
             double hubArea = chordM * thickness;
@@ -505,10 +506,12 @@ namespace AxialFanMVC.Services
             public double SafetyFactor { get; set; }
             public double FatigueSafetyFactorMeanOnly { get; set; }
             public string MaterialUsed { get; set; } = "";
-            public double YieldStrengthMpa { get; set; }   // new — so exports read from here, not a literal
+            public double YieldStrengthMpa { get; set; }
+            public double BladeMassKg { get; set; } 
             public List<string> Warnings { get; set; } = new();
         }
     }
+}
 
 
 
@@ -529,13 +532,6 @@ namespace AxialFanMVC.Services
         public List<string> Warnings { get; set; } = new();
     }
 
-    public class StructCalcResult
-    {
-        public double BladeStressMpa { get; set; }
-        public double TotalStressMpa { get; set; }
-        public double SafetyFactor { get; set; }
-        public List<string> Warnings { get; set; } = new();
-    }
+    
 
 
-}

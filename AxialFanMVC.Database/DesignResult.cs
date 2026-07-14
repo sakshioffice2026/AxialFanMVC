@@ -68,5 +68,6 @@ namespace AxialFanMVC.Database
         public DesignInput DesignInput { get; set; } = null!;
         public ICollection<PerformanceCurve> PerformanceCurves { get; set; } = new List<PerformanceCurve>();
         public ICollection<Drawing> Drawings { get; set; } = new List<Drawing>();
+        public ICollection<BomLineItem> BomLineItems { get; set; } = new List<BomLineItem>();
     }
 }
