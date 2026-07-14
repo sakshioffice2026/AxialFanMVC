@@ -22,14 +22,14 @@ namespace AxialFanMVC.Controllers
     // ─────────────────────────────────────────────────────────────────────
     [Authorize]
     [ApiController]
-    [Route("Copilot")]
-    public class CopilotController : ControllerBase
+    [Route("DesignAssistant")]
+    public class DesignAssistantController : ControllerBase
     {
         private readonly AxialFanDbContext _db;
         private readonly IOllamaChatRepository _chatRepo;
         private readonly IExceptionHandlerRepository _exceptionHandlerRepository;
 
-        public CopilotController(AxialFanDbContext db, IOllamaChatRepository chatRepo, IExceptionHandlerRepository exceptionHandlerRepository)
+        public DesignAssistantController(AxialFanDbContext db, IOllamaChatRepository chatRepo, IExceptionHandlerRepository exceptionHandlerRepository)
         {
             _db = db;
             _chatRepo = chatRepo;
