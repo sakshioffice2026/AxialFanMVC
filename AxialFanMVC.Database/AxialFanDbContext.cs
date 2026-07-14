@@ -22,6 +22,9 @@ namespace AxialFanMVC.Database
         public DbSet<HandbookChunk> handbook_chunks => Set<HandbookChunk>();
         public DbSet<CalibrationCase> calibration_cases => Set<CalibrationCase>();
         public DbSet<CalibrationCasePoint> calibration_case_points => Set<CalibrationCasePoint>();
+
+        public DbSet<CostRate> cost_rates => Set<CostRate>();
+        public DbSet<BomLineItem> bom_line_items => Set<BomLineItem>();
         protected override void OnModelCreating(ModelBuilder mb)
         {
             base.OnModelCreating(mb);
@@ -186,6 +189,27 @@ namespace AxialFanMVC.Database
                     .WithMany()
                     .HasForeignKey(p => p.CreatedByUserId)
                     .OnDelete(DeleteBehavior.SetNull);
+            });
+            // ── CostRates ────────────────────────────────────────
+            mb.Entity<CostRate>(e =>
+            {
+                e.HasIndex(c => new { c.Category, c.RateKey }).IsUnique();
+                e.Property(c => c.UpdatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP");
+            });
+
+            // ── BomLineItems ─────────────────────────────────────
+            mb.Entity<BomLineItem>(e =>
+            {
+                e.Property(b => b.Source).HasDefaultValue("Auto");
+                e.Property(b => b.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP");
+                e.HasOne(b => b.DesignResult)
+                 .WithMany(r => r.BomLineItems)
+                 .HasForeignKey(b => b.DesignResultId)
+                 .OnDelete(DeleteBehavior.Cascade);
+                e.HasOne(b => b.CreatedByUser)
+                 .WithMany()
+                 .HasForeignKey(b => b.CreatedByUserId)
+                 .OnDelete(DeleteBehavior.SetNull);
             });
         }
     }

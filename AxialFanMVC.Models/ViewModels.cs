@@ -610,6 +610,42 @@ public class CurveComparisonViewModel
         public double PowerKw { get; set; }
 
     }
+        //BOM
+     public class BomLineItemViewModel
+    {
+        public int Id { get; set; }
+        public string Source { get; set; } = "";       // Auto | Manual
+        public string Category { get; set; } = "";
+        public string Description { get; set; } = "";
+        public double Quantity { get; set; }
+        public string? Unit { get; set; }
+        public double UnitCost { get; set; }
+        public double LineTotal { get; set; }
+    }
 
+    public class BomViewModel
+    {
+        public int ResultId { get; set; }
+        public int ProjectId { get; set; }
+        public string ProjectName { get; set; } = "";
+        public List<BomLineItemViewModel> Lines { get; set; } = new();
+        public double GrandTotal { get; set; }
+        public List<string> Warnings { get; set; } = new();
+        public bool HasBeenGenerated { get; set; } // false = never clicked Generate yet, show empty state
+    }
+
+    public class CostRateRowViewModel
+    {
+        public int Id { get; set; }
+        public string Category { get; set; } = "";
+        public string RateKey { get; set; } = "";
+        public string UnitLabel { get; set; } = "";
+        public double RateValue { get; set; }
+    }
+
+    public class CostRatesViewModel
+    {
+        public List<CostRateRowViewModel> Rates { get; set; } = new();
+    }
 }
 

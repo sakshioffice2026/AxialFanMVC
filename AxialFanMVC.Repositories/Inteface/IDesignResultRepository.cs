@@ -24,6 +24,23 @@ namespace AxialFanMVC.Repositories.Inteface
 
         Task<DesignResult?> GetMostRecentResultForUserAsync(int userId);
 
+        // ── BOM & Costing ──────────────────────────────────────────
+        Task<List<CostRate>> GetCostRatesAsync();
+        Task UpdateCostRatesAsync(List<(int Id, double RateValue)> updates);
 
+        Task<List<BomLineItem>> GetBomLineItemsAsync(int designResultId);
+
+        // Deletes every existing Auto line for this design result and
+        // inserts the freshly computed ones, in one call — Manual lines
+        // are never touched.
+        Task ReplaceAutoBomLineItemsAsync(int designResultId, List<BomLineItem> autoLines);
+
+        Task<BomLineItem> AddManualBomLineItemAsync(
+            int designResultId, int createdByUserId, string category,
+            string description, double quantity, string? unit, double unitCost);
+
+        // Ownership-checked via DesignResult -> DesignInput -> Project -> UserId,
+        // and only ever deletes Manual lines (Auto lines only go away via Regenerate).
+        Task<bool> DeleteManualBomLineItemAsync(int lineItemId, int userId);
     }
 }

@@ -37,9 +37,6 @@ namespace AxialFanMVC.Repositories
             double bladeAngleDeg, int speedRpm,
             List<double> q, List<double> dp, List<double> eta, List<double> kw)
         {
-            // Source = "Manual" is what drives origin_type (the generated
-            // column) to 'manual' — no separate flag to set, by design,
-            // so the two can never disagree (see Phase 1 discussion).
             var curve_ = new PerformanceCurve
             {
                 DesignResultId = designResultId,
@@ -48,7 +45,7 @@ namespace AxialFanMVC.Repositories
                 BladeAngleDeg = bladeAngleDeg,
                 SpeedRpm = speedRpm,
                 Source = "Manual",
-                ValidationStatus = "not_applicable", // physics rules aren't run against manual entries — see Phase 4 rationale
+                ValidationStatus = "not_applicable",
                 QValues = string.Join(",", q),
                 DpValues = string.Join(",", dp),
                 EtaValues = string.Join(",", eta),
@@ -68,11 +65,6 @@ namespace AxialFanMVC.Repositories
             curve.ValidationStatus = result.OverallStatus;
             curve.ValidationFlagsJson = JsonSerializer.Serialize(result.Flags);
 
-            // The corrected curve values are what actually get displayed/exported —
-            // Feature 1 requires we never silently overwrite without a flag, and
-            // the flags above ARE that record. This write only happens if at
-            // least one flag exists; an "ok" result with zero flags leaves the
-            // original values untouched (nothing to correct).
             if (result.Flags.Any(f => f.Severity == "corrected"))
             {
                 curve.DpValues = string.Join(",", result.CorrectedCurve.DpValues);
@@ -88,20 +80,102 @@ namespace AxialFanMVC.Repositories
                 .Where(c => c.DesignResultId == designResultId)
                 .Where(c => EF.Property<string>(c, "origin_type") == originType)
                 .ToListAsync();
-    
-      // DesignResultRepository.cs — add:
+
         public async Task<BladeProfile?> GetBladeProfileAsync(int bladeProfileId) =>
-      
             await _db.blade_profiles.FindAsync(bladeProfileId);
 
-        // Backs the sidebar "Results" link (ResultsController.Index), which has
-        // no meaningful "list every result ever" view yet — jumping to the most
-        // recently calculated one is the useful default in the meantime.
         public async Task<DesignResult?> GetMostRecentResultForUserAsync(int userId) =>
             await _db.design_results
                 .Include(r => r.DesignInput).ThenInclude(di => di.Project)
                 .Where(r => r.DesignInput.Project.UserId == userId)
                 .OrderByDescending(r => r.CalculatedAt)
                 .FirstOrDefaultAsync();
+
+        // ── BOM & Costing ──────────────────────────────────────────
+
+        public async Task<List<CostRate>> GetCostRatesAsync() =>
+            await _db.cost_rates
+                .OrderBy(r => r.Category).ThenBy(r => r.RateKey)
+                .ToListAsync();
+
+        public async Task UpdateCostRatesAsync(List<(int Id, double RateValue)> updates)
+        {
+            var ids = updates.Select(u => u.Id).ToList();
+            var rates = await _db.cost_rates.Where(r => ids.Contains(r.Id)).ToListAsync();
+            var byId = updates.ToDictionary(u => u.Id, u => u.RateValue);
+
+            foreach (var rate in rates)
+                rate.RateValue = byId[rate.Id];
+
+            await _db.SaveChangesAsync();
+        }
+
+        public async Task<List<BomLineItem>> GetBomLineItemsAsync(int designResultId) =>
+            await _db.bom_line_items
+                .Where(b => b.DesignResultId == designResultId)
+                .OrderBy(b => b.SortOrder).ThenBy(b => b.Id)
+                .ToListAsync();
+
+        public async Task ReplaceAutoBomLineItemsAsync(int designResultId, List<BomLineItem> autoLines)
+        {
+            var existingAuto = await _db.bom_line_items
+                .Where(b => b.DesignResultId == designResultId && b.Source == "Auto")
+                .ToListAsync();
+            _db.bom_line_items.RemoveRange(existingAuto);
+
+            int order = 0;
+            foreach (var line in autoLines)
+            {
+                line.DesignResultId = designResultId;
+                line.Source = "Auto";
+                line.SortOrder = order++;
+                await _db.bom_line_items.AddAsync(line);
+            }
+
+            await _db.SaveChangesAsync();
+        }
+
+        public async Task<BomLineItem> AddManualBomLineItemAsync(
+            int designResultId, int createdByUserId, string category,
+            string description, double quantity, string? unit, double unitCost)
+        {
+            int nextOrder = (await _db.bom_line_items
+                .Where(b => b.DesignResultId == designResultId)
+                .Select(b => (int?)b.SortOrder)
+                .MaxAsync()) is int max ? max + 1 : 0;
+
+            var line = new BomLineItem
+            {
+                DesignResultId = designResultId,
+                CreatedByUserId = createdByUserId,
+                Source = "Manual",
+                Category = string.IsNullOrWhiteSpace(category) ? "Manual" : category,
+                Description = description,
+                Quantity = quantity,
+                Unit = unit,
+                UnitCost = unitCost,
+                LineTotal = quantity * unitCost,
+                SortOrder = nextOrder
+            };
+
+            await _db.bom_line_items.AddAsync(line);
+            await _db.SaveChangesAsync();
+            return line;
+        }
+
+        public async Task<bool> DeleteManualBomLineItemAsync(int lineItemId, int userId)
+        {
+            var line = await _db.bom_line_items
+                .Include(b => b.DesignResult).ThenInclude(r => r.DesignInput).ThenInclude(di => di.Project)
+                .FirstOrDefaultAsync(b => b.Id == lineItemId
+                    && b.Source == "Manual"
+                    && b.DesignResult.DesignInput.Project.UserId == userId);
+
+            if (line == null) return false;
+
+            _db.bom_line_items.Remove(line);
+            await _db.SaveChangesAsync();
+            return true;
+        }
     }
 }

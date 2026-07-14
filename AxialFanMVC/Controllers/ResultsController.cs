@@ -85,15 +85,35 @@ namespace AxialFanMVC.Controllers
                 // than trusting FirstOrDefault() on an unordered collection,
                 // which is what let the old duplicate-save bug silently pick
                 // whichever row EF happened to return first.
-                var baselineCurve = result.PerformanceCurves
-                    .Where(c => c.Source == "Baseline")
-                    .OrderByDescending(c => c.GeneratedAt)
-                    .FirstOrDefault();
+                //
+                // FIX: every Regenerate-slider click on the results page saves
+                // a NEW PerformanceCurve row (via GenerateCurve -> GenerateAndSaveAsync)
+                // rather than overwriting anything, so "most recent by GeneratedAt"
+                // could silently be a leftover exploratory curve at some other
+                // blade angle / RPM the user was trying out — not the curve for
+                // this design's own saved operating point. That mismatch is what
+                // made the Baseline-vs-Adjusted comparison card show numbers that
+                // didn't line up (Adjusted Estimate pulled from the wrong curve's
+                // sample points). Now we prefer the curve whose BladeAngleDeg/SpeedRpm
+                // match the design input's own saved values, and only fall back to
+                // "most recent overall" if no such curve exists yet (e.g. an old
+                // result saved before this fix).
+                var baselineCandidates = result.PerformanceCurves.Where(c => c.Source == "Baseline");
+                var correctedCandidates = result.PerformanceCurves.Where(c => c.Source == "PINN");
 
-                var correctedCurve = result.PerformanceCurves
-                    .Where(c => c.Source == "PINN")
-                    .OrderByDescending(c => c.GeneratedAt)
-                    .FirstOrDefault();
+                var baselineCurve =
+                    baselineCandidates
+                        .Where(c => IsDesignPointCurve(c, di: result.DesignInput))
+                        .OrderByDescending(c => c.GeneratedAt)
+                        .FirstOrDefault()
+                    ?? baselineCandidates.OrderByDescending(c => c.GeneratedAt).FirstOrDefault();
+
+                var correctedCurve =
+                    correctedCandidates
+                        .Where(c => IsDesignPointCurve(c, di: result.DesignInput))
+                        .OrderByDescending(c => c.GeneratedAt)
+                        .FirstOrDefault()
+                    ?? correctedCandidates.OrderByDescending(c => c.GeneratedAt).FirstOrDefault();
 
                 var manualCurves = result.PerformanceCurves
                     .Where(c => c.Source == "Manual")
@@ -435,6 +455,16 @@ namespace AxialFanMVC.Controllers
             };
         }
 
+        // Identifies whether a saved curve was generated AT the design's own
+        // operating point (di.BladeAngleDeg / di.SpeedRpm) rather than at some
+        // other angle/RPM the user tried via the Regenerate slider. Blade angle
+        // is compared with a small tolerance since it round-trips through a
+        // double; RPM is stored as an int so an exact match is fine. Used in
+        // Result() above to pick the right Baseline/PINN curve pair for the
+        // comparison card instead of just "whatever was generated last".
+        private static bool IsDesignPointCurve(PerformanceCurve c, DesignInput di) =>
+            Math.Abs(c.BladeAngleDeg - di.BladeAngleDeg) < 0.01 && c.SpeedRpm == di.SpeedRpm;
+
         // Corrected/PINN row still uses the nearest-sample lookup — its
         // design-point value includes the ONNX correction applied per-Q
         // during curve generation, which isn't something ComputeAtPoint
@@ -461,7 +491,7 @@ namespace AxialFanMVC.Controllers
                 double delta = Math.Abs(q[i] - di.FlowRateM3s);
                 if (delta < bestDelta) { bestDelta = delta; designIdx = i; }
             }
-            
+
             return new CurveComparisonViewModel
             {
                 PressurePa = dp[designIdx],
