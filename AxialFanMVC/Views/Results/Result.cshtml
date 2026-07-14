@@ -278,30 +278,43 @@
             </div>
         </div>
     </div>
+@if (Model.BaselineComparison != null && Model.PinnComparison != null)
+{
+    var pressureDiff = Model.PinnComparison.PressurePa - Model.BaselineComparison.PressurePa;
+    var pressurePctValid = Math.Abs(Model.BaselineComparison.PressurePa) > 0.01;
+    var pressurePct = pressurePctValid
+    ? pressureDiff / Model.BaselineComparison.PressurePa * 100.0
+    : 0.0;
 
+    var effDiff = Model.PinnComparison.EfficiencyPct - Model.BaselineComparison.EfficiencyPct;
+    var powerDiff = Model.PinnComparison.PowerKw - Model.BaselineComparison.PowerKw;
 
-    @if (Model.BaselineComparison != null && Model.PinnComparison != null)
-    {
-        var pressureDiff = Model.PinnComparison.PressurePa - Model.BaselineComparison.PressurePa;
-        // Baseline pressure can legitimately be 0 Pa — e.g. the design's
-        // flow rate is beyond what this geometry can deliver at all, so the
-        // curve is already flatlined at zero there. Dividing by that zero
-        // used to render as "∞%", which reads as a bug rather than the
-        // (correct) fact that there's no baseline value to express a
-        // percentage change against.
-        var pressurePctValid = Math.Abs(Model.BaselineComparison.PressurePa) > 0.01;
-        var pressurePct = pressurePctValid
-        ? pressureDiff / Model.BaselineComparison.PressurePa * 100.0
-        : 0.0;
+    @* Confirmation prompt — shown every time this page loads, before the
+       comparison table below is revealed. Kept free of internal/technical
+       terms (no "PINN", "Blade Element Theory", etc.) since this is
+       user-facing copy, not an engineering log. *@
+        <div class="modal fade" id="comparisonPromptModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Compare results?</h5>
+                    </div>
+                    <div class="modal-body">
+                        Would you like to see this result compared against our auto-adjusted estimate?
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" id="comparisonPromptNo">No</button>
+                        <button type="button" class="btn btn-primary" id="comparisonPromptYes">Yes</button>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-        var effDiff = Model.PinnComparison.EfficiencyPct - Model.BaselineComparison.EfficiencyPct;
-        var powerDiff = Model.PinnComparison.PowerKw - Model.BaselineComparison.PowerKw;
-
-        <div class="col-12 mt-4">
+        <div class="col-12 mt-4" id="comparisonCard" style="display:none;">
             <div class="card shadow-sm">
                 <div class="card-header bg-info text-white fw-semibold">
                     <i class="bi bi-columns-gap me-2"></i>
-                    Baseline vs Auto Corrected Comparison
+                    Baseline vs Adjusted Estimate Comparison
                 </div>
 
                 <div class="card-body p-0">
@@ -311,19 +324,16 @@
                             <tr>
                                 <th style="width:30%">Parameter</th>
                                 <th class="text-center text-primary">
-                                    Response 1<br />
-                                    <small>Baseline CFD</small>
+                                    Standard Calculation
                                 </th>
                                 <th class="text-center text-danger">
-                                    Response 2<br />
-                                    <small>Auto Corrected </small>
+                                    Adjusted Estimate
                                 </th>
                                 <th class="text-center">
                                     Difference
                                 </th>
                             </tr>
                         </thead>
-
                         <tbody>
 
                             <tr>
@@ -696,6 +706,29 @@
         const designAngle  = @Model.BladeAngleDeg;
         const designRpm    = @Model.SpeedRpm;
         const resultId     = @Model.ResultId;
+
+                        // ── Comparison confirmation prompt ────────────────────────────
+                // Shown every time this page loads. Only fires when the comparison
+                // table actually exists for this result — no point prompting when
+                // there's nothing to show.
+                (function () {
+                    const promptEl = document.getElementById('comparisonPromptModal');
+                    const cardEl   = document.getElementById('comparisonCard');
+                    if (!promptEl || !cardEl) return; // no comparison data for this result
+
+                    const modal = new bootstrap.Modal(promptEl, { backdrop: 'static', keyboard: false });
+
+                    document.getElementById('comparisonPromptYes').addEventListener('click', function () {
+                        cardEl.style.display = '';
+                        modal.hide();
+                    });
+                    document.getElementById('comparisonPromptNo').addEventListener('click', function () {
+                        cardEl.style.display = 'none';
+                        modal.hide();
+                    });
+
+                    modal.show();
+                })();
 
         // ── Design Copilot ────────────────────────────────────────────
         (function () {

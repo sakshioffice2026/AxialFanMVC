@@ -1,4 +1,5 @@
 ﻿using AxialFanMVC.Database;
+using AxialFanMVC.Models;
 using AxialFanMVC.Repositories.Inteface;
 using AxialFanMVC.Services;
 using AxialFanMVC.ViewModels;
@@ -15,15 +16,18 @@ namespace AxialFanMVC.Controllers
         private readonly IDesignResultRepository _repo;
         private readonly ICurveGeneration _curveService;
         private readonly IExceptionHandlerRepository _exceptionHandlerRepository;
+        private readonly IPhysicsValidationEngine _validator;
 
         public ResultsController(
         IDesignResultRepository repo,
         ICurveGeneration curveService,
-        IExceptionHandlerRepository exceptionHandlerRepository)
+        IExceptionHandlerRepository exceptionHandlerRepository,
+        IPhysicsValidationEngine validator)
         {
             _repo = repo;
             _curveService = curveService;
             _exceptionHandlerRepository = exceptionHandlerRepository;
+            _validator = validator;
         }
         private int CurrentUserId =>
             int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -73,101 +77,101 @@ namespace AxialFanMVC.Controllers
                 var result = await _repo.GetResultForUserAsync(resultId, CurrentUserId);
                 if (result == null) return NotFound();
 
-            var warnings = result.WarningMessages != null
-                ? JsonSerializer.Deserialize<List<string>>(result.WarningMessages) ?? new()
-                : new List<string>();
+                var warnings = result.WarningMessages != null
+                    ? JsonSerializer.Deserialize<List<string>>(result.WarningMessages) ?? new()
+                    : new List<string>();
 
-            // Most recent Baseline / PINN curves — ordered explicitly rather
-            // than trusting FirstOrDefault() on an unordered collection,
-            // which is what let the old duplicate-save bug silently pick
-            // whichever row EF happened to return first.
-            var baselineCurve = result.PerformanceCurves
-                .Where(c => c.Source == "Baseline")
-                .OrderByDescending(c => c.GeneratedAt)
-                .FirstOrDefault();
+                // Most recent Baseline / PINN curves — ordered explicitly rather
+                // than trusting FirstOrDefault() on an unordered collection,
+                // which is what let the old duplicate-save bug silently pick
+                // whichever row EF happened to return first.
+                var baselineCurve = result.PerformanceCurves
+                    .Where(c => c.Source == "Baseline")
+                    .OrderByDescending(c => c.GeneratedAt)
+                    .FirstOrDefault();
 
-            var correctedCurve = result.PerformanceCurves
-                .Where(c => c.Source == "PINN")
-                .OrderByDescending(c => c.GeneratedAt)
-                .FirstOrDefault();
+                var correctedCurve = result.PerformanceCurves
+                    .Where(c => c.Source == "PINN")
+                    .OrderByDescending(c => c.GeneratedAt)
+                    .FirstOrDefault();
 
-            var manualCurves = result.PerformanceCurves
-                .Where(c => c.Source == "Manual")
-                .OrderByDescending(c => c.GeneratedAt)
-                .ToList();
+                var manualCurves = result.PerformanceCurves
+                    .Where(c => c.Source == "Manual")
+                    .OrderByDescending(c => c.GeneratedAt)
+                    .ToList();
 
 
-            // BuildCurveJson (below) already produces the {baseline, corrected,
-            // manual} shape the view's JS expects (initialCurves.baseline /
-            // .corrected / .manual), including validationStatus and the
-            // deserialized flags — the inline flat-array version this replaces
-            // was a structural mismatch (JS read initialCurves.baseline off an
-            // array, which is always undefined), so curves silently failed to
-            // populate on page load until the user clicked Regenerate.
-            var curveJson = BuildCurveJson(baselineCurve, correctedCurve, manualCurves);
+                // BuildCurveJson (below) already produces the {baseline, corrected,
+                // manual} shape the view's JS expects (initialCurves.baseline /
+                // .corrected / .manual), including validationStatus and the
+                // deserialized flags — the inline flat-array version this replaces
+                // was a structural mismatch (JS read initialCurves.baseline off an
+                // array, which is always undefined), so curves silently failed to
+                // populate on page load until the user clicked Regenerate.
+                var curveJson = BuildCurveJson(baselineCurve, correctedCurve, manualCurves);
 
-            var di = result.DesignInput;
+                var di = result.DesignInput;
 
-            var vm = new DesignResultViewModel
-            {
-                DesignInputId = di.Id,
-                ResultId = result.Id,
-                ProjectId = di.ProjectId,
-                ProjectName = di.Project.Name,
-
-                FlowRateM3s = di.FlowRateM3s,
-                TotalPressurePa = di.TotalPressurePa,
-                SpeedRpm = di.SpeedRpm,
-                BladeCount = di.BladeCount,
-                TipDiameterMm = di.TipDiameterMm,
-                BladeAngleDeg = di.BladeAngleDeg,
-                BladeProfileName = di.BladeProfile?.Name,
-
-                SpecificSpeed = result.SpecificSpeed,
-                TipSpeedMs = result.TipSpeedMs,
-                HubDiameterMm = result.HubDiameterMm,
-                ChordLengthMm = result.ChordLengthMm,
-                BladeSpanMm = result.BladeSpanMm,
-                ShaftPowerKw = result.ShaftPowerKw,
-                OverallEfficiencyPct = result.OverallEfficiencyPct,
-                FlowCoefficient = result.FlowCoefficient,
-                PressureCoefficient = result.PressureCoefficient,
-                TipClearanceMm = result.TipClearanceMm,
-
-                BladeStressMpa = result.BladeStressMpa,
-                SafetyFactor = result.SafetyFactor,
-
-                OverallNoiseDbA = result.OverallNoiseDbA,
-                SoundPowerLevelDb = result.SoundPowerLevelDb,
-                BladePassingFrequencyHz = result.BladePassingFrequencyHz,
-                TipMachNumber = result.TipMachNumber,
-                NoiseRatingValue = result.NoiseRatingValue,
-                NoiseRating = result.NoiseRating,
-                OctaveBandLwJson = result.OctaveBandLwJson,
-
-                Status = result.Status,
-                Warnings = warnings,
-                CalculatedAt = result.CalculatedAt,
-                CurveJson = curveJson,
-
-                // Previously never set — the comparison card in the view
-                // was dead code. Now populated from the same curves used
-                // for CurveJson, so both stay in sync.
-                BaselineComparison = baselineCurve != null
-                    ? await BuildBaselineComparisonAsync(baselineCurve, di, result) : null,
-                PinnComparison = correctedCurve != null
-                    ? BuildComparison(correctedCurve, di) : null,
-
-                Drawings = result.Drawings.Select(d => new DrawingViewModel
+                var vm = new DesignResultViewModel
                 {
-                    Id = d.Id,
-                    DrawingType = d.DrawingType,
-                    SvgData = d.SvgData,
-                    HasDxf = d.DxfPath != null,
-                    HasPdf = d.PdfPath != null,
-                    GeneratedAt = d.GeneratedAt
-                }).ToList()
-            };
+                    DesignInputId = di.Id,
+                    ResultId = result.Id,
+                    ProjectId = di.ProjectId,
+                    ProjectName = di.Project.Name,
+
+                    FlowRateM3s = di.FlowRateM3s,
+                    TotalPressurePa = di.TotalPressurePa,
+                    SpeedRpm = di.SpeedRpm,
+                    BladeCount = di.BladeCount,
+                    TipDiameterMm = di.TipDiameterMm,
+                    BladeAngleDeg = di.BladeAngleDeg,
+                    BladeProfileName = di.BladeProfile?.Name,
+
+                    SpecificSpeed = result.SpecificSpeed,
+                    TipSpeedMs = result.TipSpeedMs,
+                    HubDiameterMm = result.HubDiameterMm,
+                    ChordLengthMm = result.ChordLengthMm,
+                    BladeSpanMm = result.BladeSpanMm,
+                    ShaftPowerKw = result.ShaftPowerKw,
+                    OverallEfficiencyPct = result.OverallEfficiencyPct,
+                    FlowCoefficient = result.FlowCoefficient,
+                    PressureCoefficient = result.PressureCoefficient,
+                    TipClearanceMm = result.TipClearanceMm,
+
+                    BladeStressMpa = result.BladeStressMpa,
+                    SafetyFactor = result.SafetyFactor,
+
+                    OverallNoiseDbA = result.OverallNoiseDbA,
+                    SoundPowerLevelDb = result.SoundPowerLevelDb,
+                    BladePassingFrequencyHz = result.BladePassingFrequencyHz,
+                    TipMachNumber = result.TipMachNumber,
+                    NoiseRatingValue = result.NoiseRatingValue,
+                    NoiseRating = result.NoiseRating,
+                    OctaveBandLwJson = result.OctaveBandLwJson,
+
+                    Status = result.Status,
+                    Warnings = warnings,
+                    CalculatedAt = result.CalculatedAt,
+                    CurveJson = curveJson,
+
+                    // Previously never set — the comparison card in the view
+                    // was dead code. Now populated from the same curves used
+                    // for CurveJson, so both stay in sync.
+                    BaselineComparison = baselineCurve != null
+                        ? await BuildBaselineComparisonAsync(baselineCurve, di, result) : null,
+                    PinnComparison = correctedCurve != null
+                        ? BuildComparison(correctedCurve, di) : null,
+
+                    Drawings = result.Drawings.Select(d => new DrawingViewModel
+                    {
+                        Id = d.Id,
+                        DrawingType = d.DrawingType,
+                        SvgData = d.SvgData,
+                        HasDxf = d.DxfPath != null,
+                        HasPdf = d.PdfPath != null,
+                        GeneratedAt = d.GeneratedAt
+                    }).ToList()
+                };
 
                 return View(vm);
             }
@@ -185,7 +189,7 @@ namespace AxialFanMVC.Controllers
         }
 
         // POST /Results/GenerateCurve — AJAX endpoint
-      
+
         [HttpPost]
         public async Task<IActionResult> GenerateCurve(int resultId, double bladeAngleDeg, int speedRpm)
         {
@@ -241,7 +245,7 @@ namespace AxialFanMVC.Controllers
         }
 
         // POST /Results/SaveManualCurve — Feature 2: manual curve entry
-  
+
         [HttpPost]
         public async Task<IActionResult> SaveManualCurve([FromBody] SaveManualCurveRequest req)
         {
@@ -378,18 +382,56 @@ namespace AxialFanMVC.Controllers
                 ? await _repo.GetBladeProfileAsync(di.BladeProfileId.Value)
                 : null;
             var profileData = BladeProfileEngine.ResolveProfileData(bladeProfile, result.ChordLengthMm);
-            var aeroForChord = new AeroCalcResult { ChordLengthMm = result.ChordLengthMm };
+
+            // AxialVelocityMs computed inline (not via a full AeroCalcEngine.Calculate
+            // re-run, which would also re-trigger environment/drive-type resolution
+            // side effects unnecessarily) — it's the one extra field
+            // PinnFeatureEngine.Compute reads off AeroCalcResult besides
+            // ChordLengthMm, so this keeps the feature vector below consistent
+            // with what the real curve's feature vector used.
+            double tipRadiusM = di.TipDiameterMm / 2000.0;
+            double hubRadiusM = tipRadiusM * di.HubRatio;
+            double annulusAreaM2 = Math.PI * (tipRadiusM * tipRadiusM - hubRadiusM * hubRadiusM);
+            var aeroForChord = new AeroCalcResult
+            {
+                ChordLengthMm = result.ChordLengthMm,
+                AxialVelocityMs = annulusAreaM2 > 0 ? di.FlowRateM3s / annulusAreaM2 : 0
+            };
 
             var (exactDp, exactEta, exactKw) = BladeElementEngine.ComputeAtPoint(
                 di, aeroForChord, profileData, di.BladeAngleDeg, di.SpeedRpm, di.FlowRateM3s, out _);
 
+            // Run this single point through the SAME PhysicsValidationEngine
+            // pass the stored curve (dp/eta above) already went through when
+            // it was generated (see CurveGeneration.GenerateAndSaveAsync).
+            // Previously this method returned the raw, unvalidated BEM
+            // output directly — which could legitimately exceed the stored
+            // curve's own validated maximum, making "Overall Efficiency"
+            // appear HIGHER than "Peak Efficiency" from the same curve
+            // family. That's impossible by definition for two numbers meant
+            // to describe the same physical curve, and was a real
+            // apples-to-oranges mismatch: one raw, one clamped. Both are now
+            // clamped consistently.
+            var singlePointCurve = new PerformanceCurveData
+            {
+                BladeAngleDeg = di.BladeAngleDeg,
+                SpeedRpm = di.SpeedRpm,
+                QValues = new List<double> { di.FlowRateM3s },
+                DpValues = new List<double> { exactDp },
+                EtaValues = new List<double> { exactEta },
+                KwValues = new List<double> { exactKw }
+            };
+            var features = PinnFeatureEngine.Compute(di, aeroForChord, profileData);
+            var validated = _validator.Validate(
+                singlePointCurve, features, new PhysicsValidationContext { CurveSource = "Baseline" });
+
             return new CurveComparisonViewModel
             {
-                PressurePa = exactDp,
+                PressurePa = validated.CorrectedCurve.DpValues[0],
                 PeakPressurePa = dp.Max(),
-                EfficiencyPct = exactEta,
+                EfficiencyPct = validated.CorrectedCurve.EtaValues[0],
                 PeakEfficiencyPct = eta.Max(),
-                PowerKw = exactKw
+                PowerKw = validated.CorrectedCurve.KwValues[0]
             };
         }
 
@@ -419,7 +461,7 @@ namespace AxialFanMVC.Controllers
                 double delta = Math.Abs(q[i] - di.FlowRateM3s);
                 if (delta < bestDelta) { bestDelta = delta; designIdx = i; }
             }
-
+            
             return new CurveComparisonViewModel
             {
                 PressurePa = dp[designIdx],
