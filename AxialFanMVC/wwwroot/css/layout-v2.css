@@ -49,28 +49,25 @@
     min-height: 100vh;
 }
 
-    .v2-brand:hover {
-        color: #ffffff;
-    }
-    .v2-brand {
+.v2-brand:hover {
+    color: #ffffff;
+}
+
+.v2-brand {
     display: flex;
     align-items: center;
     gap: .5rem;
-
     height: 64px;
     padding: 0 1.25rem;
-
     margin-bottom: .75rem;
-
     border-bottom: 1px solid rgba(255,255,255,.1);
-
     color: #fff;
     font-weight: 600;
     font-size: 1.1rem;
     text-decoration: none;
-
     flex-shrink: 0;
 }
+
 .v2-nav {
     list-style: none;
     margin: 0;
@@ -113,7 +110,6 @@
 .v2-nav-icon {
     width: 1.1rem;
     text-align: center;
-   
 }
 
 /* Disabled / "Soon" nav items — not clickable, no route exists yet */
@@ -184,6 +180,7 @@
     color: var(--v2-text);
     text-decoration: none;
 }
+
 .v2-content {
     flex: 1;
     padding: 1.5rem;
@@ -628,3 +625,196 @@
         color: #6c757d;
         line-height: 1.4;
     }
+
+/* ==========================================
+   BOM & Costing (Views/Bom/Index.cshtml)
+========================================== */
+
+.bom-card {
+    background: var(--v2-surface);
+    border-radius: 18px;
+    padding: 28px;
+    box-shadow: 0 10px 25px rgba(0,0,0,.05);
+}
+
+.bom-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.bom-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #23424a;
+    margin-bottom: 4px;
+}
+
+.bom-subtitle {
+    color: #6c757d;
+    font-size: .925rem;
+    margin: 0;
+}
+
+.bom-card .form-label {
+    font-size: .85rem;
+    color: #6c757d;
+    margin-bottom: .35rem;
+}
+
+.bom-card .form-select {
+    border-radius: .5rem;
+    border-color: var(--v2-border);
+    padding: .55rem .85rem;
+}
+
+    .bom-card .form-select:focus {
+        border-color: var(--v2-accent);
+        box-shadow: 0 0 0 .2rem rgba(62,124,140,.15);
+    }
+
+.bom-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: .35rem .75rem;
+    border-radius: 999px;
+    font-size: .8rem;
+    font-weight: 600;
+}
+
+.bom-badge-auto {
+    background: rgba(62,124,140,.12);
+    color: var(--v2-accent);
+}
+
+.bom-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 3rem 1.5rem;
+    color: #6c757d;
+    background: var(--v2-bg);
+    border: 1px dashed var(--v2-border);
+    border-radius: 14px;
+}
+
+    .bom-empty i {
+        color: var(--v2-accent);
+        opacity: .7;
+    }
+
+.bom-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: .6rem;
+    padding: .85rem 1rem;
+    border-radius: 12px;
+    background: #fff8ec;
+    border: 1px solid #f3dfb1;
+    color: #8a6416;
+    font-size: .9rem;
+}
+
+    .bom-warning + .bom-warning {
+        margin-top: .5rem;
+    }
+
+.bom-section-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #23424a;
+}
+
+.bom-table {
+    width: 100%;
+    margin-bottom: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+    .bom-table thead th {
+        border: none;
+        border-bottom: 1px solid var(--v2-border);
+        color: #6c757d;
+        font-weight: 600;
+        font-size: .8rem;
+        text-transform: uppercase;
+        letter-spacing: .03em;
+        padding: .65rem .5rem;
+    }
+
+    .bom-table tbody td {
+        padding: .75rem .5rem;
+        vertical-align: middle;
+        border-bottom: 1px solid var(--v2-border);
+        font-size: .925rem;
+    }
+
+    .bom-table tbody tr:hover {
+        background: var(--v2-bg);
+    }
+
+    .bom-table tbody tr:last-of-type td {
+        border-bottom: none;
+    }
+
+.bom-total-row td {
+    background: var(--v2-bg);
+    border-bottom: none !important;
+    border-top: 2px solid var(--v2-border);
+    padding-top: .85rem;
+    padding-bottom: .85rem;
+}
+
+.bom-total-value {
+    color: var(--v2-accent);
+    font-weight: 700;
+}
+
+.bom-grand-total h2.bom-total-value {
+    font-size: 2rem;
+}
+
+.bom-grand-total i {
+    color: #b08968;
+}
+
+.bom-manual-card {
+    border: 1px solid var(--v2-border);
+}
+
+    .bom-manual-card .form-label {
+        font-size: .8rem;
+        color: #6c757d;
+        margin-bottom: .3rem;
+    }
+
+.btn-regen {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    padding: .5rem 1rem;
+    border-radius: .5rem;
+    border: 1px solid #b08968;
+    background: #b08968;
+    color: #ffffff;
+    font-size: .875rem;
+    font-weight: 600;
+    transition: all .2s ease;
+}
+
+    .btn-regen:hover {
+        background: #9c774f;
+        border-color: #9c774f;
+        color: #ffffff;
+    }
+
+@media (max-width: 767.98px) {
+    .bom-card {
+        padding: 20px;
+    }
+}
