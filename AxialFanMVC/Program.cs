@@ -25,7 +25,7 @@ builder.Services.AddScoped<ICalibrationCaseRepository, CalibrationCaseRepository
 
 builder.Services.AddScoped<IHandbookChunkRepository, HandbookChunkRepository>();
 
-// Ollama chat client — base URL configurable via appsettings ("Ollama:BaseUrl")
+// Ollama chat client ? base URL configurable via appsettings ("Ollama:BaseUrl")
 builder.Services.AddHttpClient<IOllamaChatRepository, OllamaChatRepository>(client =>
 {
     var baseUrl = builder.Configuration["Ollama:BaseUrl"] ?? "http://localhost:11434";
@@ -34,7 +34,7 @@ builder.Services.AddHttpClient<IOllamaChatRepository, OllamaChatRepository>(clie
 });
 
 // HandbookChunkRepository now calls Ollama directly (for embeddings), so it
-// needs an HttpClient the same way OllamaChatRepository does — same base URL,
+// needs an HttpClient the same way OllamaChatRepository does ? same base URL,
 // same config key, just a different endpoint (/api/embed vs /api/chat).
 builder.Services.AddHttpClient<IHandbookChunkRepository, HandbookChunkRepository>(client =>
 {
@@ -56,10 +56,10 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     });
 
 builder.Services.AddAuthorization();
-// THIS LINE IS REQUIRED — registers ExportService
+// THIS LINE IS REQUIRED ? registers ExportService
 builder.Services.AddScoped<ExportService>();
 
-var app = builder.Build(); 
+var app = builder.Build();
 
 CurveCorrectionService.Initialize(Path.Combine(builder.Environment.ContentRootPath, "MLModels", "efficiency_correction.onnx"),
     app.Logger);
@@ -80,6 +80,7 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AxialFanDbContext>();
     await ValidationFlagsBackfill.RunAsync(db);
+    await CostRateSeeder.RunAsync(db);
 }
 
 using (var scope = app.Services.CreateScope())

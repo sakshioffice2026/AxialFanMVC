@@ -623,16 +623,47 @@ namespace AxialFanMVC.ViewModels
         public double LineTotal { get; set; }
     }
 
+    public class BomResultOptionViewModel
+    {
+        public int ResultId { get; set; }
+        public string Label { get; set; } = "";       // e.g. "Design Result #77 · Aluminum 6061-T6"
+        public DateTime CalculatedAt { get; set; }
+    }
+
+    public class BomProjectOptionViewModel
+    {
+        public int ProjectId { get; set; }
+
+        public string ProjectName { get; set; } = "";
+
+        public List<BomDesignOptionViewModel> Designs { get; set; } = new();
+    }
+
+    public class BomDesignOptionViewModel
+    {
+        public int DesignInputId { get; set; }
+
+        public int ResultId { get; set; }
+
+        public DateTime CreatedAt { get; set; }
+
+        public string Material { get; set; } = "";
+
+        public string Label =>
+            $"{CreatedAt:dd MMM yyyy} • {Material}";
+    }
+
     public class BomViewModel
     {
         public int ResultId { get; set; }
         public int ProjectId { get; set; }
         public string ProjectName { get; set; } = "";
-        public string MaterialUsed { get; set; } = "";   // <-- add this
+        public string MaterialUsed { get; set; } = "";
         public List<BomLineItemViewModel> Lines { get; set; } = new();
         public double GrandTotal { get; set; }
         public List<string> Warnings { get; set; } = new();
-        public bool HasBeenGenerated { get; set; }
+        public bool HasBeenGenerated { get; set; } // false = never clicked Generate yet, show empty state
+        public List<BomProjectOptionViewModel> AvailableProjects { get; set; } = new();
     }
 
     public class CostRateRowViewModel

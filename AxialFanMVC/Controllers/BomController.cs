@@ -37,14 +37,31 @@ namespace AxialFanMVC.Controllers
         // empty state with a "Generate" button so a user never gets a
         // silent recalculation they didn't ask for.
         [HttpGet]
-        public async Task<IActionResult> Index(int resultId)
+        public async Task<IActionResult> Index(int? resultId)
         {
             try
             {
-                var result = await _repo.GetResultForUserAsync(resultId, CurrentUserId);
+                int id;
+                if (resultId.HasValue)
+                {
+                    id = resultId.Value;
+                }
+                else
+                {
+                    var recent = await _repo.GetMostRecentResultForUserAsync(CurrentUserId);
+                    if (recent == null)
+                    {
+                        TempData["Error"] = "No design results yet — finish the New Design wizard to create one.";
+                        return RedirectToAction("Index", "Projects");
+                    }
+                    id = recent.Id;
+                }
+
+                var result = await _repo.GetResultForUserAsync(id, CurrentUserId);
                 if (result == null) return NotFound();
 
-                var lines = await _repo.GetBomLineItemsAsync(resultId);
+                var lines = await _repo.GetBomLineItemsAsync(id);
+                var projects = await _repo.GetProjectsWithResultsForUserAsync(CurrentUserId);
 
                 var vm = new BomViewModel
                 {
@@ -54,7 +71,27 @@ namespace AxialFanMVC.Controllers
                     MaterialUsed = result.MaterialUsed,
                     HasBeenGenerated = lines.Any(),
                     Lines = lines.Select(ToLineVm).ToList(),
-                    GrandTotal = lines.Sum(l => l.LineTotal)
+                    GrandTotal = lines.Sum(l => l.LineTotal),
+                    AvailableProjects = projects
+                        .Where(p => p.DesignInputs.Any(di => di.DesignResult != null))
+                        .Select(p => new BomProjectOptionViewModel
+                        {
+                            ProjectId = p.Id,
+                            ProjectName = p.Name,
+                            Designs = p.DesignInputs
+                            .Where(di => di.DesignResult != null)
+                            .Select(di => new BomDesignOptionViewModel
+                            {
+                                DesignInputId = di.Id,
+                                ResultId = di.DesignResult!.Id,
+                                CreatedAt = di.DesignResult!.CalculatedAt,
+                                Material = di.DesignResult!.MaterialUsed ?? ""
+                            })
+                            .OrderByDescending(d => d.CreatedAt)
+                            .ToList()
+                               
+                                                })
+                                                .ToList()
                 };
 
                 return View(vm);

@@ -91,6 +91,13 @@ namespace AxialFanMVC.Repositories
                 .OrderByDescending(r => r.CalculatedAt)
                 .FirstOrDefaultAsync();
 
+        public async Task<List<Project>> GetProjectsWithResultsForUserAsync(int userId) =>
+            await _db.Projects
+                .Where(p => p.UserId == userId)
+                .Include(p => p.DesignInputs).ThenInclude(di => di.DesignResult)
+                .OrderByDescending(p => p.UpdatedAt)
+                .ToListAsync();
+
         // ── BOM & Costing ──────────────────────────────────────────
 
         public async Task<List<CostRate>> GetCostRatesAsync() =>

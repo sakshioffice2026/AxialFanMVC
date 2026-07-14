@@ -24,6 +24,12 @@ namespace AxialFanMVC.Repositories.Inteface
 
         Task<DesignResult?> GetMostRecentResultForUserAsync(int userId);
 
+        // Powers the project/result selector on the BOM page — every
+        // project the user owns, with the design results under each,
+        // newest first, so switching results doesn't require leaving
+        // the page or knowing a resultId ahead of time.
+        Task<List<Project>> GetProjectsWithResultsForUserAsync(int userId);
+
         // ── BOM & Costing ──────────────────────────────────────────
         Task<List<CostRate>> GetCostRatesAsync();
         Task UpdateCostRatesAsync(List<(int Id, double RateValue)> updates);

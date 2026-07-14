@@ -1,4 +1,3 @@
-
 using AxialFanMVC.Database;
 using Microsoft.EntityFrameworkCore;
 
@@ -25,8 +24,6 @@ namespace AxialFanMVC.Database
 
         public DbSet<CostRate> cost_rates => Set<CostRate>();
         public DbSet<BomLineItem> bom_line_items => Set<BomLineItem>();
-        public ICollection<BomLineItem> BomLineItems { get; set; } = new List<BomLineItem>();
-
         protected override void OnModelCreating(ModelBuilder mb)
         {
             base.OnModelCreating(mb);
@@ -142,8 +139,8 @@ namespace AxialFanMVC.Database
             });
 
 
-                // ── ExportLogs ─────────────────────────────────────────
-                mb.Entity<ExportLog>(e =>
+            // ── ExportLogs ─────────────────────────────────────────
+            mb.Entity<ExportLog>(e =>
             {
                 e.Property(x => x.ExportedAt).HasDefaultValueSql("CURRENT_TIMESTAMP");
                 e.HasOne(x => x.Project)
@@ -157,7 +154,7 @@ namespace AxialFanMVC.Database
             });
 
             // ── HandbookChunks ─────────────────────────────────────
-          
+
             mb.Entity<HandbookChunk>(e =>
             {
                 e.HasIndex(h => h.ChunkKey).IsUnique();
@@ -179,7 +176,7 @@ namespace AxialFanMVC.Database
 
             mb.Entity<PerformanceCurve>(e =>
             {
-               
+
 
                 e.Property(p => p.ValidationStatus)
                     .HasDefaultValue("not_applicable");
