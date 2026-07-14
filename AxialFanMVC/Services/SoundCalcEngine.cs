@@ -15,7 +15,7 @@ namespace AxialFanMVC.Services
     //   - ISO 1996 (NR curve rating)
     //   - IEC 61672 (A-weighting corrections)
     //
-    // NOTE: not cross-checked against the Bleier "Fan Handbook" RAG
+    // NOTE: not cross-checked against the engineering reference library RAG
     // extract — that extract has no acoustics chapter. Treat outputs
     // as an engineering estimate, not a certified acoustic test result.
     // ═══════════════════════════════════════════════════════════════

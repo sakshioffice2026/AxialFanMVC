@@ -1,35 +1,36 @@
 ﻿using AxialFanMVC.Models;
+using AxialFanMVC.Repositories;
 using AxialFanMVC.Repositories.Inteface;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AxialFanMVC.Controllers
 {
-  
-    
-        // ─────────────────────────────────────────────────────────────────────────
-        // HandbookController
-        //
-        // Full-text search over the Fan Handbook (Bleier) reference chunks.
-        //
-        // Route summary
-        // ─────────────────────────────────────────────────────────────────────────
-        //  GET  /Handbook                  → Index (search form, empty results)
-        //  GET  /Handbook?query={text}     → Index (search form + ranked results)
-        // ─────────────────────────────────────────────────────────────────────────
-        [Authorize]
-        public class HandbookController : Controller
-        {
-            private readonly IHandbookChunkRepository _handbookRepo;
-            private readonly IExceptionHandlerRepository _exceptionHandlerRepository;
 
-            public HandbookController(
-                IHandbookChunkRepository handbookRepo,
-                IExceptionHandlerRepository exceptionHandlerRepository)
-            {
-                _handbookRepo = handbookRepo;
-                _exceptionHandlerRepository = exceptionHandlerRepository;
-            }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // HandbookController
+    //
+    // Full-text search over the engineering reference chunks.
+    //
+    // Route summary
+    // ─────────────────────────────────────────────────────────────────────────
+    //  GET  /Handbook                  → Index (search form, empty results)
+    //  GET  /Handbook?query={text}     → Index (search form + ranked results)
+    // ─────────────────────────────────────────────────────────────────────────
+    [Authorize]
+    public class HandbookController : Controller
+    {
+        private readonly IHandbookChunkRepository _handbookRepo;
+        private readonly IExceptionHandlerRepository _exceptionHandlerRepository;
+
+        public HandbookController(
+            IHandbookChunkRepository handbookRepo,
+            IExceptionHandlerRepository exceptionHandlerRepository)
+        {
+            _handbookRepo = handbookRepo;
+            _exceptionHandlerRepository = exceptionHandlerRepository;
+        }
 
         public async Task<IActionResult> Index(string? query)
         {
@@ -44,14 +45,23 @@ namespace AxialFanMVC.Controllers
                 {
                     var chunks = await _handbookRepo.SearchAsync(query, maxResults: 15);
 
-                    vm.Results = chunks.Select(c => new HandbookSearchResult
+                    vm.Results = chunks.Select(c =>
                     {
-                        ChunkKey = c.ChunkKey,
-                        Chapter = c.Chapter,
-                        ChapterTitle = c.ChapterTitle,
-                        Section = c.Section,
-                        Page = c.Page,
-                        Text = c.Text
+                        var bullets = TextQuality.ToCleanBullets(c.Text);
+                        return new HandbookSearchResult
+                        {
+                            ChunkKey = c.ChunkKey,
+                            Chapter = c.Chapter,
+                            ChapterTitle = c.ChapterTitle,
+                            Section = c.Section,
+                            Page = c.Page,
+                            Text = c.Text,
+                            Bullets = bullets,
+                            // Flag only if cleanup couldn't recover anything
+                            // usable — i.e. the chunk really was mostly noise,
+                            // not just "had some noisy lines that got dropped."
+                            MayContainScanArtifacts = bullets.Count == 0
+                        };
                     }).ToList();
                 }
 
@@ -87,4 +97,4 @@ namespace AxialFanMVC.Controllers
         }
 
     }
-    }
+}

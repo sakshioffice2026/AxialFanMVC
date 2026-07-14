@@ -26,12 +26,14 @@ builder.Services.AddScoped<ICalibrationCaseRepository, CalibrationCaseRepository
 builder.Services.AddScoped<IHandbookChunkRepository, HandbookChunkRepository>();
 
 // Ollama chat client ? base URL configurable via appsettings ("Ollama:BaseUrl")
-builder.Services.AddHttpClient<IOllamaChatRepository, OllamaChatRepository>(client =>
-{
-    var baseUrl = builder.Configuration["Ollama:BaseUrl"] ?? "http://localhost:11434";
-    client.BaseAddress = new Uri(baseUrl);
-    client.Timeout = TimeSpan.FromSeconds(180);
-});
+//builder.Services.AddHttpClient<IOllamaChatRepository, OllamaChatRepository>(client =>
+//{
+//    var baseUrl = builder.Configuration["Ollama:BaseUrl"] ?? "http://localhost:11434";
+//    client.BaseAddress = new Uri(baseUrl);
+//    client.Timeout = TimeSpan.FromSeconds(180);
+//});
+
+
 
 // HandbookChunkRepository now calls Ollama directly (for embeddings), so it
 // needs an HttpClient the same way OllamaChatRepository does ? same base URL,

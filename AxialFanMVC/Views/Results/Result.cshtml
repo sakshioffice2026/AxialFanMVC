@@ -138,15 +138,15 @@
 <div class="card mb-4">
     <div class="card-header bg-light d-flex align-items-center">
         <i class="bi bi-robot me-2"></i>
-        <strong> Design Assistant</strong>
+        <strong>Design Assistant</strong>
         <span class="text-muted ms-2 small">Ask about this design — grounded in its actual computed values</span>
     </div>
     <div class="card-body">
-        <div id="copilotHistory" class="mb-3" style="max-height:280px;overflow-y:auto;"></div>
+        <div id="assistantHistory" class="mb-3" style="max-height:280px;overflow-y:auto;"></div>
         <div class="input-group">
-            <input type="text" id="copilotInput" class="form-control"
+            <input type="text" id="assistantInput" class="form-control"
                    placeholder="e.g. Why is my efficiency 89%? Is my blade angle reasonable?" />
-            <button class="btn btn-primary" id="copilotAsk" type="button">
+            <button class="btn btn-primary" id="assistantAsk" type="button">
                 <i class="bi bi-send"></i> Ask
             </button>
         </div>
@@ -430,13 +430,13 @@
 
                 </div>
 
-              
-              
+
+
             </div>
         </div>
     }
 
-    @* {{!-- ── Performance Curves Chart ── --}} *@
+@* {{!-- ── Performance Curves Chart ── --}} *@
     <div class="col-12">
         <div class="card shadow-sm">
             <div class="card-header bg-light fw-semibold">
@@ -700,750 +700,750 @@
         </div>
 
 @section Scripts {
-    <script>
-        // ── Initial curve data from server ───────────────────────────
-        const initialCurves = @Html.Raw(Model.CurveJson);
-        const designAngle  = @Model.BladeAngleDeg;
-        const designRpm    = @Model.SpeedRpm;
-        const resultId     = @Model.ResultId;
+            <script>
+                // ── Initial curve data from server ───────────────────────────
+                const initialCurves = @Html.Raw(Model.CurveJson);
+                const designAngle  = @Model.BladeAngleDeg;
+                const designRpm    = @Model.SpeedRpm;
+                const resultId     = @Model.ResultId;
 
-                        // ── Comparison confirmation prompt ────────────────────────────
-                // Shown every time this page loads. Only fires when the comparison
-                // table actually exists for this result — no point prompting when
-                // there's nothing to show.
-                (function () {
-                    const promptEl = document.getElementById('comparisonPromptModal');
-                    const cardEl   = document.getElementById('comparisonCard');
-                    if (!promptEl || !cardEl) return; // no comparison data for this result
+                                // ── Comparison confirmation prompt ────────────────────────────
+                        // Shown every time this page loads. Only fires when the comparison
+                        // table actually exists for this result — no point prompting when
+                        // there's nothing to show.
+                        (function () {
+                            const promptEl = document.getElementById('comparisonPromptModal');
+                            const cardEl   = document.getElementById('comparisonCard');
+                            if (!promptEl || !cardEl) return; // no comparison data for this result
 
-                    const modal = new bootstrap.Modal(promptEl, { backdrop: 'static', keyboard: false });
+                            const modal = new bootstrap.Modal(promptEl, { backdrop: 'static', keyboard: false });
 
-                    document.getElementById('comparisonPromptYes').addEventListener('click', function () {
-                        cardEl.style.display = '';
-                        modal.hide();
-                    });
-                    document.getElementById('comparisonPromptNo').addEventListener('click', function () {
-                        cardEl.style.display = 'none';
-                        modal.hide();
-                    });
+                            document.getElementById('comparisonPromptYes').addEventListener('click', function () {
+                                cardEl.style.display = '';
+                                modal.hide();
+                            });
+                            document.getElementById('comparisonPromptNo').addEventListener('click', function () {
+                                cardEl.style.display = 'none';
+                                modal.hide();
+                            });
 
-                    modal.show();
-                })();
+                            modal.show();
+                        })();
 
                 // ── Design Assistant ────────────────────────────────────────────
-        (function () {
-            const historyEl = document.getElementById('copilotHistory');
-            const inputEl   = document.getElementById('copilotInput');
-            const askBtn    = document.getElementById('copilotAsk');
-            if (!historyEl || !inputEl || !askBtn) return;
+                (function () {
+                    const historyEl = document.getElementById('assistantHistory');
+                    const inputEl   = document.getElementById('assistantInput');
+                    const askBtn    = document.getElementById('assistantAsk');
+                    if (!historyEl || !inputEl || !askBtn) return;
 
-            function appendMessage(role, text) {
-                const wrap = document.createElement('div');
-                wrap.className = 'mb-2';
-                const label = role === 'user' ? 'You' : 'Copilot';
-                const badgeClass = role === 'user' ? 'text-primary' : 'text-success';
-                wrap.innerHTML =
-                    '<div class="small fw-bold ' + badgeClass + '">' + label + '</div>' +
-                    '<div style="white-space:pre-wrap;">' + text + '</div>';
-                historyEl.appendChild(wrap);
-                historyEl.scrollTop = historyEl.scrollHeight;
-            }
+                    function appendMessage(role, text) {
+                        const wrap = document.createElement('div');
+                        wrap.className = 'mb-2';
+                        const label = role === 'user' ? 'You' : 'Assistant';
+                        const badgeClass = role === 'user' ? 'text-primary' : 'text-success';
+                        wrap.innerHTML =
+                            '<div class="small fw-bold ' + badgeClass + '">' + label + '</div>' +
+                            '<div style="white-space:pre-wrap;">' + text + '</div>';
+                        historyEl.appendChild(wrap);
+                        historyEl.scrollTop = historyEl.scrollHeight;
+                    }
 
-            async function ask() {
-                const message = inputEl.value.trim();
-                if (!message) return;
+                    async function ask() {
+                        const message = inputEl.value.trim();
+                        if (!message) return;
 
-                appendMessage('user', message);
-                inputEl.value = '';
-                askBtn.disabled = true;
-                appendMessage('assistant', 'Thinking...');
-                const thinkingEl = historyEl.lastElementChild;
+                        appendMessage('user', message);
+                        inputEl.value = '';
+                        askBtn.disabled = true;
+                        appendMessage('assistant', 'Thinking...');
+                        const thinkingEl = historyEl.lastElementChild;
 
-                try {
-                    const resp = await fetch('/Copilot/Ask', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ resultId: resultId, message: message })
+                        try {
+                            const resp = await fetch('/DesignAssistant/Ask', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ resultId: resultId, message: message })
+                            });
+                            const data = await resp.json();
+                            thinkingEl.remove();
+                            appendMessage('assistant', data.reply || 'No response.');
+                        } catch (err) {
+                            thinkingEl.remove();
+                            appendMessage('assistant', 'Something went wrong reaching the assistant. Please try again.');
+                        } finally {
+                            askBtn.disabled = false;
+                        }
+                    }
+
+                    askBtn.addEventListener('click', ask);
+                    inputEl.addEventListener('keydown', function (e) {
+                        if (e.key === 'Enter') { e.preventDefault(); ask(); }
                     });
-                    const data = await resp.json();
-                    thinkingEl.remove();
-                    appendMessage('assistant', data.reply || 'No response.');
-                } catch (err) {
-                    thinkingEl.remove();
-                    appendMessage('assistant', 'Something went wrong reaching the copilot. Please try again.');
-                } finally {
-                    askBtn.disabled = false;
+                })();
+
+
+                const MAX_CURVES = 10;
+                const COLOR_PALETTE = [
+                    '#dc3545', // red
+                    '#198754', // green
+                    '#fd7e14', // orange
+                    '#6f42c1', // purple
+                    '#795548', // brown
+                    '#d63384', // pink
+                    '#20c997', // teal
+                    '#212529', // black
+                    '#0dcaf0', // cyan
+                ];
+                const MANUAL_COLOR_PALETTE = ['#6c757d', '#495057', '#adb5bd'];
+                const DESIGN_COLOR = '#0d6efd'; // blue — reserved for the design curve only
+
+                // Line weights tuned for a "premium" look: thin, crisp lines with
+                // slightly larger hover points instead of chunky always-on markers.
+                const DESIGN_LINE_WIDTH  = 2.25;
+                const CURVE_LINE_WIDTH   = 1.5;
+                const DESIGN_KW_WIDTH    = 1.5;
+                const CURVE_KW_WIDTH     = 1;
+
+                // ── Curve state ───────────────────────────────────────────────
+                // Each curve: { id, label, angle, rpm, color, pinned, isDesign,
+                //   temporary, origin ('System'|'Manual'), validationStatus
+                //   ('ok'|'corrected'|'flagged'|'not_applicable'), flags (array,
+                //   empty for Manual/'ok'), q, dp, eta, kw }
+                let curves = [];
+
+                if (initialCurves.baseline) {
+                    curves.push({
+                        id: "baseline",
+                        label: "Baseline",
+                        angle: designAngle,
+                        rpm: designRpm,
+                        color: "#0d6efd",
+                        pinned: true,
+                        isDesign: true,
+                        temporary: false,
+                        origin: "System",
+                        validationStatus: initialCurves.baseline.validationStatus || "ok",
+                        flags: initialCurves.baseline.flags || [],
+
+                        q: initialCurves.baseline.q,
+                        dp: initialCurves.baseline.dp,
+                        eta: initialCurves.baseline.eta,
+                        kw: initialCurves.baseline.kw
+                    });
                 }
-            }
 
-            askBtn.addEventListener('click', ask);
-            inputEl.addEventListener('keydown', function (e) {
-                if (e.key === 'Enter') { e.preventDefault(); ask(); }
-            });
-        })();
+                if (initialCurves.corrected) {
+                    curves.push({
+                        id: "pinn",
+                        label: "Auto Corrected",
+                        angle: designAngle,
+                        rpm: designRpm,
+                        color: "#dc3545",
+                        pinned: true,
+                        isDesign: false,
+                        temporary: false,
+                        origin: "System",
+                        validationStatus: initialCurves.corrected.validationStatus || "ok",
+                        flags: initialCurves.corrected.flags || [],
 
-
-        const MAX_CURVES = 10;
-        const COLOR_PALETTE = [
-            '#dc3545', // red
-            '#198754', // green
-            '#fd7e14', // orange
-            '#6f42c1', // purple
-            '#795548', // brown
-            '#d63384', // pink
-            '#20c997', // teal
-            '#212529', // black
-            '#0dcaf0', // cyan
-        ];
-        const MANUAL_COLOR_PALETTE = ['#6c757d', '#495057', '#adb5bd'];
-        const DESIGN_COLOR = '#0d6efd'; // blue — reserved for the design curve only
-
-        // Line weights tuned for a "premium" look: thin, crisp lines with
-        // slightly larger hover points instead of chunky always-on markers.
-        const DESIGN_LINE_WIDTH  = 2.25;
-        const CURVE_LINE_WIDTH   = 1.5;
-        const DESIGN_KW_WIDTH    = 1.5;
-        const CURVE_KW_WIDTH     = 1;
-
-        // ── Curve state ───────────────────────────────────────────────
-        // Each curve: { id, label, angle, rpm, color, pinned, isDesign,
-        //   temporary, origin ('System'|'Manual'), validationStatus
-        //   ('ok'|'corrected'|'flagged'|'not_applicable'), flags (array,
-        //   empty for Manual/'ok'), q, dp, eta, kw }
-        let curves = [];
-
-        if (initialCurves.baseline) {
-            curves.push({
-                id: "baseline",
-                label: "Baseline",
-                angle: designAngle,
-                rpm: designRpm,
-                color: "#0d6efd",
-                pinned: true,
-                isDesign: true,
-                temporary: false,
-                origin: "System",
-                validationStatus: initialCurves.baseline.validationStatus || "ok",
-                flags: initialCurves.baseline.flags || [],
-
-                q: initialCurves.baseline.q,
-                dp: initialCurves.baseline.dp,
-                eta: initialCurves.baseline.eta,
-                kw: initialCurves.baseline.kw
-            });
-        }
-
-        if (initialCurves.corrected) {
-            curves.push({
-                id: "pinn",
-                label: "Auto Corrected",
-                angle: designAngle,
-                rpm: designRpm,
-                color: "#dc3545",
-                pinned: true,
-                isDesign: false,
-                temporary: false,
-                origin: "System",
-                validationStatus: initialCurves.corrected.validationStatus || "ok",
-                flags: initialCurves.corrected.flags || [],
-
-                q: initialCurves.corrected.q,
-                dp: initialCurves.corrected.dp,
-                eta: initialCurves.corrected.eta,
-                kw: initialCurves.corrected.kw
-            });
-        }
-
-        // NEW — manually-entered curves (Feature 2)
-        (initialCurves.manual || []).forEach((m, i) => {
-            curves.push({
-                id: "manual-" + m.id,
-                label: m.label || "Manual curve",
-                angle: designAngle,
-                rpm: designRpm,
-                color: MANUAL_COLOR_PALETTE[i % MANUAL_COLOR_PALETTE.length],
-                pinned: true,
-                isDesign: false,
-                temporary: false,
-                origin: "Manual",
-                validationStatus: "not_applicable",
-                flags: [],
-
-                q: m.q, dp: m.dp, eta: m.eta, kw: m.kw
-            });
-        });
-
-        let usedColors = new Set();
-        function nextColor() {
-            const free = COLOR_PALETTE.find(c => !usedColors.has(c));
-            if (free) { usedColors.add(free); return free; }
-            return COLOR_PALETTE[curves.length % COLOR_PALETTE.length];
-        }
-        function nextManualColor() {
-            const usedManual = curves.filter(c => c.origin === 'Manual').length;
-            return MANUAL_COLOR_PALETTE[usedManual % MANUAL_COLOR_PALETTE.length];
-        }
-        function releaseColor(color) {
-            usedColors.delete(color);
-        }
-
-        // ── Chart.js setup (empty shells — populated by render()) ─────
-        const commonScalesX = { title: { display: true, text: 'Flow Rate Q (m³/s)' } };
-
-        const ctxQdp = document.getElementById('chartQdp').getContext('2d');
-        const chartQdp = new Chart(ctxQdp, {
-            type: 'line',
-            data: { labels: [], datasets: [] },
-            options: {
-                responsive: true,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: { mode: 'index', intersect: false }
-                },
-                interaction: { mode: 'index', intersect: false },
-                scales: {
-                    x: commonScalesX,
-                    y: { title: { display: true, text: 'ΔP (Pa)' } }
+                        q: initialCurves.corrected.q,
+                        dp: initialCurves.corrected.dp,
+                        eta: initialCurves.corrected.eta,
+                        kw: initialCurves.corrected.kw
+                    });
                 }
-            }
-        });
 
-        const ctxEta = document.getElementById('chartEta').getContext('2d');
-        const chartEta = new Chart(ctxEta, {
-            type: 'line',
-            data: { labels: [], datasets: [] },
-            options: {
-                responsive: true,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: { mode: 'index', intersect: false }
-                },
-                interaction: { mode: 'index', intersect: false },
-                scales: {
-                    x: commonScalesX,
-                    yEta: { type: 'linear', position: 'left', title: { display: true, text: 'η (%)' } },
-                    yKw: { type: 'linear', position: 'right', title: { display: true, text: 'kW' }, grid: { drawOnChartArea: false } }
-                }
-            }
-        });
+                // NEW — manually-entered curves (Feature 2)
+                (initialCurves.manual || []).forEach((m, i) => {
+                    curves.push({
+                        id: "manual-" + m.id,
+                        label: m.label || "Manual curve",
+                        angle: designAngle,
+                        rpm: designRpm,
+                        color: MANUAL_COLOR_PALETTE[i % MANUAL_COLOR_PALETTE.length],
+                        pinned: true,
+                        isDesign: false,
+                        temporary: false,
+                        origin: "Manual",
+                        validationStatus: "not_applicable",
+                        flags: [],
 
-        // Line style is decided purely by origin/role, per the plain-terms
-        // rule: solid = primary system curve, dashed = other system
-        // curves, dotted = manual/unverified. This must stay consistent
-        // wherever a curve is drawn (both charts) so there's never a case
-        // where the same curve looks "verified" in one place and not
-        // the other.
-        function lineDashFor(c) {
-            if (c.origin === 'Manual') return [2, 2];
-            if (c.isDesign) return [];
-            return [5, 3];
-        }
-
-        // ── Render everything from `curves` state ─────────────────────
-        function render() {
-            // Nothing to show yet (no baseline/corrected/manual curves exist
-            // for this result) — bail out cleanly instead of crashing on
-            // reduce() with no elements to reduce. This happens for results
-            // that were calculated but never had GenerateCurve/Regenerate
-            // run against them yet.
-            if (curves.length === 0) {
-                chartQdp.data.labels = [];
-                chartQdp.data.datasets = [];
-                chartQdp.update();
-
-                chartEta.data.labels = [];
-                chartEta.data.datasets = [];
-                chartEta.update();
-
-                renderTable();
-                return;
-            }
-
-            const labelSource = curves.reduce((a, b) => (a.q.length >= b.q.length ? a : b));
-
-            chartQdp.data.labels = labelSource.q;
-            chartQdp.data.datasets = curves.map(c => ({
-                label: c.label,
-                data: c.dp,
-                borderColor: c.color,
-                backgroundColor: c.color + '12',
-                borderWidth: c.isDesign ? DESIGN_LINE_WIDTH : CURVE_LINE_WIDTH,
-                borderCapStyle: 'round',
-                borderJoinStyle: 'round',
-                borderDash: lineDashFor(c),
-                fill: c.isDesign,
-                tension: 0.35,
-                cubicInterpolationMode: 'monotone',
-                pointRadius: 0,
-                pointHoverRadius: c.isDesign ? 5 : 4,
-                pointHoverBackgroundColor: c.color,
-                pointHoverBorderColor: '#fff',
-                pointHoverBorderWidth: 2
-            }));
-            chartQdp.update();
-
-            chartEta.data.labels = labelSource.q;
-            chartEta.data.datasets = curves.flatMap(c => ([
-                {
-                    label: `${c.label} — η`,
-                    data: c.eta,
-                    borderColor: c.color,
-                    borderWidth: c.isDesign ? DESIGN_LINE_WIDTH : CURVE_LINE_WIDTH,
-                    borderCapStyle: 'round',
-                    borderJoinStyle: 'round',
-                    borderDash: lineDashFor(c),
-                    fill: false,
-                    tension: 0.35,
-                    cubicInterpolationMode: 'monotone',
-                    pointRadius: 0,
-                    pointHoverRadius: c.isDesign ? 5 : 4,
-                    pointHoverBackgroundColor: c.color,
-                    pointHoverBorderColor: '#fff',
-                    pointHoverBorderWidth: 2,
-                    yAxisID: 'yEta'
-                },
-                {
-                    label: `${c.label} — kW`,
-                    data: c.kw,
-                    borderColor: c.color,
-                    borderWidth: c.isDesign ? DESIGN_KW_WIDTH : CURVE_KW_WIDTH,
-                    borderCapStyle: 'round',
-                    borderJoinStyle: 'round',
-                    borderDash: c.origin === 'Manual' ? [1, 2] : (c.isDesign ? [2, 2] : [1, 3]),
-                    fill: false,
-                    tension: 0.35,
-                    cubicInterpolationMode: 'monotone',
-                    pointRadius: 0,
-                    pointHoverRadius: c.isDesign ? 4 : 3,
-                    pointHoverBackgroundColor: c.color,
-                    pointHoverBorderColor: '#fff',
-                    pointHoverBorderWidth: 2,
-                    yAxisID: 'yKw'
-                }
-            ]));
-            chartEta.update();
-
-            renderTable();
-        }
-
-        // Flag objects arrive with different casing depending on which server
-        // path produced them (BuildCurveJson serializes raw PascalCase;
-        // the GenerateCurve AJAX endpoint goes through Controller.Json(),
-        // which camelCases by default) — read both until that's unified.
-        function flagField(f, name) {
-            return f[name] ?? f[name.charAt(0).toLowerCase() + name.slice(1)];
-        }
-
-        // Escaped, newline-joined flag messages for a native title tooltip —
-        // no Bootstrap popover component needed, so nothing to re-initialize
-        // when rows are re-rendered via innerHTML.
-        function flagsTooltip(flags) {
-            return (flags || [])
-                .map(f => `[${flagField(f, 'Severity') || ''}] ${flagField(f, 'Message') || ''}`)
-                .join('\n')
-                .replace(/"/g, '&quot;');
-        }
-
-        // ── Validation / origin badge — the single place this HTML is
-        // generated, so the comparison table, PDF payload labels, and
-        // any future surface all stay in sync with one definition. ──
-        function validationBadge(c) {
-            if (c.origin === 'Manual') {
-                return '<span class="badge bg-secondary">✎ Manual — unverified</span>';
-            }
-
-            const hasFlags = c.flags && c.flags.length > 0;
-            const tooltip = hasFlags ? ` title="${flagsTooltip(c.flags)}"` : '';
-            const cursor = hasFlags ? ' style="cursor:help"' : '';
-
-            switch (c.validationStatus) {
-                case 'ok':
-                    return '<span class="badge bg-success">✓ Validated</span>';
-                case 'corrected':
-                    return `<span class="badge bg-warning text-dark"${tooltip}${cursor}>⚠ Auto-corrected${hasFlags ? ' ⓘ' : ''}</span>`;
-                case 'flagged':
-                    return `<span class="badge bg-danger"${tooltip}${cursor}>⚠ Needs review${hasFlags ? ' ⓘ' : ''}</span>`;
-                default:
-                    return '<span class="badge bg-light text-muted">—</span>';
-            }
-        }
-
-        function renderTable() {
-            const body = document.getElementById('curveCompareBody');
-            body.innerHTML = '';
-            curves.forEach(c => {
-                const tr = document.createElement('tr');
-
-                const swatchTd = document.createElement('td');
-                swatchTd.innerHTML = `<span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:${c.color}"></span>`;
-                tr.appendChild(swatchTd);
-
-                const labelTd = document.createElement('td');
-                labelTd.className = c.isDesign ? 'fw-semibold' : '';
-                labelTd.textContent = c.label;
-                tr.appendChild(labelTd);
-
-                const angleTd = document.createElement('td');
-                angleTd.textContent = c.angle + '°';
-                tr.appendChild(angleTd);
-
-                const rpmTd = document.createElement('td');
-                rpmTd.textContent = c.rpm + ' RPM';
-                tr.appendChild(rpmTd);
-
-                const statusTd = document.createElement('td');
-                statusTd.innerHTML = validationBadge(c);
-                tr.appendChild(statusTd);
-
-                const pinTd = document.createElement('td');
-                if (c.isDesign) {
-                    pinTd.innerHTML = `<span class="text-muted small">—</span>`;
-                } else {
-                    const pinBtn = document.createElement('button');
-                    pinBtn.type = 'button';
-                    pinBtn.className = 'btn btn-sm ' + (c.pinned ? 'btn-primary' : 'btn-outline-secondary');
-                    pinBtn.innerHTML = c.pinned ? '📌' : 'Pin';
-                    pinBtn.title = c.pinned ? 'Unpin this curve' : 'Pin this curve (keeps it through Regenerate/Reset)';
-                    pinBtn.addEventListener('click', () => togglePin(c.id));
-                    pinTd.appendChild(pinBtn);
-                }
-                tr.appendChild(pinTd);
-
-                const removeTd = document.createElement('td');
-                if (!c.isDesign) {
-                    const rmBtn = document.createElement('button');
-                    rmBtn.type = 'button';
-                    rmBtn.className = 'btn btn-sm btn-outline-danger';
-                    rmBtn.innerHTML = '❌';
-                    rmBtn.title = 'Remove this curve';
-                    rmBtn.addEventListener('click', () => removeCurve(c.id));
-                    removeTd.appendChild(rmBtn);
-                }
-                tr.appendChild(removeTd);
-
-                body.appendChild(tr);
-            });
-
-            document.getElementById('curveCountLabel').textContent = `${curves.length} / ${MAX_CURVES} curves`;
-
-            // Explicit "Pin Curve" button is only actionable when there's an
-            // unpinned, non-design curve currently on the chart to pin.
-            const pinnable = curves.some(c => !c.isDesign && !c.pinned);
-            const btnPin = document.getElementById('btnPinCurve');
-            btnPin.disabled = !pinnable;
-        }
-
-        function togglePin(id) {
-            const c = curves.find(x => x.id === id);
-            if (!c || c.isDesign) return;
-            c.pinned = !c.pinned;
-            c.temporary = false;
-            renderTable();
-        }
-
-        function removeCurve(id) {
-            const c = curves.find(x => x.id === id);
-            if (!c || c.isDesign) return;
-            curves = curves.filter(x => x.id !== id);
-            if (c.origin !== 'Manual') releaseColor(c.color);
-            render();
-        }
-
-        function addCurve(newCurveData, angle, rpm, label, origin, validationStatus, flags) {
-            origin = origin || 'System';
-            validationStatus = validationStatus || (origin === 'Manual' ? 'not_applicable' : 'ok');
-            flags = flags || [];
-
-            // Replace the current temporary (unpinned, non-design) curve if one
-            // exists, otherwise just append — this is what makes "change slider,
-            // Regenerate" swap only the latest unpinned curve while pinned ones
-            // stay put. Manual curves are never "temporary" so they're excluded.
-            const tempIndex = curves.findIndex(c => c.temporary && !c.pinned && !c.isDesign);
-            if (tempIndex !== -1) {
-                if (curves[tempIndex].origin !== 'Manual') releaseColor(curves[tempIndex].color);
-                curves.splice(tempIndex, 1);
-            }
-
-            let limitHit = false;
-            if (curves.length >= MAX_CURVES) {
-                const evictIndex = curves.findIndex(c => !c.pinned && !c.isDesign);
-                if (evictIndex !== -1) {
-                    if (curves[evictIndex].origin !== 'Manual') releaseColor(curves[evictIndex].color);
-                    curves.splice(evictIndex, 1);
-                    limitHit = true;
-                } else {
-                    document.getElementById('curveLimitAlert').textContent =
-                        'Maximum of 10 comparison curves reached and all are pinned — unpin one to add another.';
-                    document.getElementById('curveLimitAlert').classList.remove('d-none');
-                    return;
-                }
-            }
-
-            const color = origin === 'Manual' ? nextManualColor() : nextColor();
-            curves.push({
-                id: 'curve-' + Date.now(),
-                label: label,
-                angle, rpm, color,
-                pinned: origin === 'Manual', // manual entries are pinned by default, same as before
-                isDesign: false,
-                temporary: origin !== 'Manual',
-                origin, validationStatus, flags,
-                q: newCurveData.q, dp: newCurveData.dp, eta: newCurveData.eta, kw: newCurveData.kw
-            });
-
-            const limitAlert = document.getElementById('curveLimitAlert');
-            if (limitHit) {
-                limitAlert.textContent = 'Maximum of 10 comparison curves reached — oldest unpinned curve was removed automatically.';
-                limitAlert.classList.remove('d-none');
-            } else {
-                limitAlert.classList.add('d-none');
-            }
-
-            render();
-        }
-
-        // ── Slider event listeners ────────────────────────────────────
-        const sliderAngle  = document.getElementById('sliderAngle');
-        const sliderRpm    = document.getElementById('sliderRpm');
-        const labelAngle   = document.getElementById('labelAngle');
-        const labelRpm     = document.getElementById('labelRpm');
-        const displayAngle = document.getElementById('displayAngle');
-        const displayRpm   = document.getElementById('displayRpm');
-        const displayStatus= document.getElementById('displayStatus');
-
-        // Update labels live as slider moves
-        sliderAngle.addEventListener('input', function () {
-            const val = parseFloat(this.value);
-            labelAngle.textContent   = val + ' °';
-            displayAngle.textContent = val + ' °';
-        });
-
-        sliderRpm.addEventListener('input', function () {
-            const val = parseInt(this.value);
-            labelRpm.textContent   = val + ' RPM';
-            displayRpm.textContent = val + ' RPM';
-        });
-
-        // ── Regenerate button ─────────────────────────────────────────
-        document.getElementById('btnGenCurve')
-                .addEventListener('click', async () => {
-            const angle = parseFloat(sliderAngle.value);
-            const rpm   = parseInt(sliderRpm.value);
-
-            displayStatus.textContent = 'Generating...';
-            displayStatus.className   = 'fw-bold text-warning fs-5';
-
-            try {
-                const token = document.querySelector(
-                    'input[name=__RequestVerificationToken]')?.value || '';
-
-                const resp = await fetch(
-                    `/Results/GenerateCurve?resultId=${resultId}` +
-                    `&bladeAngleDeg=${angle}&speedRpm=${rpm}`,
-                    {
-                        method: 'POST',
-                        headers: { 'RequestVerificationToken': token }
-                    }
-                );
-
-                if (resp.ok) {
-                    const d = await resp.json();
-
-                    addCurve(
-                        { q: d.baseline.q, dp: d.baseline.dp, eta: d.baseline.eta, kw: d.baseline.kw },
-                        angle, rpm, 'Baseline', 'System', d.baseline.validationStatus, d.baseline.flags
-                    );
-
-                    addCurve(
-                        { q: d.corrected.q, dp: d.corrected.dp, eta: d.corrected.eta, kw: d.corrected.kw },
-                        angle, rpm, 'Auto Corrected', 'System', d.corrected.validationStatus, d.corrected.flags
-                    );
-
-                    const anyFlagged =
-                        (d.baseline.validationStatus === 'flagged') ||
-                        (d.corrected.validationStatus === 'flagged');
-                    const anyCorrected =
-                        (d.baseline.validationStatus === 'corrected') ||
-                        (d.corrected.validationStatus === 'corrected');
-
-                    if (anyFlagged) {
-                        displayStatus.textContent = '⚠ Needs review';
-                        displayStatus.className   = 'fw-bold text-danger fs-5';
-                    } else if (anyCorrected) {
-                        displayStatus.textContent = '⚠ Auto-corrected';
-                        displayStatus.className   = 'fw-bold text-warning fs-5';
-                    } else {
-                        displayStatus.textContent = '✓ Updated';
-                        displayStatus.className   = 'fw-bold text-success fs-5';
-                    }
-                } else {
-                    displayStatus.textContent = '✗ Error';
-                    displayStatus.className   =
-                        'fw-bold text-danger fs-5';
-                }
-            } catch (e) {
-                displayStatus.textContent = '✗ Failed';
-                displayStatus.className   = 'fw-bold text-danger fs-5';
-            }
-        });
-
-        // ── Save Manual Curve (Feature 2) ─────────────────────────────
-        document.getElementById('btnSaveManualCurve').addEventListener('click', async () => {
-            const parseList = s => s.split(',').map(v => parseFloat(v.trim())).filter(v => !isNaN(v));
-            const q   = parseList(document.getElementById('manualQ').value);
-            const dp  = parseList(document.getElementById('manualDp').value);
-            const eta = parseList(document.getElementById('manualEta').value);
-            const kw  = parseList(document.getElementById('manualKw').value);
-            const label = document.getElementById('manualLabel').value || 'Manual curve';
-
-            if (!(q.length === dp.length && q.length === eta.length && q.length === kw.length && q.length > 0)) {
-                alert('All four fields need the same number of comma-separated values.');
-                return;
-            }
-
-            const btn = document.getElementById('btnSaveManualCurve');
-            const originalHtml = btn.innerHTML;
-            btn.disabled = true;
-            btn.innerHTML = 'Saving...';
-
-            try {
-                const token = document.querySelector('input[name=__RequestVerificationToken]')?.value || '';
-                const resp = await fetch('/Results/SaveManualCurve', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': token },
-                    body: JSON.stringify({
-                        resultId, label,
-                        bladeAngleDeg: designAngle, speedRpm: designRpm,
-                        q, dp, eta, kw
-                    })
+                        q: m.q, dp: m.dp, eta: m.eta, kw: m.kw
+                    });
                 });
 
-                if (!resp.ok) { alert('Could not save manual curve.'); return; }
-                const d = await resp.json();
+                let usedColors = new Set();
+                function nextColor() {
+                    const free = COLOR_PALETTE.find(c => !usedColors.has(c));
+                    if (free) { usedColors.add(free); return free; }
+                    return COLOR_PALETTE[curves.length % COLOR_PALETTE.length];
+                }
+                function nextManualColor() {
+                    const usedManual = curves.filter(c => c.origin === 'Manual').length;
+                    return MANUAL_COLOR_PALETTE[usedManual % MANUAL_COLOR_PALETTE.length];
+                }
+                function releaseColor(color) {
+                    usedColors.delete(color);
+                }
 
-                addCurve(
-                    { q: d.q, dp: d.dp, eta: d.eta, kw: d.kw },
-                    designAngle, designRpm, d.label, 'Manual', 'not_applicable'
-                );
+                // ── Chart.js setup (empty shells — populated by render()) ─────
+                const commonScalesX = { title: { display: true, text: 'Flow Rate Q (m³/s)' } };
 
-                // Clear the form and collapse it
-                document.getElementById('manualLabel').value = '';
-                document.getElementById('manualQ').value = '';
-                document.getElementById('manualDp').value = '';
-                document.getElementById('manualEta').value = '';
-                document.getElementById('manualKw').value = '';
-                bootstrap.Collapse.getInstance(document.getElementById('manualCurveForm'))?.hide();
-            } catch (e) {
-                alert('Could not save manual curve: ' + e.message);
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = originalHtml;
-            }
-        });
+                const ctxQdp = document.getElementById('chartQdp').getContext('2d');
+                const chartQdp = new Chart(ctxQdp, {
+                    type: 'line',
+                    data: { labels: [], datasets: [] },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: { mode: 'index', intersect: false }
+                        },
+                        interaction: { mode: 'index', intersect: false },
+                        scales: {
+                            x: commonScalesX,
+                            y: { title: { display: true, text: 'ΔP (Pa)' } }
+                        }
+                    }
+                });
 
-        // ── Pin Curve button — pins the most recently added unpinned curve ──
-        document.getElementById('btnPinCurve').addEventListener('click', () => {
-            // Pin the latest unpinned, non-design curve (i.e. whatever is
-            // currently the "temporary" one from the last Regenerate).
-            const target = [...curves].reverse().find(c => !c.isDesign && !c.pinned);
-            if (!target) return;
-            target.pinned = true;
-            target.temporary = false;
-            renderTable();
-        });
+                const ctxEta = document.getElementById('chartEta').getContext('2d');
+                const chartEta = new Chart(ctxEta, {
+                    type: 'line',
+                    data: { labels: [], datasets: [] },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: { mode: 'index', intersect: false }
+                        },
+                        interaction: { mode: 'index', intersect: false },
+                        scales: {
+                            x: commonScalesX,
+                            yEta: { type: 'linear', position: 'left', title: { display: true, text: 'η (%)' } },
+                            yKw: { type: 'linear', position: 'right', title: { display: true, text: 'kW' }, grid: { drawOnChartArea: false } }
+                        }
+                    }
+                });
 
-        // ── Reset to design point button ──────────────────────────────
-        document.getElementById('btnResetCurve')
-                .addEventListener('click', () => {
-            sliderAngle.value        = designAngle;
-            sliderRpm.value          = designRpm;
-            labelAngle.textContent   = designAngle + ' °';
-            labelRpm.textContent     = designRpm + ' RPM';
-            displayAngle.textContent = designAngle + ' °';
-            displayRpm.textContent   = designRpm + ' RPM';
+                // Line style is decided purely by origin/role, per the plain-terms
+                // rule: solid = primary system curve, dashed = other system
+                // curves, dotted = manual/unverified. This must stay consistent
+                // wherever a curve is drawn (both charts) so there's never a case
+                // where the same curve looks "verified" in one place and not
+                // the other.
+                function lineDashFor(c) {
+                    if (c.origin === 'Manual') return [2, 2];
+                    if (c.isDesign) return [];
+                    return [5, 3];
+                }
 
-            // Remove every curve except the original design curve (pinned or not).
-            // Manual curves are intentionally cleared too — Reset returns to the
-            // pure design-point view; manually-added curves can be re-added.
-            curves.filter(c => !c.isDesign).forEach(c => {
-                if (c.origin !== 'Manual') releaseColor(c.color);
-            });
-            curves = curves.filter(c => c.isDesign);
+                // ── Render everything from `curves` state ─────────────────────
+                function render() {
+                    // Nothing to show yet (no baseline/corrected/manual curves exist
+                    // for this result) — bail out cleanly instead of crashing on
+                    // reduce() with no elements to reduce. This happens for results
+                    // that were calculated but never had GenerateCurve/Regenerate
+                    // run against them yet.
+                    if (curves.length === 0) {
+                        chartQdp.data.labels = [];
+                        chartQdp.data.datasets = [];
+                        chartQdp.update();
 
-            document.getElementById('curveLimitAlert').classList.add('d-none');
+                        chartEta.data.labels = [];
+                        chartEta.data.datasets = [];
+                        chartEta.update();
 
-            render();
+                        renderTable();
+                        return;
+                    }
 
-            displayStatus.textContent = 'Design Point';
-            displayStatus.className   = 'fw-bold text-primary fs-5';
-        });
+                    const labelSource = curves.reduce((a, b) => (a.q.length >= b.q.length ? a : b));
 
-        // ── Initial render ──────────────────────────────────────────────
-        render(); // also sets #btnPinCurve to disabled since only the design curve exists yet
-
-        // ── Download PDF Summary — captures charts exactly as shown ────
-        document.getElementById('btnDownloadPdf').addEventListener('click', async (e) => {
-            e.preventDefault();
-            const link = e.currentTarget;
-            const originalHtml = link.innerHTML;
-            link.innerHTML = '<i class="bi bi-hourglass-split me-2"></i>Generating PDF...';
-
-            try {
-                const qdpImage = chartQdp.canvas.toDataURL('image/png', 1.0);
-                const etaImage = chartEta.canvas.toDataURL('image/png', 1.0);
-
-                // Only send the curve comparison rows if more than the design
-                // curve is on screen — otherwise there's nothing to compare.
-                // origin/validationStatus travel with each row so the PDF can
-                // label manual/auto-corrected/flagged curves the same way the
-                // on-screen table does.
-                const curvePayload = curves.length > 1
-                    ? curves.map(c => ({
+                    chartQdp.data.labels = labelSource.q;
+                    chartQdp.data.datasets = curves.map(c => ({
                         label: c.label,
-                        angle: c.angle,
-                        rpm: c.rpm,
-                        color: c.color,
-                        isDesign: c.isDesign,
-                        origin: c.origin,
-                        validationStatus: c.validationStatus
-                    }))
-                    : [];
+                        data: c.dp,
+                        borderColor: c.color,
+                        backgroundColor: c.color + '12',
+                        borderWidth: c.isDesign ? DESIGN_LINE_WIDTH : CURVE_LINE_WIDTH,
+                        borderCapStyle: 'round',
+                        borderJoinStyle: 'round',
+                        borderDash: lineDashFor(c),
+                        fill: c.isDesign,
+                        tension: 0.35,
+                        cubicInterpolationMode: 'monotone',
+                        pointRadius: 0,
+                        pointHoverRadius: c.isDesign ? 5 : 4,
+                        pointHoverBackgroundColor: c.color,
+                        pointHoverBorderColor: '#fff',
+                        pointHoverBorderWidth: 2
+                    }));
+                    chartQdp.update();
 
-                const token = document.querySelector('input[name=__RequestVerificationToken]')?.value || '';
+                    chartEta.data.labels = labelSource.q;
+                    chartEta.data.datasets = curves.flatMap(c => ([
+                        {
+                            label: `${c.label} — η`,
+                            data: c.eta,
+                            borderColor: c.color,
+                            borderWidth: c.isDesign ? DESIGN_LINE_WIDTH : CURVE_LINE_WIDTH,
+                            borderCapStyle: 'round',
+                            borderJoinStyle: 'round',
+                            borderDash: lineDashFor(c),
+                            fill: false,
+                            tension: 0.35,
+                            cubicInterpolationMode: 'monotone',
+                            pointRadius: 0,
+                            pointHoverRadius: c.isDesign ? 5 : 4,
+                            pointHoverBackgroundColor: c.color,
+                            pointHoverBorderColor: '#fff',
+                            pointHoverBorderWidth: 2,
+                            yAxisID: 'yEta'
+                        },
+                        {
+                            label: `${c.label} — kW`,
+                            data: c.kw,
+                            borderColor: c.color,
+                            borderWidth: c.isDesign ? DESIGN_KW_WIDTH : CURVE_KW_WIDTH,
+                            borderCapStyle: 'round',
+                            borderJoinStyle: 'round',
+                            borderDash: c.origin === 'Manual' ? [1, 2] : (c.isDesign ? [2, 2] : [1, 3]),
+                            fill: false,
+                            tension: 0.35,
+                            cubicInterpolationMode: 'monotone',
+                            pointRadius: 0,
+                            pointHoverRadius: c.isDesign ? 4 : 3,
+                            pointHoverBackgroundColor: c.color,
+                            pointHoverBorderColor: '#fff',
+                            pointHoverBorderWidth: 2,
+                            yAxisID: 'yKw'
+                        }
+                    ]));
+                    chartEta.update();
 
-                // FIX: this previously pointed at /Export/PdfWithCharts, which
-                // is commented out server-side and 404s. The live endpoint that
-                // does the same job is ChartsOnlyPdfWithSnapshot.
-                const resp = await fetch('/Export/ChartsOnlyPdfWithSnapshot', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'RequestVerificationToken': token
-                    },
-                    body: JSON.stringify({
-                        resultId: resultId,
-                        qdpImageBase64: qdpImage,
-                        etaImageBase64: etaImage,
-                        curves: curvePayload
-                    })
+                    renderTable();
+                }
+
+                // Flag objects arrive with different casing depending on which server
+                // path produced them (BuildCurveJson serializes raw PascalCase;
+                // the GenerateCurve AJAX endpoint goes through Controller.Json(),
+                // which camelCases by default) — read both until that's unified.
+                function flagField(f, name) {
+                    return f[name] ?? f[name.charAt(0).toLowerCase() + name.slice(1)];
+                }
+
+                // Escaped, newline-joined flag messages for a native title tooltip —
+                // no Bootstrap popover component needed, so nothing to re-initialize
+                // when rows are re-rendered via innerHTML.
+                function flagsTooltip(flags) {
+                    return (flags || [])
+                        .map(f => `[${flagField(f, 'Severity') || ''}] ${flagField(f, 'Message') || ''}`)
+                        .join('\n')
+                        .replace(/"/g, '&quot;');
+                }
+
+                // ── Validation / origin badge — the single place this HTML is
+                // generated, so the comparison table, PDF payload labels, and
+                // any future surface all stay in sync with one definition. ──
+                function validationBadge(c) {
+                    if (c.origin === 'Manual') {
+                        return '<span class="badge bg-secondary">✎ Manual — unverified</span>';
+                    }
+
+                    const hasFlags = c.flags && c.flags.length > 0;
+                    const tooltip = hasFlags ? ` title="${flagsTooltip(c.flags)}"` : '';
+                    const cursor = hasFlags ? ' style="cursor:help"' : '';
+
+                    switch (c.validationStatus) {
+                        case 'ok':
+                            return '<span class="badge bg-success">✓ Validated</span>';
+                        case 'corrected':
+                            return `<span class="badge bg-warning text-dark"${tooltip}${cursor}>⚠ Auto-corrected${hasFlags ? ' ⓘ' : ''}</span>`;
+                        case 'flagged':
+                            return `<span class="badge bg-danger"${tooltip}${cursor}>⚠ Needs review${hasFlags ? ' ⓘ' : ''}</span>`;
+                        default:
+                            return '<span class="badge bg-light text-muted">—</span>';
+                    }
+                }
+
+                function renderTable() {
+                    const body = document.getElementById('curveCompareBody');
+                    body.innerHTML = '';
+                    curves.forEach(c => {
+                        const tr = document.createElement('tr');
+
+                        const swatchTd = document.createElement('td');
+                        swatchTd.innerHTML = `<span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:${c.color}"></span>`;
+                        tr.appendChild(swatchTd);
+
+                        const labelTd = document.createElement('td');
+                        labelTd.className = c.isDesign ? 'fw-semibold' : '';
+                        labelTd.textContent = c.label;
+                        tr.appendChild(labelTd);
+
+                        const angleTd = document.createElement('td');
+                        angleTd.textContent = c.angle + '°';
+                        tr.appendChild(angleTd);
+
+                        const rpmTd = document.createElement('td');
+                        rpmTd.textContent = c.rpm + ' RPM';
+                        tr.appendChild(rpmTd);
+
+                        const statusTd = document.createElement('td');
+                        statusTd.innerHTML = validationBadge(c);
+                        tr.appendChild(statusTd);
+
+                        const pinTd = document.createElement('td');
+                        if (c.isDesign) {
+                            pinTd.innerHTML = `<span class="text-muted small">—</span>`;
+                        } else {
+                            const pinBtn = document.createElement('button');
+                            pinBtn.type = 'button';
+                            pinBtn.className = 'btn btn-sm ' + (c.pinned ? 'btn-primary' : 'btn-outline-secondary');
+                            pinBtn.innerHTML = c.pinned ? '📌' : 'Pin';
+                            pinBtn.title = c.pinned ? 'Unpin this curve' : 'Pin this curve (keeps it through Regenerate/Reset)';
+                            pinBtn.addEventListener('click', () => togglePin(c.id));
+                            pinTd.appendChild(pinBtn);
+                        }
+                        tr.appendChild(pinTd);
+
+                        const removeTd = document.createElement('td');
+                        if (!c.isDesign) {
+                            const rmBtn = document.createElement('button');
+                            rmBtn.type = 'button';
+                            rmBtn.className = 'btn btn-sm btn-outline-danger';
+                            rmBtn.innerHTML = '❌';
+                            rmBtn.title = 'Remove this curve';
+                            rmBtn.addEventListener('click', () => removeCurve(c.id));
+                            removeTd.appendChild(rmBtn);
+                        }
+                        tr.appendChild(removeTd);
+
+                        body.appendChild(tr);
+                    });
+
+                    document.getElementById('curveCountLabel').textContent = `${curves.length} / ${MAX_CURVES} curves`;
+
+                    // Explicit "Pin Curve" button is only actionable when there's an
+                    // unpinned, non-design curve currently on the chart to pin.
+                    const pinnable = curves.some(c => !c.isDesign && !c.pinned);
+                    const btnPin = document.getElementById('btnPinCurve');
+                    btnPin.disabled = !pinnable;
+                }
+
+                function togglePin(id) {
+                    const c = curves.find(x => x.id === id);
+                    if (!c || c.isDesign) return;
+                    c.pinned = !c.pinned;
+                    c.temporary = false;
+                    renderTable();
+                }
+
+                function removeCurve(id) {
+                    const c = curves.find(x => x.id === id);
+                    if (!c || c.isDesign) return;
+                    curves = curves.filter(x => x.id !== id);
+                    if (c.origin !== 'Manual') releaseColor(c.color);
+                    render();
+                }
+
+                function addCurve(newCurveData, angle, rpm, label, origin, validationStatus, flags) {
+                    origin = origin || 'System';
+                    validationStatus = validationStatus || (origin === 'Manual' ? 'not_applicable' : 'ok');
+                    flags = flags || [];
+
+                    // Replace the current temporary (unpinned, non-design) curve if one
+                    // exists, otherwise just append — this is what makes "change slider,
+                    // Regenerate" swap only the latest unpinned curve while pinned ones
+                    // stay put. Manual curves are never "temporary" so they're excluded.
+                    const tempIndex = curves.findIndex(c => c.temporary && !c.pinned && !c.isDesign);
+                    if (tempIndex !== -1) {
+                        if (curves[tempIndex].origin !== 'Manual') releaseColor(curves[tempIndex].color);
+                        curves.splice(tempIndex, 1);
+                    }
+
+                    let limitHit = false;
+                    if (curves.length >= MAX_CURVES) {
+                        const evictIndex = curves.findIndex(c => !c.pinned && !c.isDesign);
+                        if (evictIndex !== -1) {
+                            if (curves[evictIndex].origin !== 'Manual') releaseColor(curves[evictIndex].color);
+                            curves.splice(evictIndex, 1);
+                            limitHit = true;
+                        } else {
+                            document.getElementById('curveLimitAlert').textContent =
+                                'Maximum of 10 comparison curves reached and all are pinned — unpin one to add another.';
+                            document.getElementById('curveLimitAlert').classList.remove('d-none');
+                            return;
+                        }
+                    }
+
+                    const color = origin === 'Manual' ? nextManualColor() : nextColor();
+                    curves.push({
+                        id: 'curve-' + Date.now(),
+                        label: label,
+                        angle, rpm, color,
+                        pinned: origin === 'Manual', // manual entries are pinned by default, same as before
+                        isDesign: false,
+                        temporary: origin !== 'Manual',
+                        origin, validationStatus, flags,
+                        q: newCurveData.q, dp: newCurveData.dp, eta: newCurveData.eta, kw: newCurveData.kw
+                    });
+
+                    const limitAlert = document.getElementById('curveLimitAlert');
+                    if (limitHit) {
+                        limitAlert.textContent = 'Maximum of 10 comparison curves reached — oldest unpinned curve was removed automatically.';
+                        limitAlert.classList.remove('d-none');
+                    } else {
+                        limitAlert.classList.add('d-none');
+                    }
+
+                    render();
+                }
+
+                // ── Slider event listeners ────────────────────────────────────
+                const sliderAngle  = document.getElementById('sliderAngle');
+                const sliderRpm    = document.getElementById('sliderRpm');
+                const labelAngle   = document.getElementById('labelAngle');
+                const labelRpm     = document.getElementById('labelRpm');
+                const displayAngle = document.getElementById('displayAngle');
+                const displayRpm   = document.getElementById('displayRpm');
+                const displayStatus= document.getElementById('displayStatus');
+
+                // Update labels live as slider moves
+                sliderAngle.addEventListener('input', function () {
+                    const val = parseFloat(this.value);
+                    labelAngle.textContent   = val + ' °';
+                    displayAngle.textContent = val + ' °';
                 });
 
-                if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
+                sliderRpm.addEventListener('input', function () {
+                    const val = parseInt(this.value);
+                    labelRpm.textContent   = val + ' RPM';
+                    displayRpm.textContent = val + ' RPM';
+                });
 
-                const blob = await resp.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `AxialFan_Result_${resultId}.pdf`;
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-                window.URL.revokeObjectURL(url);
-            } catch (err) {
-                alert('Could not generate PDF: ' + err.message);
-            } finally {
-                link.innerHTML = originalHtml;
-            }
-        });
-    </script>
+                // ── Regenerate button ─────────────────────────────────────────
+                document.getElementById('btnGenCurve')
+                        .addEventListener('click', async () => {
+                    const angle = parseFloat(sliderAngle.value);
+                    const rpm   = parseInt(sliderRpm.value);
+
+                    displayStatus.textContent = 'Generating...';
+                    displayStatus.className   = 'fw-bold text-warning fs-5';
+
+                    try {
+                        const token = document.querySelector(
+                            'input[name=__RequestVerificationToken]')?.value || '';
+
+                        const resp = await fetch(
+                            `/Results/GenerateCurve?resultId=${resultId}` +
+                            `&bladeAngleDeg=${angle}&speedRpm=${rpm}`,
+                            {
+                                method: 'POST',
+                                headers: { 'RequestVerificationToken': token }
+                            }
+                        );
+
+                        if (resp.ok) {
+                            const d = await resp.json();
+
+                            addCurve(
+                                { q: d.baseline.q, dp: d.baseline.dp, eta: d.baseline.eta, kw: d.baseline.kw },
+                                angle, rpm, 'Baseline', 'System', d.baseline.validationStatus, d.baseline.flags
+                            );
+
+                            addCurve(
+                                { q: d.corrected.q, dp: d.corrected.dp, eta: d.corrected.eta, kw: d.corrected.kw },
+                                angle, rpm, 'Auto Corrected', 'System', d.corrected.validationStatus, d.corrected.flags
+                            );
+
+                            const anyFlagged =
+                                (d.baseline.validationStatus === 'flagged') ||
+                                (d.corrected.validationStatus === 'flagged');
+                            const anyCorrected =
+                                (d.baseline.validationStatus === 'corrected') ||
+                                (d.corrected.validationStatus === 'corrected');
+
+                            if (anyFlagged) {
+                                displayStatus.textContent = '⚠ Needs review';
+                                displayStatus.className   = 'fw-bold text-danger fs-5';
+                            } else if (anyCorrected) {
+                                displayStatus.textContent = '⚠ Auto-corrected';
+                                displayStatus.className   = 'fw-bold text-warning fs-5';
+                            } else {
+                                displayStatus.textContent = '✓ Updated';
+                                displayStatus.className   = 'fw-bold text-success fs-5';
+                            }
+                        } else {
+                            displayStatus.textContent = '✗ Error';
+                            displayStatus.className   =
+                                'fw-bold text-danger fs-5';
+                        }
+                    } catch (e) {
+                        displayStatus.textContent = '✗ Failed';
+                        displayStatus.className   = 'fw-bold text-danger fs-5';
+                    }
+                });
+
+                // ── Save Manual Curve (Feature 2) ─────────────────────────────
+                document.getElementById('btnSaveManualCurve').addEventListener('click', async () => {
+                    const parseList = s => s.split(',').map(v => parseFloat(v.trim())).filter(v => !isNaN(v));
+                    const q   = parseList(document.getElementById('manualQ').value);
+                    const dp  = parseList(document.getElementById('manualDp').value);
+                    const eta = parseList(document.getElementById('manualEta').value);
+                    const kw  = parseList(document.getElementById('manualKw').value);
+                    const label = document.getElementById('manualLabel').value || 'Manual curve';
+
+                    if (!(q.length === dp.length && q.length === eta.length && q.length === kw.length && q.length > 0)) {
+                        alert('All four fields need the same number of comma-separated values.');
+                        return;
+                    }
+
+                    const btn = document.getElementById('btnSaveManualCurve');
+                    const originalHtml = btn.innerHTML;
+                    btn.disabled = true;
+                    btn.innerHTML = 'Saving...';
+
+                    try {
+                        const token = document.querySelector('input[name=__RequestVerificationToken]')?.value || '';
+                        const resp = await fetch('/Results/SaveManualCurve', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': token },
+                            body: JSON.stringify({
+                                resultId, label,
+                                bladeAngleDeg: designAngle, speedRpm: designRpm,
+                                q, dp, eta, kw
+                            })
+                        });
+
+                        if (!resp.ok) { alert('Could not save manual curve.'); return; }
+                        const d = await resp.json();
+
+                        addCurve(
+                            { q: d.q, dp: d.dp, eta: d.eta, kw: d.kw },
+                            designAngle, designRpm, d.label, 'Manual', 'not_applicable'
+                        );
+
+                        // Clear the form and collapse it
+                        document.getElementById('manualLabel').value = '';
+                        document.getElementById('manualQ').value = '';
+                        document.getElementById('manualDp').value = '';
+                        document.getElementById('manualEta').value = '';
+                        document.getElementById('manualKw').value = '';
+                        bootstrap.Collapse.getInstance(document.getElementById('manualCurveForm'))?.hide();
+                    } catch (e) {
+                        alert('Could not save manual curve: ' + e.message);
+                    } finally {
+                        btn.disabled = false;
+                        btn.innerHTML = originalHtml;
+                    }
+                });
+
+                // ── Pin Curve button — pins the most recently added unpinned curve ──
+                document.getElementById('btnPinCurve').addEventListener('click', () => {
+                    // Pin the latest unpinned, non-design curve (i.e. whatever is
+                    // currently the "temporary" one from the last Regenerate).
+                    const target = [...curves].reverse().find(c => !c.isDesign && !c.pinned);
+                    if (!target) return;
+                    target.pinned = true;
+                    target.temporary = false;
+                    renderTable();
+                });
+
+                // ── Reset to design point button ──────────────────────────────
+                document.getElementById('btnResetCurve')
+                        .addEventListener('click', () => {
+                    sliderAngle.value        = designAngle;
+                    sliderRpm.value          = designRpm;
+                    labelAngle.textContent   = designAngle + ' °';
+                    labelRpm.textContent     = designRpm + ' RPM';
+                    displayAngle.textContent = designAngle + ' °';
+                    displayRpm.textContent   = designRpm + ' RPM';
+
+                    // Remove every curve except the original design curve (pinned or not).
+                    // Manual curves are intentionally cleared too — Reset returns to the
+                    // pure design-point view; manually-added curves can be re-added.
+                    curves.filter(c => !c.isDesign).forEach(c => {
+                        if (c.origin !== 'Manual') releaseColor(c.color);
+                    });
+                    curves = curves.filter(c => c.isDesign);
+
+                    document.getElementById('curveLimitAlert').classList.add('d-none');
+
+                    render();
+
+                    displayStatus.textContent = 'Design Point';
+                    displayStatus.className   = 'fw-bold text-primary fs-5';
+                });
+
+                // ── Initial render ──────────────────────────────────────────────
+                render(); // also sets #btnPinCurve to disabled since only the design curve exists yet
+
+                // ── Download PDF Summary — captures charts exactly as shown ────
+                document.getElementById('btnDownloadPdf').addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    const link = e.currentTarget;
+                    const originalHtml = link.innerHTML;
+                    link.innerHTML = '<i class="bi bi-hourglass-split me-2"></i>Generating PDF...';
+
+                    try {
+                        const qdpImage = chartQdp.canvas.toDataURL('image/png', 1.0);
+                        const etaImage = chartEta.canvas.toDataURL('image/png', 1.0);
+
+                        // Only send the curve comparison rows if more than the design
+                        // curve is on screen — otherwise there's nothing to compare.
+                        // origin/validationStatus travel with each row so the PDF can
+                        // label manual/auto-corrected/flagged curves the same way the
+                        // on-screen table does.
+                        const curvePayload = curves.length > 1
+                            ? curves.map(c => ({
+                                label: c.label,
+                                angle: c.angle,
+                                rpm: c.rpm,
+                                color: c.color,
+                                isDesign: c.isDesign,
+                                origin: c.origin,
+                                validationStatus: c.validationStatus
+                            }))
+                            : [];
+
+                        const token = document.querySelector('input[name=__RequestVerificationToken]')?.value || '';
+
+                        // FIX: this previously pointed at /Export/PdfWithCharts, which
+                        // is commented out server-side and 404s. The live endpoint that
+                        // does the same job is ChartsOnlyPdfWithSnapshot.
+                        const resp = await fetch('/Export/ChartsOnlyPdfWithSnapshot', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'RequestVerificationToken': token
+                            },
+                            body: JSON.stringify({
+                                resultId: resultId,
+                                qdpImageBase64: qdpImage,
+                                etaImageBase64: etaImage,
+                                curves: curvePayload
+                            })
+                        });
+
+                        if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
+
+                        const blob = await resp.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `AxialFan_Result_${resultId}.pdf`;
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                        window.URL.revokeObjectURL(url);
+                    } catch (err) {
+                        alert('Could not generate PDF: ' + err.message);
+                    } finally {
+                        link.innerHTML = originalHtml;
+                    }
+                });
+            </script>
 }

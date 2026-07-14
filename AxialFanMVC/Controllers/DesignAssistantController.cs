@@ -8,17 +8,22 @@ using Microsoft.EntityFrameworkCore;
 namespace AxialFanMVC.Controllers
 {
     // ─────────────────────────────────────────────────────────────────────
-    // CopilotController
+    // DesignAssistantController
     //
-    // Design-grounded AI Q&A — like /Handbook, but scoped to one specific
-    // design result instead of a generic search box. Reuses the existing
-    // IOllamaChatRepository/RAG stack; the only difference is the request
-    // also carries a resultId, so the model is given this design's actual
-    // computed values as context (see OllamaChatRepository.AskAboutDesignAsync).
+    // Design-grounded AI Q&A — like /Reference search, but scoped to one
+    // specific design result instead of a generic search box. Reuses the
+    // existing IOllamaChatRepository/RAG stack; the only difference is the
+    // request also carries a resultId, so the model is given this design's
+    // actual computed values as context (see OllamaChatRepository.AskAboutDesignAsync).
+    //
+    // Renamed from CopilotController — "Copilot" is a Microsoft trademark
+    // (GitHub Copilot / Microsoft Copilot) and shouldn't be used as a
+    // feature name in a commercial product. No behavior changed here,
+    // naming only.
     //
     // Route summary
     // ─────────────────────────────────────────────────────────────────────
-    //  POST /Copilot/Ask   { resultId, message }  →  { reply }
+    //  POST /DesignAssistant/Ask   { resultId, message }  →  { reply }
     // ─────────────────────────────────────────────────────────────────────
     [Authorize]
     [ApiController]

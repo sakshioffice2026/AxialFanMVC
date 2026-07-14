@@ -6,8 +6,8 @@
 
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
     <div>
-        <h2 class="mb-1"><i class="bi bi-book me-2 text-primary"></i>Engineering Reference</h2>
-        <p class="text-muted mb-0">Search axial-fan design guidance from the Bleier handbook.</p>
+        <h2 class="mb-1"><i class="bi bi-book me-2 text-primary"></i>Engineering Reference Library</h2>
+        <p class="text-muted mb-0">Search axial-fan design guidance and reference material.</p>
     </div>
 </div>
 
@@ -36,26 +36,31 @@
 
     @foreach (var r in Model.Results)
     {
-        <div class="card border-0 shadow-sm mb-3">
-            <div class="card-body">
-                <div class="d-flex justify-content-between align-items-start mb-2">
-                    <h6 class="mb-0">
-                        @if (r.Chapter.HasValue)
-                        {
-                            <span class="badge bg-secondary me-2">Ch. @r.Chapter</span>
-                        }
-                        @r.ChapterTitle
-                    </h6>
-                    @if (r.Page.HasValue)
-                    {
-                        <span class="text-muted small">p. @r.Page</span>
-                    }
-                </div>
+        <div class="card border-0 shadow-sm mb-3" style="border-radius:10px;">
+            <div class="card-body px-4 py-3">
                 @if (!string.IsNullOrWhiteSpace(r.Section))
                 {
-                    <p class="text-muted small mb-2">@r.Section</p>
+                    <div class="text-uppercase text-muted mb-2" style="font-size:0.72rem; letter-spacing:0.06em;">
+                        @r.Section
+                    </div>
                 }
-                <p class="mb-0" style="white-space: pre-wrap;">@r.Text</p>
+
+                @if (r.MayContainScanArtifacts)
+                {
+                    <div class="alert alert-warning py-2 px-3 small mb-0" style="border-radius:8px;">
+                        <i class="bi bi-exclamation-triangle me-1"></i>
+                        This source material didn't convert cleanly — verify against the original before relying on it.
+                    </div>
+                }
+                else
+                {
+                    <ul class="mb-0 ps-3" style="line-height:1.7;">
+                        @foreach (var bullet in r.Bullets)
+                        {
+                            <li>@bullet</li>
+                        }
+                    </ul>
+                }
             </div>
         </div>
     }
