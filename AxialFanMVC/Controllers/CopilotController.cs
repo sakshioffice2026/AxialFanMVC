@@ -27,11 +27,13 @@ namespace AxialFanMVC.Controllers
     {
         private readonly AxialFanDbContext _db;
         private readonly IOllamaChatRepository _chatRepo;
+        private readonly IExceptionHandlerRepository _exceptionHandlerRepository;
 
-        public CopilotController(AxialFanDbContext db, IOllamaChatRepository chatRepo)
+        public CopilotController(AxialFanDbContext db, IOllamaChatRepository chatRepo, IExceptionHandlerRepository exceptionHandlerRepository)
         {
             _db = db;
             _chatRepo = chatRepo;
+            _exceptionHandlerRepository = exceptionHandlerRepository;
         }
 
         private int CurrentUserId =>

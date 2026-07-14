@@ -1,5 +1,6 @@
 ﻿using AxialFanMVC.Database;
 using AxialFanMVC.Models;
+using AxialFanMVC.Repositories.Inteface;
 using AxialFanMVC.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -11,86 +12,149 @@ namespace AxialFanMVC.Controllers
     public class CalibrationCasesController : Controller
     {
         private readonly AxialFanDbContext _db;
-
-        public CalibrationCasesController(AxialFanDbContext db) => _db = db;
+        private readonly IExceptionHandlerRepository _exceptionHandlerRepository;
+        public CalibrationCasesController(AxialFanDbContext db,IExceptionHandlerRepository exceptionHandlerRepository)
+        {
+            _db = db;
+            _exceptionHandlerRepository = exceptionHandlerRepository;
+        }
 
         // GET /CalibrationCases
         public async Task<IActionResult> Index()
         {
-            var cases = await _db.calibration_cases
-                .Include(c => c.Points)
-                .OrderByDescending(c => c.CreatedAt)
-                .ToListAsync();
-            return View(cases);
+            try
+            {
+                var cases = await _db.calibration_cases
+                    .Include(c => c.Points)
+                    .OrderByDescending(c => c.CreatedAt)
+                    .ToListAsync();
+
+                return View(cases);
+            }
+            catch (Exception ex)
+            {
+                _exceptionHandlerRepository.SaveException(
+                    nameof(CalibrationCasesController),
+                    nameof(Index),
+                    ex.ToString());
+
+                TempData["Error"] = "Unable to load calibration cases.";
+
+                return RedirectToAction("Index", "Dashboard");
+            }
         }
 
         // GET /CalibrationCases/Create
-        public IActionResult Create() => View(new CalibrationCaseCreateViewModel());
+        public IActionResult Create()
+        {
+            try
+            {
+                return View(new CalibrationCaseCreateViewModel());
+            }
+            catch (Exception ex)
+            {
+                _exceptionHandlerRepository.SaveException(
+                    nameof(CalibrationCasesController),
+                    nameof(Create),
+                    ex.ToString());
+
+                TempData["Error"] = "Unable to load calibration case page.";
+
+                return RedirectToAction(nameof(Index));
+            }
+        }
 
         // POST /CalibrationCases/Create
         [HttpPost, ValidateAntiForgeryToken]
+      
         public async Task<IActionResult> Create(CalibrationCaseCreateViewModel vm)
         {
-            // Only rows where all three required values were actually filled
-            // in count as real data — blank rows in the fixed 15-row grid
-            // are just unused capacity, not validation errors.
-            var realPoints = vm.Points
-                .Where(p => p.FlowRateM3s.HasValue && p.PressureRisePa.HasValue && p.EfficiencyPct.HasValue)
-                .ToList();
-
-            if (realPoints.Count < 3)
-                ModelState.AddModelError("", "Enter at least 3 real data points to form a usable curve.");
-
-            if (!ModelState.IsValid)
-                return View(vm);
-
-            var geom = PinnFeatureEngine.ComputeGeometryFeatures(
-                vm.TipDiameterMm, vm.HubRatio, vm.BladeAngleDeg, vm.BladeCount,
-                vm.SpeedRpm, vm.DensityKgM3, vm.TemperatureCelsius);
-
-            var entity = new CalibrationCase
+            try
             {
-                SourceType = vm.SourceType,
-                SourceDescription = vm.SourceDescription,
-                TipDiameterMm = vm.TipDiameterMm,
-                HubRatio = vm.HubRatio,
-                BladeAngleDeg = vm.BladeAngleDeg,
-                BladeCount = vm.BladeCount,
-                SpeedRpm = vm.SpeedRpm,
-                DensityKgM3 = vm.DensityKgM3,
-                TemperatureCelsius = vm.TemperatureCelsius,
-                BladeProfileDesignation = vm.BladeProfileDesignation,
-                MaxCamberPct = vm.MaxCamberPct,
-                MaxThicknessPct = vm.MaxThicknessPct,
-                ChordLengthMm = geom.ChordLengthMm,
-                TipSpeedMs = geom.TipSpeedMs,
-                TipMachNumber = geom.TipMachNumber,
-                Solidity = geom.Solidity,
-                ReynoldsNumber = geom.ReynoldsNumber
-            };
+                // Only rows where all three required values were actually filled
+                // in count as real data — blank rows in the fixed 15-row grid
+                // are just unused capacity, not validation errors.
+                var realPoints = vm.Points
+                    .Where(p => p.FlowRateM3s.HasValue &&
+                                p.PressureRisePa.HasValue &&
+                                p.EfficiencyPct.HasValue)
+                    .ToList();
 
-            foreach (var p in realPoints)
-            {
-                var (phi, psi) = PinnFeatureEngine.ComputePointCoefficients(
-                    p.FlowRateM3s!.Value, p.PressureRisePa!.Value,
-                    vm.TipDiameterMm, vm.HubRatio, geom.TipSpeedMs, vm.DensityKgM3);
+                if (realPoints.Count < 3)
+                    ModelState.AddModelError("", "Enter at least 3 real data points to form a usable curve.");
 
-                entity.Points.Add(new CalibrationCasePoint
+                if (!ModelState.IsValid)
+                    return View(vm);
+
+                var geom = PinnFeatureEngine.ComputeGeometryFeatures(
+                    vm.TipDiameterMm,
+                    vm.HubRatio,
+                    vm.BladeAngleDeg,
+                    vm.BladeCount,
+                    vm.SpeedRpm,
+                    vm.DensityKgM3,
+                    vm.TemperatureCelsius);
+
+                var entity = new CalibrationCase
                 {
-                    FlowRateM3s = p.FlowRateM3s.Value,
-                    PressureRisePa = p.PressureRisePa.Value,
-                    EfficiencyPct = p.EfficiencyPct!.Value,
-                    PowerKw = p.PowerKw,
-                    FlowCoefficient = phi,
-                    PressureCoefficient = psi
-                });
+                    SourceType = vm.SourceType,
+                    SourceDescription = vm.SourceDescription,
+                    TipDiameterMm = vm.TipDiameterMm,
+                    HubRatio = vm.HubRatio,
+                    BladeAngleDeg = vm.BladeAngleDeg,
+                    BladeCount = vm.BladeCount,
+                    SpeedRpm = vm.SpeedRpm,
+                    DensityKgM3 = vm.DensityKgM3,
+                    TemperatureCelsius = vm.TemperatureCelsius,
+                    BladeProfileDesignation = vm.BladeProfileDesignation,
+                    MaxCamberPct = vm.MaxCamberPct,
+                    MaxThicknessPct = vm.MaxThicknessPct,
+                    ChordLengthMm = geom.ChordLengthMm,
+                    TipSpeedMs = geom.TipSpeedMs,
+                    TipMachNumber = geom.TipMachNumber,
+                    Solidity = geom.Solidity,
+                    ReynoldsNumber = geom.ReynoldsNumber
+                };
+
+                foreach (var p in realPoints)
+                {
+                    var (phi, psi) = PinnFeatureEngine.ComputePointCoefficients(
+                        p.FlowRateM3s!.Value,
+                        p.PressureRisePa!.Value,
+                        vm.TipDiameterMm,
+                        vm.HubRatio,
+                        geom.TipSpeedMs,
+                        vm.DensityKgM3);
+
+                    entity.Points.Add(new CalibrationCasePoint
+                    {
+                        FlowRateM3s = p.FlowRateM3s.Value,
+                        PressureRisePa = p.PressureRisePa.Value,
+                        EfficiencyPct = p.EfficiencyPct!.Value,
+                        PowerKw = p.PowerKw,
+                        FlowCoefficient = phi,
+                        PressureCoefficient = psi
+                    });
+                }
+
+                _db.calibration_cases.Add(entity);
+                await _db.SaveChangesAsync();
+
+                TempData["Success"] = $"Calibration case saved with {entity.Points.Count} points.";
+
+                return RedirectToAction(nameof(Index));
             }
+            catch (Exception ex)
+            {
+                _exceptionHandlerRepository.SaveException(
+                    nameof(CalibrationCasesController),
+                    nameof(Create),
+                    ex.ToString());
 
-            _db.calibration_cases.Add(entity);
-            await _db.SaveChangesAsync();
+                TempData["Error"] = "Unable to save calibration case.";
 
-            TempData["Success"] = $"Calibration case saved with {entity.Points.Count} points.";
-            return RedirectToAction(nameof(Index));
+                return View(vm);
+            }
         }
 
         // GET /CalibrationCases/ExportTrainingCsv
@@ -135,68 +199,99 @@ namespace AxialFanMVC.Controllers
         // recompute Φ/Ψ per q rather than once per design — see chat.
         public async Task<IActionResult> ExportTrainingCsv()
         {
-            var cases = await _db.calibration_cases
-                .Include(c => c.Points)
-                .AsNoTracking()
-                .ToListAsync();
-
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine("case_id,source_type,flow_coefficient,pressure_coefficient,specific_speed," +
-                          "tip_mach_number,solidity,reynolds_number,max_camber_pct,max_thickness_pct,q_m3s," +
-                          "baseline_dp_pa,baseline_eta_pct,actual_dp_pa,actual_eta_pct,dp_residual,eta_residual");
-
-            foreach (var c in cases)
+            try
             {
-                // Resolved once per case (depends only on designation + chord,
-                // not on the per-point flow rate) — null if the case has no
-                // designation or it doesn't parse as NACA4/NACA5, in which case
-                // EvaluateBaselinePoint falls back to the generic flat-plate
-                // polar exactly as before.
-                var profile = BladeProfileEngine.ResolveProfileDataFromDesignation(
-                    c.BladeProfileDesignation, c.ChordLengthMm);
+                var cases = await _db.calibration_cases
+                    .Include(c => c.Points)
+                    .AsNoTracking()
+                    .ToListAsync();
 
-                foreach (var p in c.Points)
+                var sb = new System.Text.StringBuilder();
+
+                sb.AppendLine(
+                    "case_id,source_type,flow_coefficient,pressure_coefficient,specific_speed," +
+                    "tip_mach_number,solidity,reynolds_number,max_camber_pct,max_thickness_pct,q_m3s," +
+                    "baseline_dp_pa,baseline_eta_pct,actual_dp_pa,actual_eta_pct,dp_residual,eta_residual");
+
+                foreach (var c in cases)
                 {
-                    var (baselineDp, baselineEta, _, _) = BladeElementEngine.EvaluateBaselinePoint(
-                        p.FlowRateM3s, c.TipDiameterMm, c.HubRatio, c.ChordLengthMm,
-                        c.BladeCount, c.BladeAngleDeg, c.SpeedRpm, c.DensityKgM3, profile);
+                    var profile = BladeProfileEngine.ResolveProfileDataFromDesignation(
+                        c.BladeProfileDesignation,
+                        c.ChordLengthMm);
 
-                    double specificSpeed = 0;
-                    if (c.DensityKgM3 > 0 && p.PressureRisePa > 0 && p.FlowRateM3s > 0)
+                    foreach (var p in c.Points)
                     {
-                        double omega = 2 * Math.PI * c.SpeedRpm / 60.0;
-                        specificSpeed = omega * Math.Pow(p.FlowRateM3s, 0.5)
-                            * Math.Pow(p.PressureRisePa / c.DensityKgM3, -0.75);
+                        var (baselineDp, baselineEta, _, _) =
+                            BladeElementEngine.EvaluateBaselinePoint(
+                                p.FlowRateM3s,
+                                c.TipDiameterMm,
+                                c.HubRatio,
+                                c.ChordLengthMm,
+                                c.BladeCount,
+                                c.BladeAngleDeg,
+                                c.SpeedRpm,
+                                c.DensityKgM3,
+                                profile);
+
+                        double specificSpeed = 0;
+
+                        if (c.DensityKgM3 > 0 &&
+                            p.PressureRisePa > 0 &&
+                            p.FlowRateM3s > 0)
+                        {
+                            double omega = 2 * Math.PI * c.SpeedRpm / 60.0;
+
+                            specificSpeed =
+                                omega *
+                                Math.Pow(p.FlowRateM3s, 0.5) *
+                                Math.Pow(p.PressureRisePa / c.DensityKgM3, -0.75);
+                        }
+
+                        double dpResidual = p.PressureRisePa - baselineDp;
+                        double etaResidual = p.EfficiencyPct - baselineEta;
+
+                        sb.AppendLine(string.Join(",", new[]
+                        {
+                    c.Id.ToString(),
+                    c.SourceType,
+                    p.FlowCoefficient.ToString("G6"),
+                    p.PressureCoefficient.ToString("G6"),
+                    specificSpeed.ToString("G6"),
+                    c.TipMachNumber.ToString("G6"),
+                    c.Solidity.ToString("G6"),
+                    c.ReynoldsNumber.ToString("G6"),
+                    (c.MaxCamberPct ?? 0).ToString("G6"),
+                    (c.MaxThicknessPct ?? 0).ToString("G6"),
+                    p.FlowRateM3s.ToString("G6"),
+                    baselineDp.ToString("G6"),
+                    baselineEta.ToString("G6"),
+                    p.PressureRisePa.ToString("G6"),
+                    p.EfficiencyPct.ToString("G6"),
+                    dpResidual.ToString("G6"),
+                    etaResidual.ToString("G6")
+                }));
                     }
-
-                    double dpResidual = p.PressureRisePa - baselineDp;
-                    double etaResidual = p.EfficiencyPct - baselineEta;
-
-                    sb.AppendLine(string.Join(",", new[]
-                    {
-                        c.Id.ToString(),
-                        c.SourceType,
-                        p.FlowCoefficient.ToString("G6"),
-                        p.PressureCoefficient.ToString("G6"),
-                        specificSpeed.ToString("G6"),
-                        c.TipMachNumber.ToString("G6"),
-                        c.Solidity.ToString("G6"),
-                        c.ReynoldsNumber.ToString("G6"),
-                        (c.MaxCamberPct ?? 0).ToString("G6"),
-                        (c.MaxThicknessPct ?? 0).ToString("G6"),
-                        p.FlowRateM3s.ToString("G6"),
-                        baselineDp.ToString("G6"),
-                        baselineEta.ToString("G6"),
-                        p.PressureRisePa.ToString("G6"),
-                        p.EfficiencyPct.ToString("G6"),
-                        dpResidual.ToString("G6"),
-                        etaResidual.ToString("G6"),
-                    }));
                 }
-            }
 
-            var bytes = System.Text.Encoding.UTF8.GetBytes(sb.ToString());
-            return File(bytes, "text/csv", "pinn_training_data.csv");
+                var bytes = System.Text.Encoding.UTF8.GetBytes(sb.ToString());
+
+                return File(
+                    bytes,
+                    "text/csv",
+                    "pinn_training_data.csv");
+            }
+            catch (Exception ex)
+            {
+                _exceptionHandlerRepository.SaveException(
+                    nameof(CalibrationCasesController),
+                    nameof(ExportTrainingCsv),
+                    ex.ToString());
+
+                TempData["Error"] = "Unable to export training data.";
+
+                return RedirectToAction(nameof(Index));
+            }
         }
+        
     }
 }

@@ -21,19 +21,29 @@ namespace AxialFanMVC.Controllers
         public class HandbookController : Controller
         {
             private readonly IHandbookChunkRepository _handbookRepo;
+            private readonly IExceptionHandlerRepository _exceptionHandlerRepository;
 
-            public HandbookController(IHandbookChunkRepository handbookRepo)
+            public HandbookController(
+                IHandbookChunkRepository handbookRepo,
+                IExceptionHandlerRepository exceptionHandlerRepository)
             {
                 _handbookRepo = handbookRepo;
+                _exceptionHandlerRepository = exceptionHandlerRepository;
             }
 
-            public async Task<IActionResult> Index(string? query)
+        public async Task<IActionResult> Index(string? query)
+        {
+            try
             {
-                var vm = new HandbookSearchViewModel { Query = query };
+                var vm = new HandbookSearchViewModel
+                {
+                    Query = query
+                };
 
                 if (!string.IsNullOrWhiteSpace(query))
                 {
                     var chunks = await _handbookRepo.SearchAsync(query, maxResults: 15);
+
                     vm.Results = chunks.Select(c => new HandbookSearchResult
                     {
                         ChunkKey = c.ChunkKey,
@@ -47,6 +57,18 @@ namespace AxialFanMVC.Controllers
 
                 return View(vm);
             }
+            catch (Exception ex)
+            {
+                _exceptionHandlerRepository.SaveException(
+                    nameof(HandbookController),
+                    nameof(Index),
+                    ex.ToString());
+
+                TempData["Error"] = "Unable to search handbook.";
+
+                return RedirectToAction("Index", "Home");
+            }
+        }
         // ── TEMPORARY — ONE-TIME OPERATION ──────────────────────────────
         // Embeds every handbook chunk that doesn't have an embedding yet
         // (via Ollama's /api/embed) so SearchBySimilarityAsync has vectors

@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using AxialFanMVC.Database;
 using AxialFanMVC.Models;
+using AxialFanMVC.Repositories.Inteface;
 using AxialFanMVC.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -36,8 +37,13 @@ namespace AxialFan.Web.Controllers
     public class BladeProfilesController : Controller
     {
         private readonly AxialFanDbContext _db;
+        private readonly IExceptionHandlerRepository _exceptionHandlerRepository;
 
-        public BladeProfilesController(AxialFanDbContext db) => _db = db;
+        public BladeProfilesController(AxialFanDbContext db, IExceptionHandlerRepository exceptionHandlerRepository)
+        {
+            _db = db;
+            _exceptionHandlerRepository = exceptionHandlerRepository;
+        }
 
         // ── INDEX ─────────────────────────────────────────────────────────────
         /// <summary>Lists all blade profiles stored in the database.</summary>

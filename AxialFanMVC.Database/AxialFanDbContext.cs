@@ -8,6 +8,8 @@ namespace AxialFanMVC.Database
     {
         public AxialFanDbContext(DbContextOptions<AxialFanDbContext> options) : base(options) { }
 
+        //Exception log table
+        public DbSet<ExceptionLogEntry> exception_logs => Set<ExceptionLogEntry>();
         public DbSet<User> Users => Set<User>();
         public DbSet<Project> Projects => Set<Project>();
         public DbSet<BladeProfile> blade_profiles => Set<BladeProfile>();
@@ -23,6 +25,12 @@ namespace AxialFanMVC.Database
         protected override void OnModelCreating(ModelBuilder mb)
         {
             base.OnModelCreating(mb);
+
+            // ── ExceptionLogs ───────────────────────────────────────
+            mb.Entity<ExceptionLogEntry>(e =>
+            {
+                e.Property(x => x.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP");
+            });
 
             // ── Users ──────────────────────────────────────────────
             mb.Entity<User>(e =>

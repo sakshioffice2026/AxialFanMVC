@@ -16,6 +16,8 @@ var connStr = builder.Configuration.GetConnectionString("DefaultConnection")
 builder.Services.AddDbContext<AxialFanDbContext>(options =>
     options.UseMySql(connStr, ServerVersion.AutoDetect(connStr)));
 
+builder.Services.AddScoped<IExceptionHandlerRepository, ExceptionHandlerRepository>();
+
 builder.Services.AddScoped<IDesignResultRepository, DesignResultRepository>();
 builder.Services.AddScoped<IPhysicsValidationEngine, PhysicsValidationEngine>();
 builder.Services.AddScoped<ICurveGeneration, CurveGeneration>();

@@ -1,4 +1,5 @@
 ﻿using AxialFanMVC.Database;
+using AxialFanMVC.Repositories.Inteface;
 using AxialFanMVC.ViewModels;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -11,7 +12,15 @@ namespace AxialFanMVC.Controllers
     public class ProjectsController : Controller
     {
         private readonly AxialFanDbContext _db;
-        public ProjectsController(AxialFanDbContext db) => _db = db;
+        private readonly IExceptionHandlerRepository _exceptionHandlerRepository;
+
+        public ProjectsController(
+            AxialFanDbContext db,
+            IExceptionHandlerRepository exceptionHandlerRepository)
+        {
+            _db = db;
+            _exceptionHandlerRepository = exceptionHandlerRepository;
+        }
 
         private int CurrentUserId =>
             int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -19,105 +28,217 @@ namespace AxialFanMVC.Controllers
         // GET /Projects
         public async Task<IActionResult> Index(int page = 1, int pageSize = 20)
         {
-            var query = _db.Projects.Where(p => p.UserId == CurrentUserId);
-            int total = await query.CountAsync();
-
-            var projects = await query
-                .OrderByDescending(p => p.UpdatedAt)
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
-                .Select(p => new ProjectSummaryViewModel
-                {
-                    Id = p.Id,
-                    Name = p.Name,
-                    Description = p.Description,
-                    Status = p.Status,
-                    CreatedAt = p.CreatedAt,
-                    UpdatedAt = p.UpdatedAt,
-                    DesignCount = p.DesignInputs.Count
-                })
-                .ToListAsync();
-
-            return View(new ProjectListViewModel
+            try
             {
-                Projects = projects,
-                Page = page,
-                PageSize = pageSize,
-                Total = total
-            });
+                var query = _db.Projects.Where(p => p.UserId == CurrentUserId);
+
+                int total = await query.CountAsync();
+
+                var projects = await query
+                    .OrderByDescending(p => p.UpdatedAt)
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
+                    .Select(p => new ProjectSummaryViewModel
+                    {
+                        Id = p.Id,
+                        Name = p.Name,
+                        Description = p.Description,
+                        Status = p.Status,
+                        CreatedAt = p.CreatedAt,
+                        UpdatedAt = p.UpdatedAt,
+                        DesignCount = p.DesignInputs.Count
+                    })
+                    .ToListAsync();
+
+                return View(new ProjectListViewModel
+                {
+                    Projects = projects,
+                    Page = page,
+                    PageSize = pageSize,
+                    Total = total
+                });
+            }
+            catch (Exception ex)
+            {
+                _exceptionHandlerRepository.SaveException(
+                    nameof(ProjectsController),
+                    nameof(Index),
+                    ex.ToString());
+
+                TempData["Error"] = "Unable to load projects.";
+
+                return RedirectToAction("Index", "Home");
+            }
         }
 
         // GET /Projects/Create
-        public IActionResult Create() => View(new CreateProjectViewModel());
+        public IActionResult Create()
+        {
+            try
+            {
+                return View(new CreateProjectViewModel());
+            }
+            catch (Exception ex)
+            {
+                _exceptionHandlerRepository.SaveException(
+                    nameof(ProjectsController),
+                    nameof(Create),
+                    ex.ToString());
+
+                TempData["Error"] = "Unable to open project page.";
+
+                return RedirectToAction(nameof(Index));
+            }
+        }
 
         // POST /Projects/Create
         [HttpPost, ValidateAntiForgeryToken]
+      
         public async Task<IActionResult> Create(CreateProjectViewModel vm)
         {
-            if (!ModelState.IsValid) return View(vm);
-
-            var project = new Project
+            try
             {
-                UserId = CurrentUserId,
-                Name = vm.Name,
-                Description = vm.Description
-            };
-            _db.Projects.Add(project);
-            await _db.SaveChangesAsync();
+                if (!ModelState.IsValid)
+                    return View(vm);
 
-            TempData["Success"] = "Project created successfully.";
-            return RedirectToAction(nameof(Index));
+                var project = new Project
+                {
+                    UserId = CurrentUserId,
+                    Name = vm.Name,
+                    Description = vm.Description
+                };
+
+                _db.Projects.Add(project);
+
+                await _db.SaveChangesAsync();
+
+                TempData["Success"] = "Project created successfully.";
+
+                return RedirectToAction(nameof(Index));
+            }
+            catch (Exception ex)
+            {
+                _exceptionHandlerRepository.SaveException(
+                    nameof(ProjectsController),
+                    nameof(Create),
+                    ex.ToString());
+
+                TempData["Error"] = "Unable to create project.";
+
+                return View(vm);
+            }
         }
 
         // GET /Projects/Edit/5
         public async Task<IActionResult> Edit(int id)
         {
-            var project = await _db.Projects
-                .FirstOrDefaultAsync(p => p.Id == id && p.UserId == CurrentUserId);
-            if (project == null) return NotFound();
-
-            return View(new EditProjectViewModel
+            try
             {
-                Id = project.Id,
-                Name = project.Name,
-                Description = project.Description,
-                Status = project.Status
-            });
+                var project = await _db.Projects
+                    .FirstOrDefaultAsync(p =>
+                        p.Id == id &&
+                        p.UserId == CurrentUserId);
+
+                if (project == null)
+                    return NotFound();
+
+                return View(new EditProjectViewModel
+                {
+                    Id = project.Id,
+                    Name = project.Name,
+                    Description = project.Description,
+                    Status = project.Status
+                });
+            }
+            catch (Exception ex)
+            {
+                _exceptionHandlerRepository.SaveException(
+                    nameof(ProjectsController),
+                    nameof(Edit),
+                    ex.ToString());
+
+                TempData["Error"] = "Unable to load project.";
+
+                return RedirectToAction(nameof(Index));
+            }
         }
 
         // POST /Projects/Edit/5
         [HttpPost, ValidateAntiForgeryToken]
+      
         public async Task<IActionResult> Edit(int id, EditProjectViewModel vm)
         {
-            if (!ModelState.IsValid) return View(vm);
+            try
+            {
+                if (!ModelState.IsValid)
+                    return View(vm);
 
-            var project = await _db.Projects
-                .FirstOrDefaultAsync(p => p.Id == id && p.UserId == CurrentUserId);
-            if (project == null) return NotFound();
+                var project = await _db.Projects
+                    .FirstOrDefaultAsync(p =>
+                        p.Id == id &&
+                        p.UserId == CurrentUserId);
 
-            project.Name = vm.Name;
-            project.Description = vm.Description;
-            project.Status = vm.Status;
-            project.UpdatedAt = DateTime.UtcNow;
+                if (project == null)
+                    return NotFound();
 
-            await _db.SaveChangesAsync();
-            TempData["Success"] = "Project updated.";
-            return RedirectToAction(nameof(Index));
+                project.Name = vm.Name;
+                project.Description = vm.Description;
+                project.Status = vm.Status;
+                project.UpdatedAt = DateTime.UtcNow;
+
+                await _db.SaveChangesAsync();
+
+                TempData["Success"] = "Project updated.";
+
+                return RedirectToAction(nameof(Index));
+            }
+            catch (Exception ex)
+            {
+                _exceptionHandlerRepository.SaveException(
+                    nameof(ProjectsController),
+                    nameof(Edit),
+                    ex.ToString());
+
+                TempData["Error"] = "Unable to update project.";
+
+                return View(vm);
+            }
         }
 
         // POST /Projects/Delete/5
         [HttpPost, ValidateAntiForgeryToken]
+      
         public async Task<IActionResult> Delete(int id)
         {
-            var project = await _db.Projects
-                .FirstOrDefaultAsync(p => p.Id == id && p.UserId == CurrentUserId);
-            if (project == null) return NotFound();
+            try
+            {
+                var project = await _db.Projects
+                    .FirstOrDefaultAsync(p =>
+                        p.Id == id &&
+                        p.UserId == CurrentUserId);
 
-            _db.Projects.Remove(project);
-            await _db.SaveChangesAsync();
+                if (project == null)
+                    return NotFound();
 
-            TempData["Success"] = "Project deleted.";
-            return RedirectToAction(nameof(Index));
+                _db.Projects.Remove(project);
+
+                await _db.SaveChangesAsync();
+
+                TempData["Success"] = "Project deleted.";
+
+                return RedirectToAction(nameof(Index));
+            }
+            catch (Exception ex)
+            {
+                _exceptionHandlerRepository.SaveException(
+                    nameof(ProjectsController),
+                    nameof(Delete),
+                    ex.ToString());
+
+                TempData["Error"] = "Unable to delete project.";
+
+                return RedirectToAction(nameof(Index));
+            }
         }
     }
 }

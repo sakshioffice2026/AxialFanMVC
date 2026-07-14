@@ -14,13 +14,17 @@ namespace AxialFanMVC.Controllers
     {
         private readonly IDesignResultRepository _repo;
         private readonly ICurveGeneration _curveService;
+        private readonly IExceptionHandlerRepository _exceptionHandlerRepository;
 
-        public ResultsController(IDesignResultRepository repo, ICurveGeneration curveService)
+        public ResultsController(
+        IDesignResultRepository repo,
+        ICurveGeneration curveService,
+        IExceptionHandlerRepository exceptionHandlerRepository)
         {
             _repo = repo;
             _curveService = curveService;
+            _exceptionHandlerRepository = exceptionHandlerRepository;
         }
-
         private int CurrentUserId =>
             int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
@@ -34,13 +38,29 @@ namespace AxialFanMVC.Controllers
         // design wizard run).
         public async Task<IActionResult> Index()
         {
-            var result = await _repo.GetMostRecentResultForUserAsync(CurrentUserId);
-            if (result == null)
+            try
             {
-                TempData["Error"] = "No design results yet — finish the New Design wizard to create one.";
+                var result = await _repo.GetMostRecentResultForUserAsync(CurrentUserId);
+
+                if (result == null)
+                {
+                    TempData["Error"] = "No design results yet — finish the New Design wizard to create one.";
+                    return RedirectToAction("Index", "Projects");
+                }
+
+                return RedirectToAction(nameof(Result), new { resultId = result.Id });
+            }
+            catch (Exception ex)
+            {
+                _exceptionHandlerRepository.SaveException(
+                    nameof(ResultsController),
+                    nameof(Index),
+                    ex.ToString());
+
+                TempData["Error"] = "An unexpected error occurred while loading results.";
+
                 return RedirectToAction("Index", "Projects");
             }
-            return RedirectToAction(nameof(Result), new { resultId = result.Id });
         }
 
 
@@ -48,8 +68,10 @@ namespace AxialFanMVC.Controllers
         // GET /Results/Result/7
         public async Task<IActionResult> Result(int resultId)
         {
-            var result = await _repo.GetResultForUserAsync(resultId, CurrentUserId);
-            if (result == null) return NotFound();
+            try
+            {
+                var result = await _repo.GetResultForUserAsync(resultId, CurrentUserId);
+                if (result == null) return NotFound();
 
             var warnings = result.WarningMessages != null
                 ? JsonSerializer.Deserialize<List<string>>(result.WarningMessages) ?? new()
@@ -147,16 +169,33 @@ namespace AxialFanMVC.Controllers
                 }).ToList()
             };
 
-            return View(vm);
+                return View(vm);
+            }
+            catch (Exception ex)
+            {
+                _exceptionHandlerRepository.SaveException(
+                    nameof(ResultsController),
+                    nameof(Result),
+                    ex.ToString());
+
+                TempData["Error"] = "Unable to load the requested design result.";
+
+                return RedirectToAction(nameof(Index));
+            }
         }
 
         // POST /Results/GenerateCurve — AJAX endpoint
+      
         [HttpPost]
         public async Task<IActionResult> GenerateCurve(int resultId, double bladeAngleDeg, int speedRpm)
         {
             try
             {
-                var gen = await _curveService.GenerateAndSaveAsync(resultId, CurrentUserId, bladeAngleDeg, speedRpm);
+                var gen = await _curveService.GenerateAndSaveAsync(
+                    resultId,
+                    CurrentUserId,
+                    bladeAngleDeg,
+                    speedRpm);
 
                 return Json(new
                 {
@@ -186,17 +225,38 @@ namespace AxialFanMVC.Controllers
             {
                 return NotFound();
             }
+            catch (Exception ex)
+            {
+                _exceptionHandlerRepository.SaveException(
+                    nameof(ResultsController),
+                    nameof(GenerateCurve),
+                    ex.ToString());
+
+                return Json(new
+                {
+                    success = false,
+                    message = "An unexpected error occurred while generating the performance curve."
+                });
+            }
         }
 
         // POST /Results/SaveManualCurve — Feature 2: manual curve entry
+  
         [HttpPost]
         public async Task<IActionResult> SaveManualCurve([FromBody] SaveManualCurveRequest req)
         {
             try
             {
                 var curve = await _curveService.SaveManualCurveAsync(
-                    req.ResultId, CurrentUserId, req.Label, req.BladeAngleDeg, req.SpeedRpm,
-                    req.Q, req.Dp, req.Eta, req.Kw);
+                    req.ResultId,
+                    CurrentUserId,
+                    req.Label,
+                    req.BladeAngleDeg,
+                    req.SpeedRpm,
+                    req.Q,
+                    req.Dp,
+                    req.Eta,
+                    req.Kw);
 
                 return Json(new
                 {
@@ -216,28 +276,59 @@ namespace AxialFanMVC.Controllers
             {
                 return BadRequest(ex.Message);
             }
-        }
+            catch (Exception ex)
+            {
+                _exceptionHandlerRepository.SaveException(
+                    nameof(ResultsController),
+                    nameof(SaveManualCurve),
+                    ex.ToString());
 
+                return Json(new
+                {
+                    success = false,
+                    message = "An unexpected error occurred while saving the manual curve."
+                });
+            }
+        }
+        // GET /Results/Download/7/dxf
         // GET /Results/Download/7/dxf
         public async Task<IActionResult> Download(int drawingId, string format)
         {
-            var drawing = await _repo.GetDrawingForUserAsync(drawingId, CurrentUserId);
-            if (drawing == null) return NotFound();
-
-            string? path = format.ToLower() switch
+            try
             {
-                "dxf" => drawing.DxfPath,
-                "pdf" => drawing.PdfPath,
-                _ => null
-            };
+                var drawing = await _repo.GetDrawingForUserAsync(drawingId, CurrentUserId);
 
-            if (path == null || !System.IO.File.Exists(path))
-                return NotFound("File not yet generated.");
+                if (drawing == null)
+                    return NotFound();
 
-            var mimeType = format.ToLower() == "pdf" ? "application/pdf" : "application/dxf";
-            return PhysicalFile(path, mimeType, Path.GetFileName(path));
+                string? path = format.ToLower() switch
+                {
+                    "dxf" => drawing.DxfPath,
+                    "pdf" => drawing.PdfPath,
+                    _ => null
+                };
+
+                if (path == null || !System.IO.File.Exists(path))
+                    return NotFound("File not yet generated.");
+
+                var mimeType = format.ToLower() == "pdf"
+                    ? "application/pdf"
+                    : "application/dxf";
+
+                return PhysicalFile(path, mimeType, Path.GetFileName(path));
+            }
+            catch (Exception ex)
+            {
+                _exceptionHandlerRepository.SaveException(
+                    nameof(ResultsController),
+                    nameof(Download),
+                    ex.ToString());
+
+                TempData["Error"] = "Unable to download the requested file.";
+
+                return RedirectToAction(nameof(Index));
+            }
         }
-
         // ── Private helpers — kept here since they're pure view-shaping,
         // not DB access, so they don't belong in the repository. ──
 
