@@ -1,0 +1,376 @@
+﻿@model AxialFanMVC.ViewModels.BomViewModel
+@{
+    ViewData["Title"] = $"BOM & Costing — {Model.ProjectName}";
+}
+
+<style>
+    .bom-page {
+        max-width: 900px;
+        margin: 0 auto;
+    }
+
+    .bom-card {
+        background: #fff;
+        border-radius: 20px;
+        padding: 32px 36px 24px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 12px 28px rgba(0,0,0,0.05);
+        margin-bottom: 24px;
+    }
+
+    .bom-card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 8px;
+        gap: 16px;
+        flex-wrap: wrap;
+    }
+
+    .bom-title {
+        font-size: 1.6rem;
+        font-weight: 700;
+        color: #1a1a1a;
+        margin: 0;
+    }
+
+    .bom-subtitle {
+        color: #8a8a94;
+        font-size: 0.95rem;
+        margin-top: 2px;
+    }
+
+    .btn-regen {
+        border: 1px solid #e2e2e8;
+        background: #fff;
+        color: #1a1a1a;
+        border-radius: 999px;
+        padding: 10px 20px;
+        font-weight: 500;
+        font-size: 0.92rem;
+        white-space: nowrap;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        transition: background .15s ease, border-color .15s ease;
+    }
+
+        .btn-regen:hover {
+            background: #f7f7fa;
+            border-color: #d5d5dd;
+            color: #1a1a1a;
+        }
+
+    .bom-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 20px;
+    }
+
+        .bom-table thead th {
+            text-align: right;
+            font-weight: 500;
+            color: #9a9aa4;
+            font-size: 0.85rem;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #eeeef2;
+        }
+
+            .bom-table thead th:first-child {
+                text-align: left;
+            }
+
+        .bom-table tbody td {
+            padding: 16px 8px;
+            border-bottom: 1px solid #f2f2f5;
+            vertical-align: middle;
+            text-align: right;
+            font-size: 0.98rem;
+            color: #1a1a1a;
+        }
+
+            .bom-table tbody td:first-child {
+                text-align: left;
+                font-weight: 500;
+            }
+
+        .bom-table tbody tr:last-of-type td {
+            border-bottom: none;
+        }
+
+    .bom-badge {
+        display: inline-block;
+        padding: 4px 14px;
+        border-radius: 999px;
+        font-size: 0.85rem;
+        font-weight: 500;
+    }
+
+    .bom-badge-auto {
+        background: #e8f0fe;
+        color: #3a6fd8;
+    }
+
+    .bom-badge-manual {
+        background: #f0f0f3;
+        color: #8a8a94;
+    }
+
+    .bom-row-icon {
+        text-align: center !important;
+        width: 40px;
+        color: #c4c4cc;
+    }
+
+        .bom-row-icon form {
+            margin: 0;
+        }
+
+        .bom-row-icon button {
+            background: none;
+            border: none;
+            color: #c4c4cc;
+            padding: 0;
+            line-height: 1;
+            transition: color .15s ease;
+        }
+
+            .bom-row-icon button:hover {
+                color: #d9534f;
+            }
+
+    .bom-total-row td {
+        padding-top: 22px;
+        font-weight: 700;
+        font-size: 1.05rem;
+        border-bottom: none !important;
+    }
+
+    .bom-total-row .bom-total-value {
+        font-size: 1.3rem;
+    }
+
+    .bom-scroll-cue {
+        display: flex;
+        justify-content: center;
+        margin: -6px 0 6px;
+    }
+
+        .bom-scroll-cue button {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: 1px solid #eeeef2;
+            background: #fff;
+            color: #9a9aa4;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background .15s ease;
+        }
+
+            .bom-scroll-cue button:hover {
+                background: #f7f7fa;
+            }
+
+    .bom-empty {
+        text-align: center;
+        padding: 48px 16px;
+        color: #8a8a94;
+    }
+
+    .bom-manual-card {
+        border-radius: 20px;
+    }
+</style>
+
+<div class="bom-page">
+
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item">
+                <a asp-controller="Projects" asp-action="Index">Projects</a>
+            </li>
+            <li class="breadcrumb-item">
+                <a asp-controller="Design" asp-action="History"
+                   asp-route-projectId="@Model.ProjectId">@Model.ProjectName</a>
+            </li>
+            <li class="breadcrumb-item">
+                <a asp-controller="Results" asp-action="Result"
+                   asp-route-resultId="@Model.ResultId">Design Result #@Model.ResultId</a>
+            </li>
+            <li class="breadcrumb-item active">BOM &amp; Costing</li>
+        </ol>
+    </nav>
+
+    <div class="bom-card">
+
+        <div class="bom-card-header">
+            <div>
+                <h1 class="bom-title">BOM and costing</h1>
+                <div class="bom-subtitle">
+                    Design result #@Model.ResultId
+                    @if (!string.IsNullOrWhiteSpace(Model.MaterialUsed))
+                    {
+                        <text>&nbsp;&middot;&nbsp;@Model.MaterialUsed</text>
+                    }
+                </div>
+            </div>
+
+            <form asp-controller="Bom" asp-action="Generate" method="post">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="resultId" value="@Model.ResultId" />
+                <button type="submit" class="btn-regen">
+                    <i class="bi bi-arrow-repeat"></i>
+                    @(Model.HasBeenGenerated ? "Regenerate auto lines" : "Generate auto lines")
+                </button>
+            </form>
+        </div>
+
+        @if (!Model.HasBeenGenerated)
+        {
+            <div class="bom-empty">
+                <i class="bi bi-receipt" style="font-size:2rem;"></i>
+                <p class="mt-2 mb-0">
+                    No BOM yet — click <strong>Generate auto lines</strong> above to estimate
+                    material, motor, and drive costs from this design.
+                </p>
+            </div>
+        }
+        else
+        {
+            <table class="bom-table">
+                <thead>
+                    <tr>
+                        <th>Item</th>
+                        <th>Source</th>
+                        <th>Qty</th>
+                        <th>Rate</th>
+                        <th>Total</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var line in Model.Lines)
+                    {
+                        bool isMisc = line.Category == "Misc";
+                        bool isAuto = line.Source != "Manual";
+
+                        <tr>
+                            <td>@line.Description</td>
+                            <td>
+                                @if (isAuto)
+                                {
+                                    <span class="bom-badge bom-badge-auto">Auto</span>
+                                }
+                                else
+                                {
+                                    <span class="bom-badge bom-badge-manual">Manual</span>
+                                }
+                            </td>
+                            <td>
+                                @if (line.Unit == "%")
+                                {
+                                    @($"{line.Quantity:0.#}%")
+                                }
+                                else if (!string.IsNullOrEmpty(line.Unit))
+                                {
+                                    @($"{line.Quantity:0.#} {line.Unit}")
+                                }
+                                else
+                                {
+                                    @($"{line.Quantity:0.#}")
+                                }
+                            </td>
+                            <td>
+                                @if (isMisc)
+                                {
+                                    <text>of subtotal</text>
+                                }
+                                else if (!string.IsNullOrEmpty(line.Unit) && line.Unit != "%")
+                                {
+                                    @($"₹{line.UnitCost:N0} /{line.Unit}")
+                                }
+                                else
+                                {
+                                    @($"₹{line.UnitCost:N0}")
+                                }
+                            </td>
+                            <td>₹@line.LineTotal.ToString("N0")</td>
+                            <td class="bom-row-icon">
+                                @if (isAuto)
+                                {
+                                    <i class="bi bi-lock" title="Auto line — edit via Cost Rates or Regenerate"></i>
+                                }
+                                else
+                                {
+                                    <form asp-controller="Bom" asp-action="DeleteLine" method="post"
+                                          onsubmit="return confirm('Remove this line item?');">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="lineItemId" value="@line.Id" />
+                                        <input type="hidden" name="resultId" value="@Model.ResultId" />
+                                        <button type="submit" title="Remove">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </form>
+                                }
+                            </td>
+                        </tr>
+                    }
+                    <tr class="bom-total-row">
+                        <td>Total estimated cost</td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td class="bom-total-value">₹@Model.GrandTotal.ToString("N0")</td>
+                        <td></td>
+                    </tr>
+                </tbody>
+            </table>
+        }
+    </div>
+
+    @if (Model.HasBeenGenerated)
+    {
+        <div class="bom-scroll-cue">
+            <button type="button" onclick="document.getElementById('addLineCard').scrollIntoView({behavior:'smooth'});">
+                <i class="bi bi-chevron-down"></i>
+            </button>
+        </div>
+    }
+
+    <div class="bom-card bom-manual-card" id="addLineCard">
+        <h6 class="fw-semibold mb-1"><i class="bi bi-plus-circle me-1"></i>Add a manual line item</h6>
+        <small class="text-muted d-block mb-3">
+            For anything this tool doesn't derive automatically — a real vendor quote for the hub casting,
+            bearings, fasteners, freight, etc. Manual lines are never touched when you regenerate the auto lines above.
+        </small>
+        <form asp-controller="Bom" asp-action="AddLine" method="post" class="row g-2 align-items-end">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="resultId" value="@Model.ResultId" />
+            <div class="col-md-2">
+                <label class="form-label small">Category</label>
+                <input type="text" name="category" class="form-control" placeholder="e.g. Hardware" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small">Description</label>
+                <input type="text" name="description" class="form-control" required />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small">Quantity</label>
+                <input type="number" step="0.01" min="0.01" name="quantity" class="form-control" required />
+            </div>
+            <div class="col-md-1">
+                <label class="form-label small">Unit</label>
+                <input type="text" name="unit" class="form-control" placeholder="ea" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small">Unit Cost</label>
+                <input type="number" step="0.01" min="0" name="unitCost" class="form-control" required />
+            </div>
+            <div class="col-md-1">
+                <button type="submit" class="btn btn-success w-100"><i class="bi bi-plus-lg"></i></button>
+            </div>
+        </form>
+    </div>
+
+</div>
