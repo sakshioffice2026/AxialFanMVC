@@ -30,7 +30,7 @@ import onnx
 
 # ── 1. Load ──────────────────────────────────────────────────────────────
 # Upload the CSV via Colab's file picker, or mount Drive and point here.
-CSV_PATH = "axialfan_synthetic_training.csv"
+CSV_PATH = "synthetic_training_data_20260723_121544..csv"
 df = pd.read_csv(CSV_PATH)
 
 print(f"Loaded {len(df)} rows, {df['is_feasible'].sum()} feasible "
