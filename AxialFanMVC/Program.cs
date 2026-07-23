@@ -61,6 +61,17 @@ builder.Services.AddAuthorization();
 // THIS LINE IS REQUIRED ? registers ExportService
 builder.Services.AddScoped<ExportService>();
 
+// "Optimize for me" — DB-backed job queue processed by a background
+// worker that calls out to the Python optimizer service (FastAPI).
+// OptimizationJobChannel is registered as its own singleton (not just
+// via the interface) because OptimizationBackgroundService needs the
+// concrete type's Reader, while OptimizationController only needs the
+// IOptimizationJobSignal.NotifyJobQueued side.
+builder.Services.AddSingleton<OptimizationJobChannel>();
+builder.Services.AddSingleton<IOptimizationJobSignal>(sp => sp.GetRequiredService<OptimizationJobChannel>());
+builder.Services.AddHttpClient(nameof(OptimizationBackgroundService));
+builder.Services.AddHostedService<OptimizationBackgroundService>();
+
 var app = builder.Build();
 
 CurveCorrectionService.Initialize(Path.Combine(builder.Environment.ContentRootPath, "MLModels", "efficiency_correction.onnx"),

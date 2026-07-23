@@ -1,9 +1,12 @@
-﻿using System.Text;
+using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
+using AxialFanMVC.Database;
+using AxialFanMVC.Models;
+using Microsoft.EntityFrameworkCore;
 
-
-namespace AxialFanMVC.Business.MLOptimization
+namespace AxialFanMVC.Services
 {
     // Wakes the background worker immediately when a job is enqueued —
     // pure signaling, holds no state that survives a restart.
@@ -111,10 +114,17 @@ namespace AxialFanMVC.Business.MLOptimization
                               ?? throw new InvalidOperationException("Stored request JSON was empty/invalid.");
 
                 var client = _httpClientFactory.CreateClient(nameof(OptimizationBackgroundService));
-                var response = await client.PostAsync(
-                    $"{_optimizerBaseUrl}/optimize",
-                    new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json"),
-                    stoppingToken);
+
+                // NOTE: StringContent has two 3-arg overloads — (string, Encoding, string)
+                // and (string, Encoding, MediaTypeHeaderValue). Passing the media type as a
+                // MediaTypeHeaderValue explicitly sidesteps any overload-resolution ambiguity
+                // between the two, instead of relying on the compiler picking the string one.
+                var payload = new StringContent(
+                    JsonSerializer.Serialize(request),
+                    Encoding.UTF8,
+                    new MediaTypeHeaderValue("application/json"));
+
+                var response = await client.PostAsync($"{_optimizerBaseUrl}/optimize", payload, stoppingToken);
 
                 var body = await response.Content.ReadAsStringAsync(stoppingToken);
 
