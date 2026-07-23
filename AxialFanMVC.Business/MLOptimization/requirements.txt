@@ -1,0 +1,13 @@
+# Colab (train_surrogate.py)
+pandas>=2.0
+scikit-learn>=1.3
+skl2onnx>=1.16
+onnx>=1.15
+
+# Optimizer microservice (optimizer_service.py)
+fastapi>=0.110
+uvicorn[standard]>=0.29
+onnxruntime>=1.17
+pymoo>=0.6.1
+numpy>=1.26
+pydantic>=2.6
