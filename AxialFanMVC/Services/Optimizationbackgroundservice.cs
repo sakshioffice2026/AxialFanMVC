@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Threading.Channels;
 using AxialFanMVC.Database;
 using AxialFanMVC.Models;
+using AxialFanMVC.Services.MLOptimization;
 using Microsoft.EntityFrameworkCore;
 
 namespace AxialFanMVC.Services
@@ -29,9 +30,15 @@ namespace AxialFanMVC.Services
     // source of truth, not the channel. The channel only exists so a
     // freshly queued job starts within milliseconds instead of waiting
     // for the next poll interval. On startup, and every 30s as a safety
-    // net, this also re-scans the DB for any Status="Queued" row that
+    // net, this also re-scans the DB for any Status=\"Queued\" row that
     // never got picked up (e.g. the app restarted between enqueue and
     // pickup) — so a job can never get silently lost.
+    //
+    // As of the verification step: after the Python optimizer responds
+    // with its 3 surrogate-predicted candidates, all 3 are replayed
+    // through the real deterministic engine chain (CandidateVerificationService)
+    // BEFORE ResultJson is written — so a client polling Status never sees
+    // an unverified number presented as final.
     // ═══════════════════════════════════════════════════════════════
     public class OptimizationBackgroundService : BackgroundService
     {
@@ -139,7 +146,15 @@ namespace AxialFanMVC.Services
                 }
                 else
                 {
-                    var candidates = JsonSerializer.Deserialize<List<OptimizeCandidateDto>>(body);
+                    var candidates = JsonSerializer.Deserialize<List<OptimizeCandidateDto>>(body)
+                                      ?? new List<OptimizeCandidateDto>();
+
+                    // Verify all 3 candidates up front against the real
+                    // deterministic engine chain before they ever reach a
+                    // client — confirmed behavior, not just the surrogate's
+                    // predictions being trusted as final.
+                    await CandidateVerificationService.VerifyAllAsync(db, job.ProjectId, candidates);
+
                     job.ResultJson = JsonSerializer.Serialize(candidates);
                     job.Status = "Completed";
                 }
