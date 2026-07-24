@@ -122,12 +122,17 @@
     </div>
 </div>
 
-@if (Model.Warnings.Any())
+@{
+    var realWarnings = Model.Warnings.Where(w => !w.StartsWith("Info:")).ToList();
+    var infoNotes = Model.Warnings.Where(w => w.StartsWith("Info:")).ToList();
+}
+
+@if (realWarnings.Any())
 {
     <div class="alert alert-warning mb-4">
         <h6 class="alert-heading"><i class="bi bi-exclamation-triangle me-1"></i>Design Warnings</h6>
         <ul class="mb-0 ps-3">
-            @foreach (var w in Model.Warnings)
+            @foreach (var w in realWarnings)
             {
                 <li>@w</li>
             }
@@ -135,6 +140,18 @@
     </div>
 }
 
+@if (infoNotes.Any())
+{
+    <div class="alert alert-info mb-4">
+        <h6 class="alert-heading"><i class="bi bi-info-circle me-1"></i>Notes &amp; Disclosures</h6>
+        <ul class="mb-0 ps-3">
+            @foreach (var w in infoNotes)
+            {
+                <li>@w.Substring("Info:".Length).Trim()</li>
+            }
+        </ul>
+    </div>
+}
 <div class="card mb-4">
     <div class="card-header bg-light d-flex align-items-center">
         <i class="bi bi-robot me-2"></i>

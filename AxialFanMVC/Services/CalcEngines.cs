@@ -441,8 +441,45 @@ namespace AxialFanMVC.Services
     // ═══════════════════════════════════════════════════════════════
     // StructCalcEngine — blade stress and structural checks
     // ═══════════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════════════════════
+    // StructCalcEngine — blade stress and structural checks
+    //
+    // KNOWN LIMITATION (flagged 2026-07-24, not yet resolved):
+    // Blade thickness here is derived purely as chord * 0.12 (line below),
+    // with no floor/minimum applied. For small, light, moderately-loaded
+    // blades this produces very large safety factors (seen: 60-150x on
+    // real optimizer output) that are mathematically consistent with the
+    // formula but do NOT reflect any real manufacturing constraint — no
+    // real blade would actually be built at exactly 12% of chord if that
+    // comes out to a couple of millimeters. Real minimum gauge (casting/
+    // extrusion process limits, handling damage tolerance, vibration/
+    // flutter margin, fastener clearance) is not modeled anywhere in this
+    // codebase. Until a real minimum-thickness value is supplied by
+    // someone qualified to set one (mechanical/structural engineer or
+    // manufacturing partner — NOT a value to guess at in code), treat any
+    // SafetyFactor this engine reports as an upper bound under an
+    // idealized thin-blade assumption, not a validated real-world number.
+    // ═══════════════════════════════════════════════════════════════
     public static class StructCalcEngine
     {
+        // TODO — PLACEHOLDER, NOT ENGINEERING-APPROVED:
+        // Both values below are common ballpark minimum gauges for small/
+        // mid cast or extruded aluminum fan blades in general industry
+        // practice — neither has been confirmed against this project's
+        // actual materials, blade spans, or manufacturing process. One of
+        // MIN_BLADE_THICKNESS_MM_OPTION_A / _OPTION_B is applied as the
+        // active floor below (see MinBladeThicknessMm). Swap which one is
+        // active, or replace both with real numbers, once the
+        // manufacturing team confirms the actual minimum buildable
+        // thickness. Do not treat SafetyFactor as validated until this
+        // TODO is resolved with a real, confirmed value.
+        private const double MIN_BLADE_THICKNESS_MM_OPTION_A = 3.0;
+        private const double MIN_BLADE_THICKNESS_MM_OPTION_B = 4.0;
+
+        // Active floor — currently Option A (3mm). Change this single line
+        // to MIN_BLADE_THICKNESS_MM_OPTION_B to switch to the 4mm option.
+        private const double MinBladeThicknessMm = MIN_BLADE_THICKNESS_MM_OPTION_A;
+
         public static StructCalcResult Calculate(DesignInput d, AeroCalcResult aero)
         {
             var r = new StructCalcResult();
@@ -458,7 +495,19 @@ namespace AxialFanMVC.Services
             double tipRadius = d.TipDiameterMm / 2000.0;
             double hubRadius = tipRadius * d.HubRatio;
             double chordM = aero.ChordLengthMm / 1000.0;
-            double thickness = chordM * 0.12;
+
+            // Floor applied here: thickness is chord * 0.12, but never
+            // thinner than MinBladeThicknessMm (placeholder — see TODO
+            // above). Without this floor, small/lightly-loaded blades were
+            // producing physically-thin sections and correspondingly
+            // unrealistic (60-150x) safety factors.
+            double thicknessRaw = chordM * 0.12;
+            double thickness = Math.Max(thicknessRaw, MinBladeThicknessMm / 1000.0);
+            if (thickness > thicknessRaw)
+                r.Warnings.Add($"Info: blade thickness floored to the {MinBladeThicknessMm:F1} mm placeholder " +
+                    $"minimum (chord-based thickness would have been {thicknessRaw * 1000:F2} mm) — this floor " +
+                    "is a TODO placeholder pending manufacturing team confirmation, not an approved spec.");
+
             double omega = 2 * Math.PI * d.SpeedRpm / 60.0;
 
             double bladeVolume = chordM * thickness * (tipRadius - hubRadius);
@@ -485,6 +534,19 @@ namespace AxialFanMVC.Services
                 r.Warnings.Add($"Static safety factor {r.SafetyFactor:F2} (material: {material.Name}) is below minimum of 2.0.");
             if (fatigueSf < 3.0)
                 r.Warnings.Add($"Fatigue safety factor {fatigueSf:F2} (mean-stress basis, material: {material.Name}) is below target.");
+
+            // Unusually high safety factors are a sign the blade thickness
+            // model (chord * 0.12, no minimum gauge floor — see class-level
+            // comment above) has produced a thickness far thinner than any
+            // real manufactured blade would use. This is disclosure, not a
+            // hard error — the number is real math, just possibly not a
+            // real buildable design.
+            if (r.SafetyFactor > 20.0)
+                r.Warnings.Add($"Info: static safety factor {r.SafetyFactor:F1} is unusually high — this design's " +
+                    "blade may be thinner than what's actually manufacturable. This model has no minimum blade " +
+                    "thickness/gauge constraint yet, so very high safety factors on small/lightly-loaded blades " +
+                    "should be treated as an idealized upper bound, not a validated real-world figure, until a " +
+                    "real minimum thickness is added.");
 
             return r;
         }
