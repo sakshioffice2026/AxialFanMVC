@@ -6,6 +6,43 @@
     Enter your target blade geometry below. Actual calculated results (efficiency, shaft power, safety factor)
     are produced when you click <strong>Calculate &amp; Save</strong> on the final step.
 </div>
+
+@* Shown once, right after a Step 3 optimizer candidate is applied — the
+   geometry fields below are already filled in from that candidate via the
+   normal hidden-field/TempData round trip; this is just an acknowledgement. *@
+<div id="candidatePrefillBanner" class="alert alert-success small" style="display:none">
+    <i class="bi bi-stars me-1"></i>
+    Pre-filled from <strong id="candidatePrefillLabel"></strong>
+    (verified efficiency: <span id="candidatePrefillEfficiency"></span>%).
+    <span id="candidatePrefillProfileWarning" class="text-warning" style="display:none">
+        Its blade profile couldn't be matched automatically — please check the selection below.
+    </span>
+    Review and adjust anything below before continuing.
+</div>
+
+<script>
+    (function () {
+        const projectId = @Model.ProjectId;
+        const key = 'optimizeAppliedCandidate_' + projectId;
+        let raw;
+        try { raw = sessionStorage.getItem(key); } catch (e) { raw = null; }
+        if (!raw) return;
+
+        try {
+            const applied = JSON.parse(raw);
+            document.getElementById('candidatePrefillLabel').textContent = applied.label || 'an optimized candidate';
+            document.getElementById('candidatePrefillEfficiency').textContent =
+                (applied.verifiedEfficiencyPct ?? 0).toFixed(1);
+            if (!applied.profileResolved) {
+                document.getElementById('candidatePrefillProfileWarning').style.display = 'inline';
+            }
+            document.getElementById('candidatePrefillBanner').style.display = 'block';
+        } catch (e) { /* malformed sessionStorage value — ignore silently */ }
+
+        // One-shot: don't keep showing this if the user revisits Step 4 later.
+        try { sessionStorage.removeItem(key); } catch (e) { }
+    })();
+</script>
 <div class="row g-3">
     <div class="col-md-6">
         <label asp-for="BladeProfileId" class="form-label">Blade Profile</label>

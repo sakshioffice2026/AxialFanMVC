@@ -12,8 +12,8 @@
     "Performance",
     "Motor",
     "Accessories",
-    "Output & Save",
-    "Acoustic Data"
+    "Acoustic Data",
+    "Output & Save"
 };
     string[] stepIcons = {
     "bi-info-circle",
@@ -23,8 +23,8 @@
     "bi-graph-up",
     "bi-lightning-charge",
     "bi-shield-check",
-    "bi-save",
-    "bi-volume-up"
+    "bi-volume-up",
+    "bi-save"
 };
 
     int currentStep = Model.CurrentStep;
@@ -329,16 +329,6 @@
     }
     @if (currentStep != 8)
     {
-        <input type="hidden" asp-for="CapacityFlowM3h" />
-        <input type="hidden" asp-for="CapacityStaticPa" />
-        <input type="hidden" asp-for="CapacitySpeedRpm" />
-        <input type="hidden" asp-for="CapacityMotorKw" />
-        <input type="hidden" asp-for="CapacityEfficiencyPct" />
-        <input type="hidden" asp-for="DrawingTagNo" />
-        <input type="hidden" asp-for="NameplateText" />
-    }
-    @if (currentStep != 9)
-    {
         <input type="hidden" asp-for="ReceiverDistanceM" />
         <input type="hidden" asp-for="AcousticEnvironment" />
         <input type="hidden" asp-for="DirectivityIndexDb" />
@@ -349,6 +339,16 @@
         <input type="hidden" asp-for="CasingTransmissionLossDb" />
         <input type="hidden" asp-for="BackgroundNoiseDbA" />
         <input type="hidden" asp-for="SafetyMarginDb" />
+    }
+    @if (currentStep != 9)
+    {
+        <input type="hidden" asp-for="CapacityFlowM3h" />
+        <input type="hidden" asp-for="CapacityStaticPa" />
+        <input type="hidden" asp-for="CapacitySpeedRpm" />
+        <input type="hidden" asp-for="CapacityMotorKw" />
+        <input type="hidden" asp-for="CapacityEfficiencyPct" />
+        <input type="hidden" asp-for="DrawingTagNo" />
+        <input type="hidden" asp-for="NameplateText" />
     }
 
 
