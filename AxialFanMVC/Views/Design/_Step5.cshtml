@@ -1,41 +1,107 @@
 @model AxialFanMVC.ViewModels.DesignWizardViewModel
 
-<h2 class="dw-panel-title mb-3 fw-bold" style="color:var(--v2-accent)">Performance</h2>
+<h2 class="dw-panel-title mb-3 fw-bold" style="color:var(--v2-accent)">Blade Geometry</h2>
 <div class="alert alert-info small">
     <i class="bi bi-info-circle-fill me-1"></i>
-    This is a preview curve for illustration. Your actual performance curve is generated
-    when you click <strong>Calculate &amp; Save</strong> on the final step.
+    Enter your target blade geometry below. Actual calculated results (efficiency, shaft power, safety factor)
+    are produced when you click <strong>Calculate &amp; Save</strong> on the final step.
 </div>
-<canvas id="dwPerfChart" height="140"></canvas>
-<table class="table table-sm mt-3">
-    <thead>
-        <tr><th>Flow (m³/s)</th><th>Static Pressure (Pa)</th><th>Efficiency (%)</th><th>Power (kW)</th></tr>
-    </thead>
-    <tbody>
-        <tr><td>15.0</td><td>820</td><td>72.1</td><td>9.8</td></tr>
-        <tr><td>20.0</td><td>740</td><td>78.5</td><td>10.6</td></tr>
-        <tr><td>25.0</td><td>650</td><td>81.4</td><td>11.2</td></tr>
-        <tr><td>30.0</td><td>540</td><td>77.9</td><td>11.9</td></tr>
-        <tr><td>35.0</td><td>410</td><td>70.3</td><td>12.5</td></tr>
-    </tbody>
-</table>
+
+@* Shown once, right after a Step 3 optimizer candidate is applied — the
+   geometry fields below are already filled in from that candidate via the
+   normal hidden-field/TempData round trip; this is just an acknowledgement. *@
+<div id="candidatePrefillBanner" class="alert alert-success small" style="display:none">
+    <i class="bi bi-stars me-1"></i>
+    Pre-filled from <strong id="candidatePrefillLabel"></strong>
+    (verified efficiency: <span id="candidatePrefillEfficiency"></span>%).
+    <span id="candidatePrefillProfileWarning" class="text-warning" style="display:none">
+        Its blade profile couldn't be matched automatically — please check the selection below.
+    </span>
+    Review and adjust anything below before continuing.
+</div>
+
 <script>
     (function () {
-        var ctx = document.getElementById('dwPerfChart');
-        if (!ctx || typeof Chart === 'undefined') return;
-        new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: ['15.0', '20.0', '25.0', '30.0', '35.0'],
-                datasets: [{
-                    label: 'Static Pressure (Pa)',
-                    data: [820, 740, 650, 540, 410],
-                    borderColor: getComputedStyle(document.documentElement).getPropertyValue('--v2-accent').trim() || '#3E7C8C',
-                    tension: 0.35,
-                    fill: false
-                }]
-            },
-            options: { plugins: { legend: { display: true } }, scales: { y: { beginAtZero: true } } }
-        });
+        const projectId = @Model.ProjectId;
+        const key = 'optimizeAppliedCandidate_' + projectId;
+        let raw;
+        try { raw = sessionStorage.getItem(key); } catch (e) { raw = null; }
+        if (!raw) return;
+
+        try {
+            const applied = JSON.parse(raw);
+            document.getElementById('candidatePrefillLabel').textContent = applied.label || 'an optimized candidate';
+            document.getElementById('candidatePrefillEfficiency').textContent =
+                (applied.verifiedEfficiencyPct ?? 0).toFixed(1);
+            if (!applied.profileResolved) {
+                document.getElementById('candidatePrefillProfileWarning').style.display = 'inline';
+            }
+            document.getElementById('candidatePrefillBanner').style.display = 'block';
+        } catch (e) { /* malformed sessionStorage value — ignore silently */ }
+
+        // One-shot: don't keep showing this if the user revisits this step later.
+        try { sessionStorage.removeItem(key); } catch (e) { }
     })();
 </script>
+<div class="row g-3">
+    <div class="col-md-6">
+        <label asp-for="BladeProfileId" class="form-label">Blade Profile</label>
+        <select asp-for="BladeProfileId" class="form-select">
+            <option value="">-- Select a blade profile --</option>
+            @if (Model.BladeProfiles != null)
+            {
+                foreach (var bp in Model.BladeProfiles)
+                {
+                    <option value="@bp.Id">@bp.Name</option>
+                }
+            }
+        </select>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="BladeMaterial" class="form-label">Blade Material</label>
+        <select asp-for="BladeMaterial" class="form-select">
+            @foreach (var mat in AxialFanMVC.Services.MaterialLibrary.AvailableMaterials)
+            {
+                <option value="@mat">@mat</option>
+            }
+        </select>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="BladeCount" class="form-label">Blade Count</label>
+        <input asp-for="BladeCount" type="text" class="form-control" />
+        <div class="form-text">Compare against Preferred Blade Count from the Fan Constraints step.</div>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="TipDiameterMm" class="form-label">Tip Diameter</label>
+        <div class="input-group">
+            <input asp-for="TipDiameterMm" type="text" class="form-control" />
+            <span class="input-group-text">mm</span>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="HubRatio" class="form-label">Hub Ratio</label>
+        <input asp-for="HubRatio" type="text" class="form-control" />
+    </div>
+    <div class="col-md-6">
+        <label asp-for="BladeAngleDeg" class="form-label">Blade Angle</label>
+        <div class="input-group">
+            <input asp-for="BladeAngleDeg" type="text" class="form-control" />
+            <span class="input-group-text">deg</span>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="TargetEfficiencyPct" class="form-label">Target Efficiency</label>
+        <div class="input-group">
+            <input asp-for="TargetEfficiencyPct" type="text" class="form-control" />
+            <span class="input-group-text">%</span>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <label class="form-label">Motor Power</label>
+        <div class="input-group">
+            <input type="text" class="form-control" value="@Model.MotorPowerKw" readonly />
+            <span class="input-group-text">kW</span>
+        </div>
+        <div class="form-text">Set on the Motor &amp; Drive step.</div>
+    </div>
+</div>

@@ -1,108 +1,110 @@
-﻿@model AxialFanMVC.ViewModels.DesignWizardViewModel
+@model AxialFanMVC.ViewModels.DesignWizardViewModel
 
-<div class="card shadow-sm border-0">
-    <div class="card-header bg-dark text-white">
-        <h4 class="mb-0">
-            <i class="bi bi-volume-up"></i>
-            Step 8 – Acoustic Data
-        </h4>
+<h2 class="dw-panel-title mb-3 fw-bold" style="color:var(--v2-accent)">Review &amp; Confirm</h2>
+<div class="alert alert-info small">
+    <i class="bi bi-info-circle-fill me-1"></i>
+    Nothing shown below is fabricated or pre-computed — it's exactly what you entered on the previous
+    steps. Real aero/structural/acoustic results, performance curves and drawings are generated on the
+    next (final) step when you click <strong>Calculate &amp; Save</strong>.
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="form-text">Flow Rate</div>
+        <div class="fw-bold">@Model.FlowRateM3s m&sup3;/s</div>
     </div>
-
-    <div class="card-body">
-
-        <div class="row g-3">
-
-            <div class="col-md-6">
-                <label asp-for="ReceiverDistanceM" class="form-label"></label>
-                <input asp-for="ReceiverDistanceM" class="form-control" />
-                <span asp-validation-for="ReceiverDistanceM" class="text-danger"></span>
-            </div>
-
-            <div class="col-md-6">
-                <label asp-for="AcousticEnvironment" class="form-label"></label>
-                <select asp-for="AcousticEnvironment" class="form-select">
-                    <option>Free Field</option>
-                    <option>Semi-Reverberant</option>
-                    <option>Reverberant Room</option>
-                    <option>Outdoor</option>
-                    <option>Industrial Plant</option>
-                </select>
-            </div>
-
-            <div class="col-md-6">
-                <label asp-for="DirectivityIndexDb" class="form-label"></label>
-                <input asp-for="DirectivityIndexDb" class="form-control" />
-            </div>
-
-            <div class="col-md-6">
-                <label asp-for="RoomCorrectionDb" class="form-label"></label>
-                <input asp-for="RoomCorrectionDb" class="form-control" />
-            </div>
-
+    <div class="col-md-4">
+        <div class="form-text">Total Pressure</div>
+        <div class="fw-bold">@Model.TotalPressurePa Pa</div>
+    </div>
+    <div class="col-md-4">
+        <div class="form-text">Fan Speed</div>
+        <div class="fw-bold">@Model.SpeedRpm RPM</div>
+    </div>
+    <div class="col-md-4">
+        <div class="form-text">Blade Geometry</div>
+        <div class="fw-bold">@Model.BladeCount &times; blades, &oslash;@Model.TipDiameterMm mm, @Model.BladeAngleDeg&deg;</div>
+    </div>
+    <div class="col-md-4">
+        <div class="form-text">Blade Material / Profile</div>
+        <div class="fw-bold">@Model.BladeMaterial</div>
+    </div>
+    <div class="col-md-4">
+        <div class="form-text">Motor</div>
+        <div class="fw-bold">@Model.MotorPowerKw kW, @Model.MotorType</div>
+    </div>
+    <div class="col-md-4">
+        <div class="form-text">Max Noise Level (constraint)</div>
+        <div class="fw-bold">@Model.MaxNoiseDbA dB(A)</div>
+    </div>
+    <div class="col-md-4">
+        <div class="form-text">Acoustic Environment</div>
+        <div class="fw-bold">@Model.AcousticEnvironment</div>
+    </div>
+    <div class="col-md-4">
+        <div class="form-text">Accessories</div>
+        <div class="fw-bold">
+            @{
+                var accessories = new List<string>();
+                if (Model.AccInletGuard) accessories.Add("Inlet Guard");
+                if (Model.AccOutletGuard) accessories.Add("Outlet Guard");
+                if (Model.AccVibrationIsolators) accessories.Add("Vibration Isolators");
+                if (Model.AccFlexibleConnector) accessories.Add("Flexible Connector");
+                if (Model.AccSilencer) accessories.Add("Silencer");
+                if (Model.AccBackdraftDamper) accessories.Add("Backdraft Damper");
+            }
+            @(accessories.Count > 0 ? string.Join(", ", accessories) : "None selected")
         </div>
+    </div>
+</div>
 
-        <hr />
-
-        <h5 class="text-primary">
-            Attenuation
-        </h5>
-
-        <div class="row g-3">
-
-            <div class="col-md-4">
-                <label asp-for="InletAttenuationDb" class="form-label"></label>
-                <input asp-for="InletAttenuationDb" class="form-control" />
-            </div>
-
-            <div class="col-md-4">
-                <label asp-for="OutletAttenuationDb" class="form-label"></label>
-                <input asp-for="OutletAttenuationDb" class="form-control" />
-            </div>
-
-            <div class="col-md-4">
-                <label asp-for="SilencerAttenuationDb" class="form-label"></label>
-                <input asp-for="SilencerAttenuationDb" class="form-control" />
-            </div>
-
-            <div class="col-md-6">
-                <label asp-for="CasingTransmissionLossDb" class="form-label"></label>
-                <input asp-for="CasingTransmissionLossDb" class="form-control" />
-            </div>
-
-            <div class="col-md-6">
-                <label asp-for="BackgroundNoiseDbA" class="form-label"></label>
-                <input asp-for="BackgroundNoiseDbA" class="form-control" />
-            </div>
-
+<h2 class="dw-panel-title mb-3 mt-4 fw-bold" style="color:var(--v2-accent)">Performance Curve Range</h2>
+<div class="alert alert-info small">
+    <i class="bi bi-info-circle-fill me-1"></i>
+    Optional. Sets the x-axis range for the Q-&Delta;P / Q-&eta; / Q-kW curves generated on Save.
+    Leave blank to use the calculation engine's default range around your duty point.
+</div>
+<div class="row g-3">
+    <div class="col-md-6">
+        <label asp-for="RangeMinFlowM3h" class="form-label">Min Flow</label>
+        <div class="input-group">
+            <input asp-for="RangeMinFlowM3h" type="text" class="form-control" />
+            <span class="input-group-text">m&sup3;/h</span>
         </div>
-
-        <hr />
-
-        <h5 class="text-primary">
-            Design Margin
-        </h5>
-
-        <div class="row g-3">
-
-            <div class="col-md-4">
-                <label asp-for="SafetyMarginDb" class="form-label"></label>
-                <input asp-for="SafetyMarginDb" class="form-control" />
-            </div>
-
+    </div>
+    <div class="col-md-6">
+        <label asp-for="RangeMaxFlowM3h" class="form-label">Max Flow</label>
+        <div class="input-group">
+            <input asp-for="RangeMaxFlowM3h" type="text" class="form-control" />
+            <span class="input-group-text">m&sup3;/h</span>
         </div>
-
-        <hr />
-
-        <div class="alert alert-info mb-0">
-            <strong>Notes</strong>
-            <ul class="mb-0 mt-2">
-                <li>Receiver Distance is used when converting Sound Power (Lw) to Sound Pressure (Lp).</li>
-                <li>Directivity Index is added to the calculated sound pressure.</li>
-                <li>Attenuation values reduce the predicted noise.</li>
-                <li>Room Correction compensates for reflections.</li>
-                <li>Safety Margin is subtracted from the allowable maximum noise level.</li>
-            </ul>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="RangeMinPressurePa" class="form-label">Min Pressure</label>
+        <div class="input-group">
+            <input asp-for="RangeMinPressurePa" type="text" class="form-control" />
+            <span class="input-group-text">Pa</span>
         </div>
-
+    </div>
+    <div class="col-md-6">
+        <label asp-for="RangeMaxPressurePa" class="form-label">Max Pressure</label>
+        <div class="input-group">
+            <input asp-for="RangeMaxPressurePa" type="text" class="form-control" />
+            <span class="input-group-text">Pa</span>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="RangeMinSpeedRpm" class="form-label">Min Speed</label>
+        <div class="input-group">
+            <input asp-for="RangeMinSpeedRpm" type="text" class="form-control" />
+            <span class="input-group-text">RPM</span>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <label asp-for="RangeMaxSpeedRpm" class="form-label">Max Speed</label>
+        <div class="input-group">
+            <input asp-for="RangeMaxSpeedRpm" type="text" class="form-control" />
+            <span class="input-group-text">RPM</span>
+        </div>
     </div>
 </div>

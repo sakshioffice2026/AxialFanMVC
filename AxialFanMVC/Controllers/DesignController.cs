@@ -169,7 +169,7 @@ namespace AxialFanMVC.Controllers
                     });
                 }
 
-                // Calculate button (step 8 — Output & Save — submit)
+                // Calculate button (step 9 — Output & Save — submit)
                 if (action == "calculate")
                 {
                     // Reload blade profiles for validation display

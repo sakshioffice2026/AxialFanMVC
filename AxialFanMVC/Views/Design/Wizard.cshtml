@@ -8,22 +8,22 @@
     "Project Info",
     "Air Input",
     "Fan Constraints",
-    "Design & Results",
-    "Performance",
-    "Motor",
+    "Motor & Drive",
+    "Blade Geometry",
+    "Acoustic Environment",
     "Accessories",
-    "Acoustic Data",
+    "Review & Confirm",
     "Output & Save"
 };
     string[] stepIcons = {
     "bi-info-circle",
     "bi-wind",
     "bi-rulers",
-    "bi-gear",
-    "bi-graph-up",
     "bi-lightning-charge",
-    "bi-shield-check",
+    "bi-gear",
     "bi-volume-up",
+    "bi-shield-check",
+    "bi-clipboard-check",
     "bi-save"
 };
 
@@ -280,29 +280,10 @@
     }
     @if (currentStep != 4)
     {
-        <input type="hidden" asp-for="BladeCount" />
-        <input type="hidden" asp-for="TipDiameterMm" />
-        <input type="hidden" asp-for="HubRatio" />
-        <input type="hidden" asp-for="HubDiameterMm" />
-        <input type="hidden" asp-for="BladeAngleDeg" />
-        <input type="hidden" asp-for="TargetEfficiencyPct" />
-        <input type="hidden" asp-for="BladeProfileId" />
-        <input type="hidden" asp-for="MotorPowerKw" />
-    }
-    @if (currentStep != 5)
-    {
-        <input type="hidden" asp-for="RangeMinFlowM3h" />
-        <input type="hidden" asp-for="RangeMaxFlowM3h" />
-        <input type="hidden" asp-for="RangeMinPressurePa" />
-        <input type="hidden" asp-for="RangeMaxPressurePa" />
-        <input type="hidden" asp-for="RangeMinSpeedRpm" />
-        <input type="hidden" asp-for="RangeMaxSpeedRpm" />
-    }
-    @if (currentStep != 6)
-    {
         <input type="hidden" asp-for="SpeedRpm" />
         <input type="hidden" asp-for="MotorPoles" />
         <input type="hidden" asp-for="MotorType" />
+        <input type="hidden" asp-for="MotorPowerKw" />
         <input type="hidden" asp-for="VoltageSpec" />
         <input type="hidden" asp-for="InsulationClass" />
         <input type="hidden" asp-for="StartingMethod" />
@@ -317,6 +298,29 @@
         <input type="hidden" asp-for="VfdMaxRpm" />
         <input type="hidden" asp-for="VfdSpeedPct" />
     }
+    @if (currentStep != 5)
+    {
+        <input type="hidden" asp-for="BladeCount" />
+        <input type="hidden" asp-for="TipDiameterMm" />
+        <input type="hidden" asp-for="HubRatio" />
+        <input type="hidden" asp-for="HubDiameterMm" />
+        <input type="hidden" asp-for="BladeAngleDeg" />
+        <input type="hidden" asp-for="TargetEfficiencyPct" />
+        <input type="hidden" asp-for="BladeProfileId" />
+    }
+    @if (currentStep != 6)
+    {
+        <input type="hidden" asp-for="ReceiverDistanceM" />
+        <input type="hidden" asp-for="AcousticEnvironment" />
+        <input type="hidden" asp-for="DirectivityIndexDb" />
+        <input type="hidden" asp-for="RoomCorrectionDb" />
+        <input type="hidden" asp-for="InletAttenuationDb" />
+        <input type="hidden" asp-for="OutletAttenuationDb" />
+        <input type="hidden" asp-for="SilencerAttenuationDb" />
+        <input type="hidden" asp-for="CasingTransmissionLossDb" />
+        <input type="hidden" asp-for="BackgroundNoiseDbA" />
+        <input type="hidden" asp-for="SafetyMarginDb" />
+    }
     @if (currentStep != 7)
     {
         <input type="hidden" asp-for="AccInletGuard" />
@@ -329,16 +333,12 @@
     }
     @if (currentStep != 8)
     {
-        <input type="hidden" asp-for="ReceiverDistanceM" />
-        <input type="hidden" asp-for="AcousticEnvironment" />
-        <input type="hidden" asp-for="DirectivityIndexDb" />
-        <input type="hidden" asp-for="RoomCorrectionDb" />
-        <input type="hidden" asp-for="InletAttenuationDb" />
-        <input type="hidden" asp-for="OutletAttenuationDb" />
-        <input type="hidden" asp-for="SilencerAttenuationDb" />
-        <input type="hidden" asp-for="CasingTransmissionLossDb" />
-        <input type="hidden" asp-for="BackgroundNoiseDbA" />
-        <input type="hidden" asp-for="SafetyMarginDb" />
+        <input type="hidden" asp-for="RangeMinFlowM3h" />
+        <input type="hidden" asp-for="RangeMaxFlowM3h" />
+        <input type="hidden" asp-for="RangeMinPressurePa" />
+        <input type="hidden" asp-for="RangeMaxPressurePa" />
+        <input type="hidden" asp-for="RangeMinSpeedRpm" />
+        <input type="hidden" asp-for="RangeMaxSpeedRpm" />
     }
     @if (currentStep != 9)
     {
@@ -412,7 +412,7 @@
 
 @section Scripts {
     <script>
-        // ── Hub Diameter auto-calc (Step 4 only — guarded) ──────────────
+        // ── Hub Diameter auto-calc (Blade Geometry step only — guarded) ──────────────
         function calcHubDiameter() {
             const hubInput = document.getElementById('hubDiameterInput');
             if (!hubInput) return;
@@ -429,7 +429,7 @@
             }
         }
 
-        // ── Blade Profile preview (Step 4 only — guarded) ───────────────
+        // ── Blade Profile preview (Blade Geometry step only — guarded) ───────────────
         async function onBladeProfileChange(profileId) {
             const card = document.getElementById('profilePreviewCard');
             const body = document.getElementById('profilePreviewBody');
@@ -456,7 +456,7 @@
             }
         }
 
-        // ── Drive Type show/hide (Step 6 only — guarded) ────────────────
+        // ── Drive Type show/hide (Motor & Drive step only — guarded) ────────────────
         // "Direct Drive" and "Coupled" are 1:1 mechanical connections with
         // no extra fields to collect. "V-Belt Drive" needs pulley/belt
         // fields; "Direct VFD" needs the VFD min/max RPM band + speed %.
