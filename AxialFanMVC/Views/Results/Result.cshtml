@@ -61,6 +61,12 @@
                 <i class="bi bi-clock-history me-1"></i>History
             </a>
 
+            @* {{!-- Optimize for me --}} *@
+            <button type="button" class="btn btn-warning" id="optimizeForMeBtn"
+                    data-bs-toggle="modal" data-bs-target="#optimizeModal">
+                <i class="bi bi-magic me-1"></i>Optimize for me
+            </button>
+
             @* {{!-- Export Dropdown --}} *@
             <div class="dropdown">
                 <button class="btn btn-success dropdown-toggle"
@@ -122,17 +128,12 @@
     </div>
 </div>
 
-@{
-    var realWarnings = Model.Warnings.Where(w => !w.StartsWith("Info:")).ToList();
-    var infoNotes = Model.Warnings.Where(w => w.StartsWith("Info:")).ToList();
-}
-
-@if (realWarnings.Any())
+@if (Model.Warnings.Any())
 {
     <div class="alert alert-warning mb-4">
         <h6 class="alert-heading"><i class="bi bi-exclamation-triangle me-1"></i>Design Warnings</h6>
         <ul class="mb-0 ps-3">
-            @foreach (var w in realWarnings)
+            @foreach (var w in Model.Warnings)
             {
                 <li>@w</li>
             }
@@ -140,18 +141,6 @@
     </div>
 }
 
-@if (infoNotes.Any())
-{
-    <div class="alert alert-info mb-4">
-        <h6 class="alert-heading"><i class="bi bi-info-circle me-1"></i>Notes &amp; Disclosures</h6>
-        <ul class="mb-0 ps-3">
-            @foreach (var w in infoNotes)
-            {
-                <li>@w.Substring("Info:".Length).Trim()</li>
-            }
-        </ul>
-    </div>
-}
 <div class="card mb-4">
     <div class="card-header bg-light d-flex align-items-center">
         <i class="bi bi-robot me-2"></i>
@@ -715,6 +704,90 @@
             </div>
 
         </div>
+
+@* {{!-- Optimize for me — target-driven ML search, run against this
+       project's most recent design constraints. See OptimizationController. --}} *@
+        <div class="modal fade" id="optimizeModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-xl modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">
+                            <i class="bi bi-magic me-2 text-warning"></i>Optimize for me
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        @Html.AntiForgeryToken()
+
+                        @* Idle state — explains what's about to happen, before the user commits *@
+                        <div id="optimizeIdle">
+                            <p class="text-muted mb-3">
+                                This searches thousands of geometry combinations against your
+                                current duty point and constraints (min efficiency, max noise,
+                                max motor power, max tip diameter) and returns three candidate
+                                designs — <strong>Budget</strong>, <strong>Silent</strong>, and
+                                <strong>Premium</strong> — for you to compare against this result.
+                                Usually takes under a minute.
+                            </p>
+                            <button type="button" class="btn btn-warning" id="optimizeStartBtn">
+                                <i class="bi bi-play-fill me-1"></i>Start optimization
+                            </button>
+                        </div>
+
+                        @* Running state *@
+                        <div id="optimizeRunning" class="d-none text-center py-5">
+                            <div class="spinner-border text-warning mb-3" role="status"></div>
+                            <p class="mb-0 fw-semibold" id="optimizeStatusLabel">Queued…</p>
+                            <small class="text-muted">This page will update automatically — no need to refresh.</small>
+                        </div>
+
+                        @* Error state *@
+                        <div id="optimizeError" class="d-none alert alert-danger">
+                            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                            <span id="optimizeErrorMessage"></span>
+                        </div>
+
+                        @* Results state — filled in by JS from the candidates array *@
+                        <div id="optimizeResults" class="d-none">
+                            <div class="row g-3" id="optimizeCandidateRow"></div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <template id="optimizeCandidateTemplate">
+            <div class="col-md-4">
+                <div class="card h-100 border-2">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span class="fw-bold candidate-label"></span>
+                        <span class="badge bg-secondary candidate-badge"></span>
+                    </div>
+                    <div class="card-body">
+                        <table class="table table-sm mb-0">
+                            <tbody>
+                                <tr><td class="text-muted">Tip diameter</td><td class="text-end fw-semibold"><span class="candidate-tip"></span> mm</td></tr>
+                                <tr><td class="text-muted">Hub ratio</td><td class="text-end fw-semibold candidate-hub"></td></tr>
+                                <tr><td class="text-muted">Blade angle</td><td class="text-end fw-semibold"><span class="candidate-angle"></span>°</td></tr>
+                                <tr><td class="text-muted">Blade count</td><td class="text-end fw-semibold candidate-count"></td></tr>
+                                <tr><td class="text-muted">Speed</td><td class="text-end fw-semibold"><span class="candidate-rpm"></span> RPM</td></tr>
+                                <tr><td class="text-muted">Blade profile</td><td class="text-end fw-semibold candidate-profile"></td></tr>
+                                <tr class="table-active"><td class="text-muted">Efficiency</td><td class="text-end fw-semibold"><span class="candidate-eff"></span>%</td></tr>
+                                <tr><td class="text-muted">Noise</td><td class="text-end fw-semibold"><span class="candidate-noise"></span> dBA</td></tr>
+                                <tr><td class="text-muted">Cost</td><td class="text-end fw-semibold">₹<span class="candidate-cost"></span></td></tr>
+                                <tr><td class="text-muted">Safety factor</td><td class="text-end fw-semibold candidate-safety"></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="card-footer bg-transparent">
+                        <button type="button" class="btn btn-outline-primary btn-sm w-100 candidate-copy-btn">
+                            <i class="bi bi-clipboard me-1"></i>Copy geometry values
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </template>
 
 @section Scripts {
             <script>
@@ -1399,7 +1472,8 @@
                 render(); // also sets #btnPinCurve to disabled since only the design curve exists yet
 
                 // ── Download PDF Summary — captures charts exactly as shown ────
-                document.getElementById('btnDownloadPdf').addEventListener('click', async (e) => {
+                const btnDownloadPdf = document.getElementById('btnDownloadPdf');
+                if (btnDownloadPdf) btnDownloadPdf.addEventListener('click', async (e) => {
                     e.preventDefault();
                     const link = e.currentTarget;
                     const originalHtml = link.innerHTML;
@@ -1462,5 +1536,149 @@
                         link.innerHTML = originalHtml;
                     }
                 });
+
+                // ── Optimize for me — event delegation, so it works no matter
+                // when/how the modal HTML lands in the DOM. Nothing is looked
+                // up until the moment it's actually needed.
+                (function () {
+                    const projectId = @Model.ProjectId;
+                    const badgeByLabel = { Budget: 'bg-info', Silent: 'bg-primary', Premium: 'bg-dark' };
+                    let pollTimer = null;
+
+                    function q(id) { return document.getElementById(id); }
+
+                    function showOnly(idToShow) {
+                        ['optimizeIdle', 'optimizeRunning', 'optimizeError', 'optimizeResults'].forEach(id => {
+                            const el = q(id);
+                            if (el) el.classList.toggle('d-none', id !== idToShow);
+                        });
+                    }
+
+                    function setStatusLabel(text) {
+                        const el = q('optimizeStatusLabel');
+                        if (el) el.textContent = text;
+                    }
+
+                    function setError(message) {
+                        const el = q('optimizeErrorMessage');
+                        if (el) el.textContent = message;
+                        showOnly('optimizeError');
+                    }
+
+                    async function startOptimization() {
+                        showOnly('optimizeRunning');
+                        setStatusLabel('Queued…');
+                        try {
+                            const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value;
+                            const res = await fetch(`/Optimization/Start?projectId=${projectId}`, {
+                                method: 'POST',
+                                headers: { 'RequestVerificationToken': token || '' }
+                            });
+                            if (!res.ok) {
+                                const text = await res.text();
+                                throw new Error(text || `Request failed (${res.status})`);
+                            }
+                            const data = await res.json();
+                            pollStatus(data.jobId);
+                        } catch (err) {
+                            setError(err.message);
+                        }
+                    }
+
+                    async function pollStatus(jobId) {
+                        try {
+                            const res = await fetch(`/Optimization/Status?jobId=${jobId}`);
+                            if (!res.ok) throw new Error(`Status check failed (${res.status})`);
+                            const data = await res.json();
+
+                            if (data.status === 'Queued' || data.status === 'Running') {
+                                setStatusLabel(data.status === 'Queued' ? 'Queued…' : 'Running — evaluating candidates…');
+                                pollTimer = setTimeout(() => pollStatus(jobId), 3000);
+                            } else if (data.status === 'Completed') {
+                                renderCandidates(data.candidates || []);
+                                showOnly('optimizeResults');
+                            } else {
+                                setError(data.errorMessage || 'Optimization failed for an unknown reason.');
+                            }
+                        } catch (err) {
+                            setError(err.message);
+                        }
+                    }
+
+                    function renderCandidates(candidates) {
+                        const candidateRow = q('optimizeCandidateRow');
+                        const template = q('optimizeCandidateTemplate');
+                        if (!candidateRow || !template) {
+                            console.error('Optimize for me: results container or template missing from DOM.');
+                            return;
+                        }
+                        candidateRow.innerHTML = '';
+
+                        // NOTE: OptimizeCandidateDto carries explicit [JsonPropertyName]
+                        // snake_case attributes (to match optimizer_service.py's contract),
+                        // and those override the app's default camelCase policy in BOTH
+                        // directions — so this JSON comes back snake_case, not camelCase.
+                        candidates.forEach(c => {
+                            const node = template.content.cloneNode(true);
+                            node.querySelector('.candidate-label').textContent = c.label;
+                            const badge = node.querySelector('.candidate-badge');
+                            badge.textContent = c.label;
+                            badge.className = `badge ${badgeByLabel[c.label] || 'bg-secondary'} candidate-badge`;
+
+                            node.querySelector('.candidate-tip').textContent = c.tip_diameter_mm.toFixed(0);
+                            node.querySelector('.candidate-hub').textContent = c.hub_ratio.toFixed(2);
+                            node.querySelector('.candidate-angle').textContent = c.blade_angle_deg.toFixed(1);
+                            node.querySelector('.candidate-count').textContent = c.blade_count;
+                            node.querySelector('.candidate-rpm').textContent = c.speed_rpm.toFixed(0);
+                            node.querySelector('.candidate-profile').textContent = c.blade_profile;
+                            node.querySelector('.candidate-eff').textContent = c.predicted_efficiency_pct.toFixed(1);
+                            node.querySelector('.candidate-noise').textContent = c.predicted_noise_dba.toFixed(1);
+                            node.querySelector('.candidate-cost').textContent = c.predicted_cost_total.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+                            node.querySelector('.candidate-safety').textContent = c.predicted_safety_factor.toFixed(2);
+
+                            node.querySelector('.candidate-copy-btn').dataset.copyText = [
+                                `Tip diameter: ${c.tip_diameter_mm.toFixed(0)} mm`,
+                                `Hub ratio: ${c.hub_ratio.toFixed(2)}`,
+                                `Blade angle: ${c.blade_angle_deg.toFixed(1)}°`,
+                                `Blade count: ${c.blade_count}`,
+                                `Speed: ${c.speed_rpm.toFixed(0)} RPM`,
+                                `Blade profile: ${c.blade_profile}`
+                            ].join('\n');
+
+                            candidateRow.appendChild(node);
+                        });
+                    }
+
+                    // Single delegated listener on document — handles clicks on
+                    // #optimizeStartBtn and any .candidate-copy-btn, no matter
+                    // when they were added to the page. This is what actually
+                    // fixes "Start optimization not clickable": nothing is
+                    // looked up (and nothing can be null) until the click itself.
+                    document.addEventListener('click', function (e) {
+                        if (e.target.closest('#optimizeStartBtn')) {
+                            startOptimization();
+                        }
+                        const copyBtn = e.target.closest('.candidate-copy-btn');
+                        if (copyBtn) {
+                            navigator.clipboard.writeText(copyBtn.dataset.copyText || '');
+                            const original = copyBtn.innerHTML;
+                            copyBtn.innerHTML = '<i class="bi bi-check2 me-1"></i>Copied';
+                            setTimeout(() => copyBtn.innerHTML = original, 1500);
+                        }
+                    });
+
+                    const modalEl = q('optimizeModal');
+                    if (modalEl) {
+                        modalEl.addEventListener('show.bs.modal', () => {
+                            if (pollTimer) clearTimeout(pollTimer);
+                            showOnly('optimizeIdle');
+                        });
+                        modalEl.addEventListener('hidden.bs.modal', () => {
+                            if (pollTimer) clearTimeout(pollTimer);
+                        });
+                    } else {
+                        console.error('Optimize for me: #optimizeModal not found in DOM — the modal HTML block is missing from this page.');
+                    }
+                })();
             </script>
 }

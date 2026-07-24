@@ -161,13 +161,13 @@ def optimize(req: OptimizeRequest):
 
     problem = FanDesignProblem(req)
     algorithm = NSGA2(
-        pop_size=100,
+        pop_size=300,
         sampling=FloatRandomSampling(),
         crossover=SBX(prob=0.9, eta=15),
         mutation=PM(eta=20),
         eliminate_duplicates=True,
     )
-    result = minimize(problem, algorithm, ("n_gen", 80), seed=1, verbose=False)
+    result = minimize(problem, algorithm, ("n_gen", 150), seed=1, verbose=False)
 
     if result.X is None or len(result.X) == 0:
         raise HTTPException(
@@ -178,6 +178,7 @@ def optimize(req: OptimizeRequest):
         )
 
     pareto_X = result.X
+    print(f"[optimize] Pareto front size: {len(pareto_X)}")  # TEMP — remove once diagnosed
     pareto_pred = predict(build_feature_rows(pareto_X, req))
 
     def to_candidate(idx: int, label: str) -> Candidate:
