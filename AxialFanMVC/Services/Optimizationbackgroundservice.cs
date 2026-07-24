@@ -146,14 +146,23 @@ namespace AxialFanMVC.Services
                 }
                 else
                 {
-                    var candidates = JsonSerializer.Deserialize<List<OptimizeCandidateDto>>(body)
+                    var allCandidates = JsonSerializer.Deserialize<List<OptimizeCandidateDto>>(body)
                                       ?? new List<OptimizeCandidateDto>();
 
-                    // Verify all 3 candidates up front against the real
-                    // deterministic engine chain before they ever reach a
-                    // client — confirmed behavior, not just the surrogate's
-                    // predictions being trusted as final.
-                    await CandidateVerificationService.VerifyAllAsync(db, job.ProjectId, candidates);
+                    // The optimizer now returns several ranked fallback options
+                    // per category (Budget/Silent/Premium), not just one each —
+                    // surrogate accuracy is uneven across the design space, so
+                    // a rank-1 pick that looks great on paper can turn out
+                    // non-functional once replayed through the real engines
+                    // below. Verify all of them up front, then per category
+                    // keep the first one (by rank) that actually passes.
+                    await CandidateVerificationService.VerifyAllAsync(db, job.ProjectId, allCandidates);
+
+                    var candidates = allCandidates
+                        .GroupBy(c => c.Label)
+                        .Select(g => g.OrderBy(c => c.Rank).FirstOrDefault(c => c.Verified)
+                                      ?? g.OrderBy(c => c.Rank).First()) // none verified — surface the top-ranked failure so the UI can still explain why
+                        .ToList();
 
                     job.ResultJson = JsonSerializer.Serialize(candidates);
                     job.Status = "Completed";

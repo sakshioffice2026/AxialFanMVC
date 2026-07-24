@@ -35,6 +35,12 @@ namespace AxialFanMVC.Models
         [System.Text.Json.Serialization.JsonPropertyName("label")]
         public string Label { get; set; } = "";
 
+        // 1 = optimizer's top pick for this category, 2 = next-best fallback,
+        // etc. — used to walk down to the next candidate in the same
+        // category when a higher-ranked one fails real-engine verification.
+        [System.Text.Json.Serialization.JsonPropertyName("rank")]
+        public int Rank { get; set; } = 1;
+
         [System.Text.Json.Serialization.JsonPropertyName("tip_diameter_mm")]
         public double TipDiameterMm { get; set; }
 

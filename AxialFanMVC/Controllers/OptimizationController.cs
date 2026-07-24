@@ -23,36 +23,48 @@ namespace AxialFanMVC.Controllers
             _jobSignal = jobSignal;
         }
 
-        // POST /Optimization/Start/{projectId}
-        // Pulls the duty point + constraint fields straight off the
-        // project's most recent DesignInput — MinEfficiencyPct/MaxNoiseDbA/
-        // MaxMotorPowerKw/MaxTipDiameterMm are already schema fields the
-        // wizard collects, so "Optimize for me" needs no new input form,
-        // just a button on an existing design.
+        // POST /Optimization/Start?projectId=5
+        // Two callers, two data sources:
+        //  - Results page (finished design): no body sent -> falls back to
+        //    reading the project's most recent saved DesignInput.
+        //  - Design wizard (Review & Confirm, step 8): nothing is saved to
+        //    DesignInput yet at this point — the whole wizard lives in
+        //    TempData until the final "Calculate & Save" step — so the
+        //    wizard sends its current in-memory field values as the body
+        //    instead of us reading a stale/nonexistent DB row.
         [HttpPost, ValidateAntiForgeryToken]
-        public async Task<IActionResult> Start(int projectId)
+        public async Task<IActionResult> Start(int projectId, [FromBody] OptimizeRequestDto? liveInput = null)
         {
-            var input = await _db.design_inputs
-                .Where(d => d.ProjectId == projectId && d.Project.UserId == CurrentUserId)
-                .OrderByDescending(d => d.CreatedAt)
-                .FirstOrDefaultAsync();
+            OptimizeRequestDto request;
 
-            if (input is null)
-                return NotFound("No design found for this project to optimize from.");
-
-            if (input.FlowRateM3s <= 0 || input.TotalPressurePa <= 0)
-                return BadRequest("The design needs a valid flow rate and pressure duty point before optimizing.");
-
-            var request = new OptimizeRequestDto
+            if (liveInput != null && liveInput.FlowRateM3s > 0 && liveInput.TotalPressurePa > 0)
             {
-                FlowRateM3s = input.FlowRateM3s,
-                TotalPressurePa = input.TotalPressurePa,
-                TemperatureCelsius = input.TemperatureCelsius,
-                MinEfficiencyPct = input.MinEfficiencyPct,
-                MaxNoiseDbA = input.MaxNoiseDbA,
-                MaxMotorPowerKw = input.MaxMotorPowerKw,
-                MaxTipDiameterMm = input.MaxTipDiameterMm
-            };
+                request = liveInput;
+            }
+            else
+            {
+                var input = await _db.design_inputs
+                    .Where(d => d.ProjectId == projectId && d.Project.UserId == CurrentUserId)
+                    .OrderByDescending(d => d.CreatedAt)
+                    .FirstOrDefaultAsync();
+
+                if (input is null)
+                    return NotFound("No design found for this project to optimize from.");
+
+                if (input.FlowRateM3s <= 0 || input.TotalPressurePa <= 0)
+                    return BadRequest("The design needs a valid flow rate and pressure duty point before optimizing.");
+
+                request = new OptimizeRequestDto
+                {
+                    FlowRateM3s = input.FlowRateM3s,
+                    TotalPressurePa = input.TotalPressurePa,
+                    TemperatureCelsius = input.TemperatureCelsius,
+                    MinEfficiencyPct = input.MinEfficiencyPct,
+                    MaxNoiseDbA = input.MaxNoiseDbA,
+                    MaxMotorPowerKw = input.MaxMotorPowerKw,
+                    MaxTipDiameterMm = input.MaxTipDiameterMm
+                };
+            }
 
             var job = new OptimizationJob
             {

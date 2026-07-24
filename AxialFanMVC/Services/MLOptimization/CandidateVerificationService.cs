@@ -101,7 +101,23 @@ namespace AxialFanMVC.Services.MLOptimization
                     candidate.Verified = true;
 
                     double efficiencyDelta = Math.Abs(candidate.VerifiedEfficiencyPct - candidate.PredictedEfficiencyPct);
-                    if (efficiencyDelta > EfficiencyDivergenceTolerancePct)
+
+                    // A verified efficiency at/near 0% means the design doesn't
+                    // actually deliver the duty point at all (aerodynamic
+                    // runout — see AeroCalcEngine's "warning" status, which
+                    // does NOT set aero.Status to "error" even though the fan
+                    // is non-functional). This is a hard failure, not a
+                    // surrogate-accuracy footnote, so it must fail Verified
+                    // outright rather than just flagging a divergence.
+                    if (candidate.VerifiedEfficiencyPct <= 1.0)
+                    {
+                        candidate.Verified = false;
+                        candidate.VerificationWarnings.Add(
+                            $"Verified efficiency is {candidate.VerifiedEfficiencyPct:F1}% — this design does not " +
+                            "actually deliver the requested duty point (aerodynamic runout) and is not a feasible candidate, " +
+                            $"regardless of the surrogate's {candidate.PredictedEfficiencyPct:F1}% prediction.");
+                    }
+                    else if (efficiencyDelta > EfficiencyDivergenceTolerancePct)
                     {
                         candidate.VerificationWarnings.Add(
                             $"Predicted efficiency ({candidate.PredictedEfficiencyPct:F1}%) diverged from the verified " +
@@ -111,9 +127,14 @@ namespace AxialFanMVC.Services.MLOptimization
 
                     if (candidate.VerifiedSafetyFactor < MinAcceptableSafetyFactor)
                     {
+                        // Previously this only added a warning message saying the
+                        // candidate "should not be presented as feasible" without
+                        // actually enforcing that — Verified stayed true. Fixed to
+                        // match what the message already claimed.
+                        candidate.Verified = false;
                         candidate.VerificationWarnings.Add(
                             $"Verified safety factor ({candidate.VerifiedSafetyFactor:F2}) is below the required " +
-                            $"minimum ({MinAcceptableSafetyFactor:F2}) — this candidate should not be presented as feasible " +
+                            $"minimum ({MinAcceptableSafetyFactor:F2}) — this candidate is not feasible " +
                             "even though the surrogate predicted it would pass.");
                     }
 

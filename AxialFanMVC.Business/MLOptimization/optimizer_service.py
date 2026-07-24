@@ -66,6 +66,7 @@ class OptimizeRequest(BaseModel):
 
 class Candidate(BaseModel):
     label: str
+    rank: int  # 1 = surrogate's top pick for this category, 2 = next-best fallback, etc.
     tip_diameter_mm: float
     hub_ratio: float
     blade_angle_deg: float
@@ -181,13 +182,14 @@ def optimize(req: OptimizeRequest):
     print(f"[optimize] Pareto front size: {len(pareto_X)}")  # TEMP — remove once diagnosed
     pareto_pred = predict(build_feature_rows(pareto_X, req))
 
-    def to_candidate(idx: int, label: str) -> Candidate:
+    def to_candidate(idx: int, label: str, rank: int) -> Candidate:
         row = pareto_X[idx]
         p = pareto_pred[idx]
         blade_count = BLADE_COUNT_OPTIONS[int(np.clip(row[4], 0, len(BLADE_COUNT_OPTIONS) - 1))]
         profile = BLADE_PROFILES[int(np.clip(row[5], 0, len(BLADE_PROFILES) - 1))]
         return Candidate(
             label=label,
+            rank=rank,
             tip_diameter_mm=round(float(row[0]), 1),
             hub_ratio=round(float(row[1]), 3),
             blade_angle_deg=round(float(row[2]), 2),
@@ -200,12 +202,26 @@ def optimize(req: OptimizeRequest):
             predicted_safety_factor=round(float(p[3]), 2),
         )
 
-    idx_budget = int(np.argmin(pareto_pred[:, 2]))       # min cost
-    idx_silent = int(np.argmin(pareto_pred[:, 1]))       # min noise
-    idx_premium = int(np.argmax(pareto_pred[:, 0]))      # max efficiency
+    # Surrogate accuracy is uneven across the design space — a candidate
+    # that looks great on paper (predicted) can turn out non-functional
+    # (verified) when replayed through the real deterministic engines in
+    # C# (CandidateVerificationService). Rather than return one shot per
+    # category and give up if it fails verification, return each
+    # category's top FALLBACK_COUNT Pareto points in rank order, so the
+    # caller can walk down the list and use the first one that actually
+    # verifies.
+    FALLBACK_COUNT = 5
+    n = len(pareto_X)
 
-    return [
-        to_candidate(idx_budget, "Budget Variant"),
-        to_candidate(idx_silent, "Silent Variant"),
-        to_candidate(idx_premium, "Premium Variant"),
-    ]
+    def ranked(label: str, sort_key: np.ndarray, ascending: bool) -> list[Candidate]:
+        order = np.argsort(sort_key) if ascending else np.argsort(-sort_key)
+        top = order[:min(FALLBACK_COUNT, n)]
+        return [to_candidate(int(idx), label, rank + 1) for rank, idx in enumerate(top)]
+
+    results = (
+        ranked("Budget Variant", pareto_pred[:, 2], ascending=True)      # lowest cost first
+        + ranked("Silent Variant", pareto_pred[:, 1], ascending=True)    # lowest noise first
+        + ranked("Premium Variant", pareto_pred[:, 0], ascending=False)  # highest efficiency first
+    )
+
+    return results
