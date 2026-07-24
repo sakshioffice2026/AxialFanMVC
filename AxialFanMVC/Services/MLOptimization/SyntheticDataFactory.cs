@@ -152,7 +152,7 @@ namespace AxialFanMVC.Services.MLOptimization
                     var bom = BomCostingEngine.Calculate(d, structResult, rates);
                     costTotal = bom.GrandTotal;
 
-                    feasible = status == "ok"
+                    feasible = !status.StartsWith("error")
                                && safetyFactor >= 1.0
                                && efficiency is > 0 and <= 100
                                && !double.IsNaN(efficiency) && !double.IsNaN(noiseDba) && !double.IsNaN(costTotal);
