@@ -22,6 +22,7 @@ geometry
     fan.stl
     {
         type    triSurfaceMesh;
+        file    "fan.stl";
         name    fan;
     }
 }

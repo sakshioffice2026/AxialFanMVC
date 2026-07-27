@@ -49,7 +49,7 @@ namespace AxialFanMVC.Business.Cfd
 
                 string wslCasePath = ConvertWindowsPathToWsl(casePath);
                 await RunWslCommandAsync("blockMesh", wslCasePath, ct).ConfigureAwait(false);
-                await RunWslCommandAsync("surfaceFeatureExtract", wslCasePath, ct).ConfigureAwait(false);
+                await RunWslCommandAsync("surfaceFeatures", wslCasePath, ct).ConfigureAwait(false);
                 await RunWslCommandAsync("snappyHexMesh -overwrite", wslCasePath, ct).ConfigureAwait(false);
 
                 // Carves the rotorZone cellZone (system/topoSetDict) that
@@ -166,7 +166,7 @@ namespace AxialFanMVC.Business.Cfd
             ReplaceTokensInFile(Path.Combine(casePath, "system", "blockMeshDict"), tokens);
             ReplaceTokensInFile(Path.Combine(casePath, "system", "snappyHexMeshDict"), tokens);
             ReplaceTokensInFile(Path.Combine(casePath, "system", "topoSetDict"), tokens);
-            ReplaceTokensInFile(Path.Combine(casePath, "constant", "fvOptions"), tokens);
+            ReplaceTokensInFile(Path.Combine(casePath, "constant", "MRFProperties"), tokens);
             ReplaceTokensInFile(Path.Combine(casePath, "0", "U"), tokens);
             ReplaceTokensInFile(Path.Combine(casePath, "0", "k"), tokens);
             ReplaceTokensInFile(Path.Combine(casePath, "0", "omega"), tokens);

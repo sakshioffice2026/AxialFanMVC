@@ -97,7 +97,15 @@ namespace AxialFanMVC.Services
                 if (axialVelocityMs <= 0)
                     throw new InvalidOperationException("Could not derive a valid inlet velocity from this design's geometry.");
 
-                string casePath = await orchestrator.RunPipelineAsync(rpm, axialVelocityMs, tipRadiusM, stoppingToken);
+                string casePath = await orchestrator.RunPipelineAsync(
+                         rpm,
+                         axialVelocityMs,
+                         tipRadiusM,
+                         di.BladeCount,
+                         di.HubRatio,
+                         di.BladeAngleDeg,
+                         null,
+                         stoppingToken);
 
                 string outputDir = Path.Combine(_env.WebRootPath, "cfd-results", job.ResultId.ToString());
                 var (pngPath, vtpPath) = CfdVtkRenderer.RenderOffscreen(casePath, outputDir);
