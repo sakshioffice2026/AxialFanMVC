@@ -114,7 +114,13 @@ namespace AxialFanMVC.Services
                 job.VtpPath = Path.Combine("cfd-results", job.ResultId.ToString(), Path.GetFileName(vtpPath)).Replace('\\', '/');
                 job.Status = "Completed";
 
-                Directory.Delete(casePath, recursive: true); // sandbox cleanup — outputs already copied to wwwroot
+                // TEMPORARILY DISABLED for debugging the blank-render issue —
+                // this deletes the actual OpenFOAM case (mesh + solved time
+                // directories) the instant a render succeeds, so there was
+                // nothing left afterward to check whether "p" was ever
+                // solved/written. Re-enable once renders are confirmed good:
+                //     Directory.Delete(casePath, recursive: true);
+                _logger.LogInformation("CFD case for job {JobId} kept at {CasePath} for inspection.", jobId, casePath);
             }
             catch (Exception ex)
             {

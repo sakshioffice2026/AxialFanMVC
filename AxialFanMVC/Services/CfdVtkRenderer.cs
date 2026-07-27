@@ -31,6 +31,22 @@ namespace AxialFanMVC.Services
             process.BeginErrorReadLine();
             process.WaitForExit();
 
+            // Previously this stderr log was only kept when ExitCode != 0.
+            // CfdRenderHost's own DIAG/WARNING lines (e.g. "'p' field not
+            // found on the cut slice") print to stderr but the process still
+            // exits 0 (a blank render isn't a crash) — so on the success
+            // path those diagnostics were captured into this StringBuilder
+            // and then silently thrown away, with nothing else in the app
+            // ever surfacing them. Persist them next to the PNG/VTP output
+            // unconditionally so a "succeeded but blank" run is still
+            // debuggable after the fact.
+            try
+            {
+                Directory.CreateDirectory(outputDir);
+                File.WriteAllText(Path.Combine(outputDir, "render.log"), stderr.ToString());
+            }
+            catch { /* diagnostics best-effort — never let logging failure mask the real result */ }
+
             if (process.ExitCode != 0)
             {
                 throw new CfdRenderException(
