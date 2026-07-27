@@ -1,0 +1,42 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      topoSetDict;
+}
+
+// Run after snappyHexMesh, before simpleFoam. Creates the __MRF_ZONE_NAME__
+// cellZone that constant/fvOptions' MRFSource references — snappyHexMesh
+// only shapes the mesh around the blade STL, it doesn't know which cells
+// should rotate. This carves a cylinder centred on the blade disk:
+//   axis        Z (0 0 1), matching blockMeshDict / fvOptions.
+//   radius      tip radius + 10% clearance, so the whole swept blade
+//               envelope (plus a small margin for tip-gap cells) is inside
+//               the rotating frame.
+//   axial span  __ROTOR_ZONE_Z_MIN__ to __ROTOR_ZONE_Z_MAX__, one tip-radius
+//               thick total, centred on domainLength/3 (see
+//               LocalCfdOrchestrator for the derivation). Verify this
+//               window still contains the whole blade once the actual STL
+//               is in place — MRF cells that stop short of the blade
+//               surface will produce a discontinuous, unphysical solution.
+
+actions
+(
+    {
+        name    rotorCells;
+        type    cellSet;
+        action  new;
+        source  cylinderToCell;
+        p1      (0 0 __ROTOR_ZONE_Z_MIN__);
+        p2      (0 0 __ROTOR_ZONE_Z_MAX__);
+        radius  __ROTOR_ZONE_RADIUS__;
+    }
+    {
+        name    __MRF_ZONE_NAME__;
+        type    cellZoneSet;
+        action  new;
+        source  setToCellZone;
+        set     rotorCells;
+    }
+);

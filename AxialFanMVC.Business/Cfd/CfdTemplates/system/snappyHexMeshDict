@@ -1,0 +1,146 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      snappyHexMeshDict;
+}
+
+// Refines the __MESH_DIVISIONS__ blockMesh background box (system/blockMeshDict)
+// down onto constant/triSurface/fan.stl. Feature edges come from
+// constant/triSurface/fan.eMesh (system/surfaceFeatureExtractDict must be
+// run first). rotorZone (the MRF cell zone used by constant/fvOptions) is
+// NOT created here — snappyHexMesh only shapes the mesh around the blade;
+// the rotating cellZone is carved out afterwards by system/topoSetDict.
+
+castellatedMesh    true;
+snap               true;
+addLayers          true;
+
+geometry
+{
+    fan.stl
+    {
+        type    triSurfaceMesh;
+        name    fan;
+    }
+}
+
+castellatedMeshControls
+{
+    maxLocalCells           2000000;
+    maxGlobalCells          6000000;
+    minRefinementCells      10;
+    maxLoadUnbalance        0.10;
+    nCellsBetweenLevels     3;
+
+    features
+    (
+        {
+            file    "fan.eMesh";
+            level   3;
+        }
+    );
+
+    refinementSurfaces
+    {
+        fan
+        {
+            // Uniform surface refinement level (min max).
+            level   (2 3);
+            patchInfo
+            {
+                type    wall;
+            }
+        }
+    }
+
+    resolveFeatureAngle    30;
+
+    // Distance-based refinement off the blade surface: level 3 within 5mm
+    // of the blade, level 2 out to 20mm — so boundary-layer-adjacent cells
+    // are fine without refining the whole background box.
+    refinementRegions
+    {
+        fan
+        {
+            mode    distance;
+            levels  ((0.005 3) (0.02 2));
+        }
+    }
+
+    // Must be a point that is unambiguously in the fluid, not inside the
+    // blade/hub solid. Placed off-axis (in case a motor pod/hub extends
+    // upstream along the centreline) and near the inlet, well upstream of
+    // the rotor disk at domainLength/3 — see LocalCfdOrchestrator for
+    // the derivation. VERIFY this against the actual STL once it's in
+    // place: if the hub/motor housing extends further upstream than
+    // assumed, this point will fall inside solid and castellation will
+    // fail or select the wrong region.
+    locationInMesh          (__LOCATION_IN_MESH__);
+
+    allowFreeStandingZoneFaces true;
+}
+
+snapControls
+{
+    nSmoothPatch        3;
+    tolerance           2.0;
+    nSolveIter          30;
+    nRelaxIter          5;
+
+    nFeatureSnapIter    10;
+    implicitFeatureSnap    false;
+    explicitFeatureSnap    true;
+    multiRegionFeatureSnap false;
+}
+
+addLayersControls
+{
+    relativeSizes   true;
+
+    layers
+    {
+        "fan.*"
+        {
+            nSurfaceLayers  3;
+        }
+    }
+
+    expansionRatio          1.2;
+    finalLayerThickness     0.3;
+    minThickness            0.1;
+
+    nGrow                   0;
+    featureAngle            60;
+    nRelaxIter              5;
+    nSmoothSurfaceNormals   1;
+    nSmoothNormals          3;
+    nSmoothThickness        10;
+    maxFaceThicknessRatio   0.5;
+    maxThicknessToMedialRatio 0.3;
+    minMedialAxisAngle      90;
+    nBufferCellsNoExtrude   0;
+    nLayerIter              50;
+}
+
+meshQualityControls
+{
+    maxNonOrtho             65;
+    maxBoundarySkewness     20;
+    maxInternalSkewness     4;
+    maxConcave              80;
+    minVol                  1e-13;
+    minTetQuality           1e-9;
+    minArea                 -1;
+    minTwist                0.02;
+    minDeterminant          0.001;
+    minFaceWeight           0.02;
+    minVolRatio             0.01;
+    minTriangleTwist        -1;
+
+    nSmoothScale            4;
+    errorReduction          0.75;
+}
+
+mergeTolerance    1e-6;

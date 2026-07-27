@@ -1,0 +1,28 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      surfaceFeatureExtractDict;
+}
+
+// Run before snappyHexMesh. Produces constant/triSurface/fan.eMesh, which
+// castellatedMeshControls.features (snappyHexMeshDict) uses to snap the
+// mesh hard onto blade leading/trailing edges instead of smoothing them
+// away — without this, thin trailing edges get eroded by castellation.
+
+fan.stl
+{
+    extractionMethod    extractFromSurface;
+
+    extractFromSurfaceCoeffs
+    {
+        // Edges where surface normals either side differ by more than
+        // this angle are kept as features (blade LE/TE, tip, hub fillet).
+        includedAngle   150;
+    }
+
+    // Foundation OpenFOAM (13) writeObj default is fine to leave off;
+    // uncomment if you want a .obj to eyeball the extracted edges.
+    // writeObj        yes;
+}

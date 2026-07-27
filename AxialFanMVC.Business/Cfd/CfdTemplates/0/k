@@ -1,0 +1,38 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    object      k;
+}
+
+dimensions      [0 2 -2 0 0 0 0];
+
+// __TI_K_INLET__ computed in C# from k = 1.5*(I*U)^2 with I = 5%
+// turbulence intensity and U = __VELOCITY_INLET__ (see 0/U) — a standard
+// assumption for duct/fan inlet flow absent a measured intensity.
+internalField   uniform __TI_K_INLET__;
+
+boundaryField
+{
+    inlet
+    {
+        type            fixedValue;
+        value           uniform __TI_K_INLET__;
+    }
+    outlet
+    {
+        type            inletOutlet;
+        inletValue      uniform __TI_K_INLET__;
+        value           uniform __TI_K_INLET__;
+    }
+    sides
+    {
+        type            slip;
+    }
+    "fan.*"
+    {
+        type            kqRWallFunction;
+        value           uniform __TI_K_INLET__;
+    }
+}

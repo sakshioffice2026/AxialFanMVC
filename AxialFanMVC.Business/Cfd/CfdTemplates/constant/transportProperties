@@ -1,0 +1,18 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      transportProperties;
+}
+
+// Standard air at ~20C / 1 atm. RunPipelineAsync currently only takes
+// rpm/velocity/tip-radius, not DesignInput's TemperatureCelsius or
+// DensityKgM3, so this doesn't yet track per-design media conditions.
+// If runs start covering hot-gas or non-standard-air designs, wire
+// TemperatureCelsius/DensityKgM3 through and derive nu (e.g. Sutherland)
+// instead of hardcoding it here.
+
+transportModel  Newtonian;
+
+nu              [0 2 -1 0 0 0 0]    1.5e-05;
