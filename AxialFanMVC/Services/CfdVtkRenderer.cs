@@ -1,132 +1,58 @@
-using Kitware.VTK;
+using System.Diagnostics;
+using System.Text;
 
 namespace AxialFanMVC.Services
 {
-    // IMPORTANT PLATFORM CAVEAT: ActiViz.NET ships native Windows VTK
-    // binaries built for .NET Framework/WinForms interop. It does NOT run
-    // on Linux, and won't load in a Linux-hosted ASP.NET Core process
-    // (typical for MVC apps in containers/Kestrel-on-Linux). This class
-    // only works if this web app is hosted on Windows (IIS or Kestrel on
-    // Windows Server) with the ActiViz.NET native DLLs deployed alongside it.
-    // If you deploy on Linux, replace this class with a call to a small
-    // Python/PyVista sidecar service instead — the same shape as the
-    // existing OptimizationBackgroundService -> FastAPI optimizer call in
-    // this codebase (see OptimizerService:BaseUrl in appsettings.json).
     public static class CfdVtkRenderer
     {
+        public static string ExePath { get; set; } = @"D:\Tools\CfdRenderHost\CfdRenderHost.exe";
+
         public static (string PngPath, string VtpPath) RenderOffscreen(string casePath, string outputDir)
         {
-            Directory.CreateDirectory(outputDir);
-
-            string dummyFoamFile = Path.Combine(casePath, "case.foam");
-            if (!File.Exists(dummyFoamFile)) File.WriteAllText(dummyFoamFile, "");
-
-            var reader = vtkOpenFOAMReader.New();
-            reader.SetFileName(dummyFoamFile);
-            reader.CreateCellToPointOn();
-            reader.Update(); // also refreshes time-step info; no separate call needed on this API
-
-            var timeValues = reader.GetTimeValues();
-            int lastIdx = (int)timeValues.GetNumberOfTuples() - 1;
-            if (lastIdx >= 0)
+            var psi = new ProcessStartInfo
             {
-                reader.SetTimeValue(timeValues.GetTuple1(lastIdx));
-                reader.Update();
+                FileName = ExePath,
+                Arguments = $"\"{casePath}\" \"{outputDir}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+
+            using var process = new Process { StartInfo = psi };
+
+            var stdout = new StringBuilder();
+            var stderr = new StringBuilder();
+            process.OutputDataReceived += (s, e) => { if (e.Data != null) stdout.AppendLine(e.Data); };
+            process.ErrorDataReceived += (s, e) => { if (e.Data != null) stderr.AppendLine(e.Data); };
+
+            process.Start();
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+            process.WaitForExit();
+
+            if (process.ExitCode != 0)
+            {
+                throw new CfdRenderException(
+                    $"CfdRenderHost.exe failed (exit {process.ExitCode}).", stderr.ToString());
             }
 
-            // vtkOpenFOAMReader outputs a vtkMultiBlockDataSet (one block per
-            // OpenFOAM region/patch). vtkMergeBlocks isn't available on this
-            // ActiViz build, so flatten manually with vtkAppendFilter, which
-            // preserves volumetric point/cell data (needed for the pressure
-            // field below) rather than just extracting outer surfaces.
-            var multiBlock = reader.GetOutput() as vtkMultiBlockDataSet;
-            var append = vtkAppendFilter.New();
-            append.MergePointsOn();
-            if (multiBlock != null)
+            string[] parts = stdout.ToString().Trim().Split('|');
+            if (parts.Length != 2)
             {
-                for (uint i = 0; i < multiBlock.GetNumberOfBlocks(); i++)
-                {
-                    if (multiBlock.GetBlock(i) is vtkDataSet block)
-                    {
-                        // AddInputData isn't exposed on this ActiViz build's
-                        // vtkAppendFilter — go through the connection-based
-                        // pipeline instead (same style as SetInputConnection
-                        // used throughout this file), wrapping the block in
-                        // a vtkTrivialProducer to give it an output port.
-                        var producer = vtkTrivialProducer.New();
-                        producer.SetOutput(block);
-                        append.AddInputConnection(producer.GetOutputPort());
-                    }
-                }
+                throw new CfdRenderException(
+                    "CfdRenderHost.exe exited 0 but didn't print the expected \"pngPath|vtpPath\" line.",
+                    stdout.ToString());
             }
-            append.Update();
 
-            var plane = vtkPlane.New();
-            plane.SetOrigin(0, 0, 0);
-            plane.SetNormal(0, 1, 0);
-
-            var cutter = vtkCutter.New();
-            cutter.SetCutFunction(plane);
-            cutter.SetInputConnection(append.GetOutputPort());
-            cutter.Update();
-
-            var pressureArray = cutter.GetOutput().GetPointData().GetArray("p");
-            double[] range = pressureArray != null ? pressureArray.GetRange() : new double[] { 0, 1 };
-
-            var lut = vtkLookupTable.New();
-            lut.SetHueRange(0.667, 0.0);
-            lut.SetTableRange(range[0], range[1]);
-            lut.Build();
-
-            var mapper = vtkPolyDataMapper.New();
-            mapper.SetInputConnection(cutter.GetOutputPort());
-            mapper.SetScalarModeToUsePointFieldData();
-            mapper.SelectColorArray("p");
-            mapper.SetLookupTable(lut);
-            mapper.SetScalarRange(range[0], range[1]);
-            mapper.ScalarVisibilityOn();
-
-            var actor = vtkActor.New();
-            actor.SetMapper(mapper);
-
-            var scalarBar = vtkScalarBarActor.New();
-            scalarBar.SetLookupTable(lut);
-            scalarBar.SetTitle("Static Pressure (Pa)");
-
-            // No on-screen window on a server — render straight to an
-            // off-screen buffer. This is the key difference from the
-            // desktop RenderWindowControl version.
-            var renderer = vtkRenderer.New();
-            renderer.AddActor(actor);
-            renderer.AddActor2D(scalarBar);
-            renderer.SetBackground(0.15, 0.15, 0.18);
-            renderer.ResetCamera();
-
-            var renderWindow = vtkRenderWindow.New();
-            renderWindow.SetOffScreenRendering(1);
-            renderWindow.AddRenderer(renderer);
-            renderWindow.SetSize(1600, 1000);
-            renderWindow.Render();
-
-            string pngPath = Path.Combine(outputDir, "pressure_slice.png");
-            var w2i = vtkWindowToImageFilter.New();
-            w2i.SetInput(renderWindow);
-            w2i.SetInputBufferTypeToRGBA();
-            w2i.ReadFrontBufferOff();
-            w2i.Update();
-
-            var pngWriter = vtkPNGWriter.New();
-            pngWriter.SetFileName(pngPath);
-            pngWriter.SetInputConnection(w2i.GetOutputPort());
-            pngWriter.Write();
-
-            string vtpPath = Path.Combine(outputDir, "pressure_slice.vtp");
-            var vtpWriter = vtkXMLPolyDataWriter.New();
-            vtpWriter.SetFileName(vtpPath);
-            vtpWriter.SetInputConnection(cutter.GetOutputPort());
-            vtpWriter.Write();
-
-            return (pngPath, vtpPath);
+            return (parts[0], parts[1]);
         }
+    }
+
+    public class CfdRenderException : System.Exception
+    {
+        public string RendererLog { get; }
+        public CfdRenderException(string message, string rendererLog) : base(message)
+            => RendererLog = rendererLog;
     }
 }

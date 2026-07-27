@@ -25,6 +25,8 @@ builder.Services.AddScoped<ICalibrationCaseRepository, CalibrationCaseRepository
 
 builder.Services.AddScoped<IHandbookChunkRepository, HandbookChunkRepository>();
 
+AxialFanMVC.Services.CfdVtkRenderer.ExePath = builder.Configuration["CfdRenderHost:ExePath"] ?? AxialFanMVC.Services.CfdVtkRenderer.ExePath;
+
 // Ollama chat client ? base URL configurable via appsettings ("Ollama:BaseUrl")
 //builder.Services.AddHttpClient<IOllamaChatRepository, OllamaChatRepository>(client =>
 //{
