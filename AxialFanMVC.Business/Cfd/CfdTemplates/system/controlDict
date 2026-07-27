@@ -1,0 +1,42 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      controlDict;
+}
+
+application     simpleFoam;
+startFrom       startTime;
+startTime       0;
+stopAt          endTime;
+
+// Injected by C#: fixed iteration cap for a steady-state MRF run.
+// __MAX_ITERATIONS__ typically 500-1000 for a first-pass axial fan case.
+endTime         __MAX_ITERATIONS__;
+
+deltaT          1;
+writeControl    timeStep;
+writeInterval   50;
+purgeWrite      2;
+writeFormat     ascii;
+writePrecision  6;
+writeCompression off;
+timeFormat      general;
+timePrecision   6;
+runTimeModifiable true;
+
+// Residual monitoring for progress reporting — simpleFoam prints these
+// every iteration to stdout; the C# process runner parses these lines
+// directly (see LocalCfdOrchestrator.ParseResidualLine).
+functions
+{
+    residuals
+    {
+        type            residuals;
+        libs            ("libutilityFunctionObjects.so");
+        writeControl    timeStep;
+        writeInterval   1;
+        fields          (U p);
+    }
+}

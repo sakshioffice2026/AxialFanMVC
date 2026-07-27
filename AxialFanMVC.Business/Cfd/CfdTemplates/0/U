@@ -1,0 +1,35 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volVectorField;
+    object      U;
+}
+
+dimensions      [0 1 -1 0 0 0 0];
+internalField   uniform (0 0 0);
+
+boundaryField
+{
+    inlet
+    {
+        type            fixedValue;
+        // __VELOCITY_INLET__ = axial velocity in m/s, computed in C#
+        // from BladeElementEngine's mass-flow result / inlet area.
+        value           uniform (0 0 __VELOCITY_INLET__);
+    }
+    outlet
+    {
+        type            inletOutlet;
+        inletValue      uniform (0 0 0);
+        value           uniform (0 0 __VELOCITY_INLET__);
+    }
+    sides
+    {
+        type            slip;
+    }
+    "fan.*"
+    {
+        type            noSlip;
+    }
+}

@@ -3,6 +3,107 @@
     ViewData["Title"] = $"Results — {Model.ProjectName}";
 }
 
+<style>
+    /* ── Flow visualization diagram ───────────────────────────────── */
+    .flow-diagram-wrap {
+        width: 100%;
+        max-width: 900px;
+        margin: 0 auto;
+    }
+
+    .flow-diagram-svg {
+        width: 100%;
+        height: auto;
+        display: block;
+    }
+
+    .fv-label {
+        font-size: 18px;
+        font-weight: 600;
+        fill: #2c3e50;
+    }
+
+    .fv-sublabel {
+        font-size: 13px;
+        fill: #6c757d;
+    }
+
+    .fv-rotor {
+        transform-origin: 450px 130px;
+        animation-name: fv-spin;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+    }
+
+    @@keyframes fv-spin {
+        from {
+            transform: rotate(0deg);
+        }
+
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
+    .fv-dot-in {
+        animation-name: fv-flow-in;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+    }
+
+    @@keyframes fv-flow-in {
+        0% {
+            transform: translateX(20px);
+            opacity: 0;
+        }
+
+        10% {
+            opacity: 1;
+        }
+
+        90% {
+            opacity: 1;
+        }
+
+        100% {
+            transform: translateX(370px);
+            opacity: 0;
+        }
+    }
+
+    .fv-dot-out {
+        animation-name: fv-flow-out;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+    }
+
+    @@keyframes fv-flow-out {
+        0% {
+            transform: translateX(510px);
+            opacity: 0;
+        }
+
+        10% {
+            opacity: 1;
+        }
+
+        90% {
+            opacity: 1;
+        }
+
+        100% {
+            transform: translateX(870px);
+            opacity: 0;
+        }
+    }
+
+    @@media (prefers-reduced-motion: reduce) {
+        .fv-rotor, .fv-dot-in, .fv-dot-out {
+            animation: none !important;
+        }
+    }
+</style>
+
 <div class="mb-4">
     <nav aria-label="breadcrumb">
         <ol class="breadcrumb">
@@ -441,6 +542,145 @@
             </div>
         </div>
     }
+
+    <button id="generateCfdBtn" class="btn btn-outline-primary" onclick="startCfd(@Model.ResultId)">
+        <i class="bi bi-cpu"></i> Generate CFD
+    </button>
+    <div id="cfdResultArea"></div>
+
+@* {{!-- ── Flow Visualization (plain-language, non-mechanical audience) ── --}}
+   Not a real CFD solve — no mesh, no Navier-Stokes solver. This is an
+   illustrative animation driven by the real calculated values on this
+   result (flow rate, pressure, RPM, efficiency) so a non-engineer can
+   see, at a glance, what the numbers above actually mean physically. *@
+    <div class="col-12">
+        @{
+            var fvPressurePa = Model.TotalPressurePa;
+            var fvPressureBand = fvPressurePa < 250 ? "low" : fvPressurePa < 750 ? "medium" : "high";
+            var fvPressureColor = fvPressureBand switch
+            {
+                "low" => "#5fb0e0",
+                "medium" => "#f4a13a",
+                _ => "#e0473c"
+            };
+            var fvPressureLabel = fvPressureBand switch
+            {
+                "low" => "Gentle push",
+                "medium" => "Moderate push",
+                _ => "Strong push"
+            };
+
+            // Purely illustrative timing, not physically scaled — just gives
+            // the animation a "faster fan = faster spin/flow" feel.
+            var fvSpinSeconds = Math.Clamp(3000.0 / Math.Max(Model.SpeedRpm, 1), 0.4, 3.0);
+            var fvFlowSeconds = Math.Clamp(2.6 - (Model.FlowCoefficient * 3.0), 0.6, 2.6);
+            var fvFlowM3h = Model.FlowRateM3s * 3600.0;
+        }
+        <div class="card shadow-sm">
+            <div class="card-header bg-light fw-semibold d-flex justify-content-between align-items-center">
+                <span>
+                    <i class="bi bi-tornado me-1 text-primary"></i>
+                    How Air Flows Through This Fan
+                </span>
+                <span class="badge bg-light text-muted border" data-bs-toggle="tooltip"
+                      title="Illustrative diagram built from this design's calculated values — not a full 3D CFD simulation.">
+                    <i class="bi bi-info-circle me-1"></i>Plain-language view
+                </span>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    This shows what the numbers above mean in practice: air enters on the left at normal
+                    (ambient) pressure, the spinning fan pushes it through, and it leaves on the right faster
+                    and at higher pressure — ready to move through your ducts, filters, or equipment.
+                </p>
+
+                <div class="flow-diagram-wrap">
+                    <svg viewBox="0 0 900 260" class="flow-diagram-svg" role="img"
+                         aria-label="Diagram of air entering the fan at ambient pressure and leaving at higher pressure and speed">
+                        <defs>
+                            <linearGradient id="fvOutGradient" x1="0" y1="0" x2="1" y2="0">
+                                <stop offset="0%" stop-color="#a9d9f3" />
+                                <stop offset="100%" stop-color="@fvPressureColor" />
+                            </linearGradient>
+                        </defs>
+
+                        <!-- Inlet duct -->
+                        <rect x="20" y="70" width="330" height="120" rx="10" fill="#dbeeff" stroke="#a9d0e8" />
+                        <text x="185" y="55" text-anchor="middle" class="fv-label">Air In</text>
+                        <text x="185" y="215" text-anchor="middle" class="fv-sublabel">Ambient pressure</text>
+
+                        <!-- Outlet duct -->
+                        <rect x="550" y="70" width="330" height="120" rx="10" fill="url(#fvOutGradient)" stroke="#c99" />
+                        <text x="715" y="55" text-anchor="middle" class="fv-label">Air Out</text>
+                        <text x="715" y="215" text-anchor="middle" class="fv-sublabel">
+                            @fvPressureLabel &middot; @fvPressurePa.ToString("F0") Pa higher
+                        </text>
+
+                        <!-- Fan housing ring -->
+                        <circle cx="450" cy="130" r="75" fill="#f4f6f8" stroke="#8a97a3" stroke-width="4" />
+
+                        <!-- Spinning blade hub (illustrative, not to blade-count scale) -->
+                        <g class="fv-rotor" style="animation-duration: @(fvSpinSeconds.ToString("F2"))s;">
+                            <circle cx="450" cy="130" r="12" fill="#3b4a58" />
+                            @for (int i = 0; i < 6; i++)
+                            {
+                                var angle = i * 60;
+                                <rect x="447" y="60" width="6" height="60" rx="3" fill="#5b6b7a"
+                                      transform="rotate(@angle 450 130)" />
+                            }
+                        </g>
+
+                        <!-- Flow particles: inlet (slow, light) -->
+                        <g class="fv-particles-in">
+                            @for (int i = 0; i < 5; i++)
+                            {
+                                var cy = 95 + i * 15;
+                                var delay = i * (fvFlowSeconds / 5.0);
+                                <circle cy="@cy" r="4" fill="#5fa8d9" class="fv-dot-in"
+                                        style="animation-duration: @(fvFlowSeconds.ToString("F2"))s; animation-delay: -@(delay.ToString("F2"))s;" />
+                            }
+                        </g>
+
+                        <!-- Flow particles: outlet (faster, colored by pressure) -->
+                        <g class="fv-particles-out">
+                            @for (int i = 0; i < 7; i++)
+                            {
+                                var cy = 90 + i * 12;
+                                var outSeconds = fvFlowSeconds * 0.55;
+                                var delay = i * (outSeconds / 7.0);
+                                <circle cy="@cy" r="4" fill="@fvPressureColor" class="fv-dot-out"
+                                        style="animation-duration: @(outSeconds.ToString("F2"))s; animation-delay: -@(delay.ToString("F2"))s;" />
+                            }
+                        </g>
+                    </svg>
+                </div>
+
+                <div class="row g-3 mt-1">
+                    <div class="col-md-4">
+                        <div class="border rounded p-3 h-100">
+                            <div class="text-muted small">Air Moved</div>
+                            <div class="fs-4 fw-bold">@Model.FlowRateM3s.ToString("F2") m&sup3;/s</div>
+                            <div class="text-muted small">@fvFlowM3h.ToString("N0") m&sup3;/hour &mdash; how much air the fan pushes every second</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="border rounded p-3 h-100">
+                            <div class="text-muted small">Pressure Added</div>
+                            <div class="fs-4 fw-bold" style="color:@fvPressureColor">@Model.TotalPressurePa.ToString("F0") Pa</div>
+                            <div class="text-muted small">The extra push needed to move air through ducts, filters, or coils</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="border rounded p-3 h-100">
+                            <div class="text-muted small">Efficiency</div>
+                            <div class="fs-4 fw-bold text-success">@Model.OverallEfficiencyPct.ToString("F1")%</div>
+                            <div class="text-muted small">Share of motor power that becomes useful airflow; the rest is lost as heat and noise</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
 @* {{!-- ── Performance Curves Chart ── --}} *@
     <div class="col-12">

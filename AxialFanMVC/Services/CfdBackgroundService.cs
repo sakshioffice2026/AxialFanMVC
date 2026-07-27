@@ -1,0 +1,123 @@
+using System;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+
+using AxialFanMVC.Database;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+
+namespace AxialFanMVC.Services
+{
+    public class CfdBackgroundService : BackgroundService
+    {
+        private readonly IServiceScopeFactory _scopeFactory;
+        private readonly CfdJobChannel _channel;
+        private readonly IWebHostEnvironment _env;
+        private readonly ILogger<CfdBackgroundService> _logger;
+
+        public CfdBackgroundService(
+            IServiceScopeFactory scopeFactory,
+            CfdJobChannel channel,
+            IWebHostEnvironment env,
+            ILogger<CfdBackgroundService> logger)
+        {
+            _scopeFactory = scopeFactory;
+            _channel = channel;
+            _env = env;
+            _logger = logger;
+        }
+
+        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+        {
+            using var sweepTimer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+            _ = SweepLoopAsync(sweepTimer, stoppingToken);
+
+            await foreach (var jobId in _channel.Reader.ReadAllAsync(stoppingToken))
+                await ProcessJobAsync(jobId, stoppingToken);
+        }
+
+        private async Task SweepLoopAsync(PeriodicTimer timer, CancellationToken stoppingToken)
+        {
+            do
+            {
+                try
+                {
+                    using var scope = _scopeFactory.CreateScope();
+                    var db = scope.ServiceProvider.GetRequiredService<AxialFanDbContext>();
+                    var stuck = await db.cfd_jobs.Where(j => j.Status == "Queued")
+                        .Select(j => j.Id).ToListAsync(stoppingToken);
+                    foreach (var id in stuck) await ProcessJobAsync(id, stoppingToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "CFD job sweep failed.");
+                }
+            } while (await timer.WaitForNextTickAsync(stoppingToken));
+        }
+
+        private async Task ProcessJobAsync(int jobId, CancellationToken stoppingToken)
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AxialFanDbContext>();
+
+            var job = await db.cfd_jobs.FirstOrDefaultAsync(j => j.Id == jobId, stoppingToken);
+            if (job is null || job.Status != "Queued") return;
+
+            job.Status = "Running";
+            job.StartedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync(stoppingToken);
+
+            try
+            {
+                var result = await db.design_results
+                    .Include(r => r.DesignInput)
+                    .FirstOrDefaultAsync(r => r.Id == job.ResultId, stoppingToken)
+                    ?? throw new InvalidOperationException("DesignResult not found for this CFD job.");
+
+                string templateRoot = Path.Combine(_env.ContentRootPath, "..", "AxialFanMVC.Business", "Cfd", "CfdTemplates");
+                var orchestrator = new LocalCfdOrchestrator(templateRoot);
+
+                var di = result.DesignInput;
+
+                // Same annulus-area calc ResultsController.BuildBaselineComparisonAsync
+                // already uses for the baseline comparison card — kept identical here
+                // so the CFD inlet velocity matches what the rest of the app assumes.
+                double tipRadiusM = di.TipDiameterMm / 2000.0;
+                double hubRadiusM = tipRadiusM * di.HubRatio;
+                double annulusAreaM2 = Math.PI * (tipRadiusM * tipRadiusM - hubRadiusM * hubRadiusM);
+                double axialVelocityMs = annulusAreaM2 > 0 ? di.FlowRateM3s / annulusAreaM2 : 0;
+                double rpm = di.SpeedRpm;
+
+                if (axialVelocityMs <= 0)
+                    throw new InvalidOperationException("Could not derive a valid inlet velocity from this design's geometry.");
+
+                string casePath = await orchestrator.RunPipelineAsync(rpm, axialVelocityMs, tipRadiusM, stoppingToken);
+
+                string outputDir = Path.Combine(_env.WebRootPath, "cfd-results", job.ResultId.ToString());
+                var (pngPath, vtpPath) = CfdVtkRenderer.RenderOffscreen(casePath, outputDir);
+
+                job.PngPath = Path.Combine("cfd-results", job.ResultId.ToString(), Path.GetFileName(pngPath)).Replace('\\', '/');
+                job.VtpPath = Path.Combine("cfd-results", job.ResultId.ToString(), Path.GetFileName(vtpPath)).Replace('\\', '/');
+                job.Status = "Completed";
+
+                Directory.Delete(casePath, recursive: true); // sandbox cleanup — outputs already copied to wwwroot
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "CFD job {JobId} failed.", jobId);
+                job.Status = "Failed";
+                job.ErrorMessage = ex.Message;
+            }
+            finally
+            {
+                job.CompletedAt = DateTime.UtcNow;
+                await db.SaveChangesAsync(stoppingToken);
+            }
+        }
+    }
+}
