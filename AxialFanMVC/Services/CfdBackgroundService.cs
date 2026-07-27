@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
+using AxialFanMVC.Business.Cfd;
 using AxialFanMVC.Database;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
@@ -111,7 +112,27 @@ namespace AxialFanMVC.Services
             {
                 _logger.LogError(ex, "CFD job {JobId} failed.", jobId);
                 job.Status = "Failed";
-                job.ErrorMessage = ex.Message;
+
+                // CfdSolverException carries the full OpenFOAM stdout/stderr in
+                // SolverLog — that's where the *actual* reason for a failure
+                // like "blockMesh failed or diverged" lives (bad mesh, missing
+                // binary, etc.). ex.Message alone is just the generic wrapper
+                // text and isn't enough to debug from. Keep the tail of the
+                // log (where solver errors are reported) rather than the
+                // start, and cap the length so it fits comfortably in the
+                // error_message column.
+                if (ex is CfdSolverException solverEx && !string.IsNullOrEmpty(solverEx.SolverLog))
+                {
+                    const int maxLen = 4000;
+                    string tail = solverEx.SolverLog.Length > maxLen
+                        ? solverEx.SolverLog[^maxLen..]
+                        : solverEx.SolverLog;
+                    job.ErrorMessage = $"{ex.Message}\n\n--- solver log (tail) ---\n{tail}";
+                }
+                else
+                {
+                    job.ErrorMessage = ex.Message;
+                }
             }
             finally
             {

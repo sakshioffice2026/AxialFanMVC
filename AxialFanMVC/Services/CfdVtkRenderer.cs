@@ -1,3 +1,5 @@
+using Kitware.VTK;
+
 namespace AxialFanMVC.Services
 {
     // IMPORTANT PLATFORM CAVEAT: ActiViz.NET ships native Windows VTK
@@ -22,20 +24,42 @@ namespace AxialFanMVC.Services
             var reader = vtkOpenFOAMReader.New();
             reader.SetFileName(dummyFoamFile);
             reader.CreateCellToPointOn();
-            reader.Update();
-            reader.UpdateTimeInformation();
+            reader.Update(); // also refreshes time-step info; no separate call needed on this API
 
             var timeValues = reader.GetTimeValues();
-            int lastIdx = timeValues.GetNumberOfTuples() - 1;
+            int lastIdx = (int)timeValues.GetNumberOfTuples() - 1;
             if (lastIdx >= 0)
             {
                 reader.SetTimeValue(timeValues.GetTuple1(lastIdx));
                 reader.Update();
             }
 
-            var merge = vtkMergeBlocks.New();
-            merge.SetInputConnection(reader.GetOutputPort());
-            merge.Update();
+            // vtkOpenFOAMReader outputs a vtkMultiBlockDataSet (one block per
+            // OpenFOAM region/patch). vtkMergeBlocks isn't available on this
+            // ActiViz build, so flatten manually with vtkAppendFilter, which
+            // preserves volumetric point/cell data (needed for the pressure
+            // field below) rather than just extracting outer surfaces.
+            var multiBlock = reader.GetOutput() as vtkMultiBlockDataSet;
+            var append = vtkAppendFilter.New();
+            append.MergePointsOn();
+            if (multiBlock != null)
+            {
+                for (uint i = 0; i < multiBlock.GetNumberOfBlocks(); i++)
+                {
+                    if (multiBlock.GetBlock(i) is vtkDataSet block)
+                    {
+                        // AddInputData isn't exposed on this ActiViz build's
+                        // vtkAppendFilter — go through the connection-based
+                        // pipeline instead (same style as SetInputConnection
+                        // used throughout this file), wrapping the block in
+                        // a vtkTrivialProducer to give it an output port.
+                        var producer = vtkTrivialProducer.New();
+                        producer.SetOutput(block);
+                        append.AddInputConnection(producer.GetOutputPort());
+                    }
+                }
+            }
+            append.Update();
 
             var plane = vtkPlane.New();
             plane.SetOrigin(0, 0, 0);
@@ -43,7 +67,7 @@ namespace AxialFanMVC.Services
 
             var cutter = vtkCutter.New();
             cutter.SetCutFunction(plane);
-            cutter.SetInputConnection(merge.GetOutputPort());
+            cutter.SetInputConnection(append.GetOutputPort());
             cutter.Update();
 
             var pressureArray = cutter.GetOutput().GetPointData().GetArray("p");

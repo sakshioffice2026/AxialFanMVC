@@ -25,6 +25,7 @@ namespace AxialFanMVC.Database
         public DbSet<CostRate> cost_rates => Set<CostRate>();
         public DbSet<BomLineItem> bom_line_items => Set<BomLineItem>();
         public DbSet<OptimizationJob> optimization_jobs => Set<OptimizationJob>();
+        public DbSet<CfdJob> cfd_jobs => Set<CfdJob>();
         protected override void OnModelCreating(ModelBuilder mb)
         {
             base.OnModelCreating(mb);

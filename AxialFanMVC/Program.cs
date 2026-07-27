@@ -72,6 +72,13 @@ builder.Services.AddSingleton<IOptimizationJobSignal>(sp => sp.GetRequiredServic
 builder.Services.AddHttpClient(nameof(OptimizationBackgroundService));
 builder.Services.AddHostedService<OptimizationBackgroundService>();
 
+// CFD pressure slice — same DB-backed job queue shape as "Optimize for
+// me" above, but the worker calls the local OpenFOAM pipeline
+// (LocalCfdOrchestrator) directly rather than an HTTP service.
+builder.Services.AddSingleton<CfdJobChannel>();
+builder.Services.AddSingleton<ICfdJobSignal>(sp => sp.GetRequiredService<CfdJobChannel>());
+builder.Services.AddHostedService<CfdBackgroundService>();
+
 var app = builder.Build();
 
 CurveCorrectionService.Initialize(Path.Combine(builder.Environment.ContentRootPath, "MLModels", "efficiency_correction.onnx"),

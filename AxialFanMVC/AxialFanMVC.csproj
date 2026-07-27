@@ -15,6 +15,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.27.0" />
+ 
     <PackageReference Include="netDxf" Version="2023.11.10" />
     <PackageReference Include="Pomelo.EntityFrameworkCore.MySql" Version="8.0.3" />
     <PackageReference Include="QuestPDF" Version="2026.6.1" />
@@ -22,6 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\AxialFanMVC.Business\AxialFanMVC.Business.csproj" />
     <ProjectReference Include="..\AxialFanMVC.Database\AxialFanMVC.Database.csproj" />
     <ProjectReference Include="..\AxialFanMVC.Models\AxialFanMVC.Models.csproj" />
     <ProjectReference Include="..\AxialFanMVC.Repositories\AxialFanMVC.Repositories.csproj" />
