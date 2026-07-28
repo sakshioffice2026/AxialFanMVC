@@ -22,10 +22,9 @@ builder.Services.AddScoped<IDesignResultRepository, DesignResultRepository>();
 builder.Services.AddScoped<IPhysicsValidationEngine, PhysicsValidationEngine>();
 builder.Services.AddScoped<ICurveGeneration, CurveGeneration>();
 builder.Services.AddScoped<ICalibrationCaseRepository, CalibrationCaseRepository>();
-
+AxialFanMVC.Services.CfdVtkRenderer.PythonExe = builder.Configuration["CfdRender:PythonExe"] ?? AxialFanMVC.Services.CfdVtkRenderer.PythonExe;
+AxialFanMVC.Services.CfdVtkRenderer.ScriptPath = builder.Configuration["CfdRender:ScriptPath"] ?? AxialFanMVC.Services.CfdVtkRenderer.ScriptPath;
 builder.Services.AddScoped<IHandbookChunkRepository, HandbookChunkRepository>();
-
-AxialFanMVC.Services.CfdVtkRenderer.ExePath = builder.Configuration["CfdRenderHost:ExePath"] ?? AxialFanMVC.Services.CfdVtkRenderer.ExePath;
 
 // Ollama chat client ? base URL configurable via appsettings ("Ollama:BaseUrl")
 //builder.Services.AddHttpClient<IOllamaChatRepository, OllamaChatRepository>(client =>
@@ -93,7 +92,13 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-app.UseStaticFiles();
+// .vtp isn't in ASP.NET Core's default recognized file-extension list, so
+// plain UseStaticFiles() 404s on it even when the file exists on disk —
+// that's what was causing "Couldn't download - No file" on the CFD
+// results page despite pressure_slice.vtp being right there in wwwroot.
+var cfdContentTypes = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
+cfdContentTypes.Mappings[".vtp"] = "application/octet-stream";
+app.UseStaticFiles(new StaticFileOptions { ContentTypeProvider = cfdContentTypes });
 app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
