@@ -44,7 +44,7 @@ namespace AxialFanMVC.Business.Cfd
                 Directory.CreateDirectory(casePath);
 
                 CopyTemplateDirectory(_templateRoot, casePath);
-                GenerateBladeGeometry(casePath, radiusM, hubRatio, bladeCount, bladeAngleDeg, bladeProfileCoordinateJson);
+                GenerateBladeGeometry(casePath, radiusM, hubRatio, bladeCount, bladeAngleDeg, bladeProfileCoordinateJson, rpm, velocityMs);
                 InjectCalculatedValues(casePath, rpm, velocityMs, radiusM);
 
                 string wslCasePath = ConvertWindowsPathToWsl(casePath);
@@ -53,7 +53,7 @@ namespace AxialFanMVC.Business.Cfd
                 await RunWslCommandAsync("snappyHexMesh -overwrite", wslCasePath, ct).ConfigureAwait(false);
 
                 // Carves the rotorZone cellZone (system/topoSetDict) that
-                // constant/MRFProperties' MRF1 cellZone needs — must run
+                // constant/MRFProperties' MRF1 cellZone needs ? must run
                 // after snappyHexMesh has actually shaped the mesh around the blade.
                 await RunWslCommandAsync("topoSet", wslCasePath, ct).ConfigureAwait(false);
 
@@ -71,7 +71,7 @@ namespace AxialFanMVC.Business.Cfd
 
         /// <summary>
         /// Writes constant/triSurface/fan.stl from this design's own numbers
-        /// (BladeStlGenerator) ? a first-pass solid, not a CAD export; see
+        /// (BladeStlGenerator) — a first-pass solid, not a CAD export; see
         /// BladeStlGenerator's header comment for exactly what's approximated.
         /// Generator failures (bad HubRatio, corrupt stored profile, etc.) are
         /// wrapped as CfdSolverException so they surface the same way a
@@ -80,14 +80,15 @@ namespace AxialFanMVC.Business.Cfd
         /// </summary>
         private static void GenerateBladeGeometry(
             string casePath, double tipRadiusM, double hubRatio, int bladeCount,
-            double bladeAngleDeg, string? profileCoordinateJson)
+            double bladeAngleDeg, string? profileCoordinateJson, double rpm, double velocityMs)
         {
             string stlPath = Path.Combine(casePath, "constant", "triSurface", "fan.stl");
             int triCount;
             try
             {
                 triCount = BladeStlGenerator.Generate(
-                    stlPath, tipRadiusM, hubRatio, bladeCount, bladeAngleDeg, profileCoordinateJson);
+                    stlPath, tipRadiusM, hubRatio, bladeCount, bladeAngleDeg, profileCoordinateJson,
+                    rpm, velocityMs);
             }
             catch (Exception ex) when (ex is not CfdSolverException)
             {

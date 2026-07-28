@@ -1,170 +1,229 @@
-﻿"""
-Renders a two-panel PNG (geometry + streamlines, and a pressure slice) and a
-.vtp from a finished OpenFOAM case.
-
-Replaces the old ActiViz.NET/Kitware.VTK renderer (CfdVtkRenderer.cs) and
-the standalone net48 CfdRenderHost project — pyvista's VTK bindings are
-normal cross-platform pip wheels, not a mixed-mode .NET assembly, so none
-of the .NET Framework/CoreCLR incompatibility that broke ActiViz applies
-here.
-
-Usage:   python render_result.py <casePath> <outputDir>
-Success: prints "<pngPath>|<vtpPath>" as the LAST line of stdout, exits 0.
-Failure: prints the error to stderr, exits 1.
-
-Called by AxialFanMVC/Services/CfdVtkRenderer.cs the same way
-LocalCfdOrchestrator.cs shells out to wsl.exe for OpenFOAM itself.
-"""
-
-import os
+﻿import os
 import sys
-
+import math
 import numpy as np
+print("REACHED TOP", flush=True)
+
 import pyvista as pv
+print("PYVISTA IMPORTED", flush=True)
 
-# Confirmed patch name for the fan blade boundary in the OpenFOAM case.
-BLADE_PATCH_NAME = "fan"
-
-
-def _percentile_clim(array, lo=1.0, hi=99.0):
-    """Robust color range: clamps outlier cells instead of using raw
-    min/max, which otherwise lets a single extreme cell (e.g. a near-wall
-    boundary-layer artifact) wash out the entire colormap."""
-    lo_val = float(np.percentile(array, lo))
-    hi_val = float(np.percentile(array, hi))
-    if lo_val == hi_val:
-        # Degenerate field (e.g. all zeros) — avoid a zero-width clim.
-        return [lo_val - 1.0, hi_val + 1.0]
-    return [lo_val, hi_val]
+def _bounds_extent(bounds, axes=(0, 1, 2)):
+    """Diagonal of bounds restricted to the given axes (0=x,1=y,2=z).
+    An orthographic view down an axis (e.g. view_xz looks along Y)
+    doesn't put that axis's extent on screen at all, so it must be
+    excluded or the zoom factor comes out wrong for that panel."""
+    xmin, xmax, ymin, ymax, zmin, zmax = bounds
+    spans = {0: xmax - xmin, 1: ymax - ymin, 2: zmax - zmin}
+    return math.sqrt(sum(spans[a] ** 2 for a in axes))
 
 
-def render(case_path: str, output_dir: str) -> tuple[str, str]:
+def _zoom_factor_for(full_bounds, focus_bounds, axes=(0, 1, 2), min_zoom=1.0, max_zoom=200.0):
+    """How much to zoom in after reset_camera() has framed full_bounds,
+    to instead tightly frame focus_bounds. reset_camera(bounds=...) is
+    unreliable in this environment (doesn't actually re-tighten the
+    frustum to the given box), so we fit the full scene first and then
+    zoom by the ratio of the two regions' on-screen extents."""
+    full_extent = _bounds_extent(full_bounds, axes)
+    focus_extent = _bounds_extent(focus_bounds, axes)
+    if focus_extent <= 0:
+        return min_zoom
+    factor = full_extent / focus_extent
+    return max(min_zoom, min(max_zoom, factor))
+
+
+def render(case_path, output_dir):
     os.makedirs(output_dir, exist_ok=True)
+    print("STEP 1: dir created", flush=True)
 
-    # pyvista's OpenFOAMReader, like the OpenFOAM readers before it, needs
-    # a dummy .foam marker file to identify the case root.
     foam_file = os.path.join(case_path, "case.foam")
     if not os.path.exists(foam_file):
         open(foam_file, "w").close()
+    print("STEP 2: foam file ready", flush=True)
 
     reader = pv.OpenFOAMReader(foam_file)
+    print("STEP 3: reader created", flush=True)
+
     reader.cell_to_point_creation = True
     if reader.time_values:
         reader.set_active_time_value(reader.time_values[-1])
+    print("STEP 4: time value set", flush=True)
 
-    blocks = reader.read()
+    mesh = reader.read().combine()
+    print("STEP 5: mesh read and combined", flush=True)
 
-    # reader.read() returns a MultiBlock (internalMesh + boundary patches).
-    # combine() flattens the volume mesh into a single mesh for slicing and
-    # streamline seeding, same purpose as the manual vtkAppendFilter loop
-    # in the old renderer.
-    mesh = blocks.combine()
+    # Fan surface geometry, generated alongside the case by BladeStlGenerator.
+    # Used as a structural actor in both panels; optional so a missing/older
+    # case (pre-dating the STL generator) still renders the data panels.
+    stl_path = os.path.join(case_path, "constant", "triSurface", "fan.stl")
+    geom = pv.read(stl_path) if os.path.exists(stl_path) else None
+    print(f"STEP 6: geometry {'loaded' if geom is not None else 'skipped (missing)'}", flush=True)
 
-    boundary = blocks["boundary"]
-    if BLADE_PATCH_NAME not in boundary.keys():
-        raise RuntimeError(
-            f"Patch '{BLADE_PATCH_NAME}' not found in case boundary. "
-            f"Available patches: {list(boundary.keys())}"
-        )
-    blade = boundary[BLADE_PATCH_NAME]
-    if blade.n_points == 0:
-        raise RuntimeError(f"Patch '{BLADE_PATCH_NAME}' has zero points — empty geometry.")
+    print(f"STEP 6b: mesh bounds {mesh.bounds}", flush=True)
+    if geom is not None:
+        print(f"STEP 6c: geom bounds {geom.bounds}", flush=True)
 
     sliced = mesh.slice(normal="y", origin=mesh.center)
+    print("STEP 7: slice done", flush=True)
 
-    # Frame the camera on a box sized from the blade's PLANAR extent
-    # (its largest in-plane dimension), not its raw bounds — the blade is
-    # very thin along one axis (a few cm) versus ~1m across, and fitting
-    # the camera to that raw, wildly disproportionate box zooms out to
-    # the huge far-field domain instead of the blade region.
-    cx, cy, cz = blade.center
-    planar_size = max(
-        blade.bounds[1] - blade.bounds[0],
-        blade.bounds[3] - blade.bounds[2],
-    )
-    half = planar_size * 0.75
-    frame_bounds = (cx - half, cx + half, cy - half, cy + half, cz - half, cz + half)
+    # True min/max fixed the "one flat color" bug, but a handful of
+    # near-wall cells at the blade surface (e.g. -694 Pa) still dominate
+    # the scale, compressing the visually-important far-field region into
+    # a narrow sliver of `coolwarm` — reads as "mostly flat dark red" even
+    # though it's technically no longer a single color. Clipping to the
+    # 2nd-98th percentile excludes those few outlier cells from setting
+    # the scale (they simply saturate to the colormap's end colors) so the
+    # bulk of the field spreads across the full visible color range.
+    p_data = sliced["p"]
+    p_lo, p_hi = np.percentile(p_data, [2, 98])
+    p_min, p_max = float(p_lo), float(p_hi)
+    if p_max <= p_min:  # degenerate/near-uniform field - fall back to true range
+        p_min, p_max = float(p_data.min()), float(p_data.max())
+    print(f"STEP 7b: pressure clim (2nd-98th pct): [{p_min:.2f}, {p_max:.2f}] Pa "
+          f"(true range [{float(p_data.min()):.2f}, {float(p_data.max()):.2f}])", flush=True)
 
-    # Crop the slice to the same near-blade region — otherwise the vast,
-    # near-uniform far-field pressure swamps both the visible frame and
-    # the color range, hiding the local variation around the blade.
-    near_slice = sliced.clip_box(frame_bounds, invert=False)
+    # Seed disc sized to the fan's XY footprint (not the full domain —
+    # mesh.bounds is the far-field box, much larger than the fan).
+    mxmin, mxmax, mymin, mymax, mzmin, mzmax = mesh.bounds
+    if geom is not None:
+        gxmin, gxmax, gymin, gymax, gzmin, gzmax = geom.bounds
+        seed_x, seed_y = (gxmin + gxmax) / 2.0, (gymin + gymax) / 2.0
+        seed_radius = 1.15 * max(gxmax - gxmin, gymax - gymin) / 2.0
+    else:
+        seed_x, seed_y = (mxmin + mxmax) / 2.0, (mymin + mymax) / 2.0
+        seed_radius = 0.15 * max(mxmax - mxmin, mymax - mymin) / 2.0
 
-    plotter = pv.Plotter(off_screen=True, shape=(1, 2), window_size=[1800, 900])
+    # Seed Z position: try increasing distances from the domain's actual
+    # inlet (mesh z_min), not an assumed offset upstream of the blade.
+    # A fixed blade-thickness offset failed on this case: the fan sits
+    # almost exactly at mesh z_min (geom z in [-0.0004, 0.0313] vs domain
+    # z in [0, 1.908]), so there's effectively no fluid region upstream
+    # of the blades — any offset derived from the blade itself placed
+    # seeds outside the mesh (0 points, then a crash on an empty mesh).
+    z_span = mzmax - mzmin
+    streamlines = None
+    for frac in (0.005, 0.02, 0.05, 0.1, 0.2):
+        seed_z = mzmin + frac * z_span
+        seed = pv.Disc(center=(seed_x, seed_y, seed_z), inner=0.0,
+                        outer=seed_radius, normal=(0, 0, 1), r_res=6, c_res=8)
+        candidate = mesh.streamlines_from_source(
+            seed, vectors="U", integration_direction="forward",
+            max_length=100.0, initial_step_length=0.05)
+        print(f"STEP 8 (seed z={seed_z:.4f}, frac={frac}): {candidate.n_points} points", flush=True)
+        if candidate.n_points > 0:
+            streamlines = candidate
+            break
+
+    if streamlines is not None:
+        streamlines["U_magnitude"] = np.linalg.norm(streamlines["U"], axis=1)
+        # Same issue as pressure: true min/max is set by a handful of
+        # near-blade high-speed points, stretching the jet colormap so the
+        # bulk of streamlines (mostly mid-range freestream speed) collapse
+        # into one shade of green with barely any visible variation.
+        # Percentile-clip so those few fast points saturate to red instead
+        # of setting the scale for everything else.
+        u_data = streamlines["U_magnitude"]
+        u_lo, u_hi = np.percentile(u_data, [2, 98])
+        u_min, u_max = float(u_lo), float(u_hi)
+        if u_max <= u_min:  # degenerate/near-uniform speed - fall back to true range
+            u_min, u_max = float(u_data.min()), float(u_data.max())
+        print(f"STEP 8b: velocity clim (2nd-98th pct): [{u_min:.2f}, {u_max:.2f}] m/s "
+              f"(true range [{float(u_data.min()):.2f}, {float(u_data.max()):.2f}])", flush=True)
+    else:
+        print("STEP 8: WARNING - no seed position produced streamlines; Panel 1 will show geometry only", flush=True)
+        # Nothing gets colored by U in this case, so the range is unused —
+        # kept as a harmless fallback rather than left undefined.
+        u_mag_field = np.linalg.norm(mesh["U"], axis=1)
+        u_min, u_max = float(u_mag_field.min()), float(u_mag_field.max())
+    print(f"STEP 8: done ({streamlines.n_points if streamlines is not None else 0} points)", flush=True)
+
+    # Focus region for the camera, driven by what's actually drawn (fan
+    # geometry + resulting streamlines) rather than an arbitrary multiple
+    # of the fan's own footprint. A fan_span*2.5 pad produced a box ~4.77m
+    # wide here — bigger than the whole 2.86m x 2.86m x 1.91m domain — so
+    # reset_camera()+zoom had nothing tighter to zoom into and did nothing.
+    # Using the real extent of the drawn content keeps the box smaller
+    # than the domain (guaranteeing an actual zoom-in) and also avoids
+    # clipping off the streamlines, which reach well past the fan itself.
+    geoms_to_frame = []
+    if geom is not None:
+        geoms_to_frame.append(geom.bounds)
+    if streamlines is not None:
+        geoms_to_frame.append(streamlines.bounds)
+    if not geoms_to_frame:
+        geoms_to_frame.append(mesh.bounds)
+
+    fxmin = min(b[0] for b in geoms_to_frame)
+    fxmax = max(b[1] for b in geoms_to_frame)
+    fymin = min(b[2] for b in geoms_to_frame)
+    fymax = max(b[3] for b in geoms_to_frame)
+    fzmin = min(b[4] for b in geoms_to_frame)
+    fzmax = max(b[5] for b in geoms_to_frame)
+
+    # 25% margin on each axis so the content isn't touching the frame edge
+    margin_x = 0.25 * max(fxmax - fxmin, 1e-6)
+    margin_y = 0.25 * max(fymax - fymin, 1e-6)
+    margin_z = 0.25 * max(fzmax - fzmin, 1e-6)
+    focus_bounds = (fxmin - margin_x, fxmax + margin_x,
+                     fymin - margin_y, fymax + margin_y,
+                     fzmin - margin_z, fzmax + margin_z)
+    print(f"STEP 8f: camera focus bounds {focus_bounds}", flush=True)
+
+    plotter = pv.Plotter(shape=(1, 2), off_screen=True, window_size=[2000, 1000])
     plotter.set_background("#e8e8e8")
+    print("STEP 9: plotter created", flush=True)
 
-    # --- Panel 1: geometry + flow streamlines, isometric view ---
+    # --- Panel 1: geometry + velocity streamlines, isometric ---
     plotter.subplot(0, 0)
     plotter.add_text("Geometry + Flow Visualization (Isometric View)", font_size=10)
-    plotter.add_mesh(blade, color="#9a9a9e", specular=0.6, specular_power=25)
-
-    # Seed streamlines relative to the BLADE's size/position, not the
-    # domain's — the domain is 3-4x the blade radius, so a domain-scale
-    # seed radius scatters seeds far from the blade and only captures
-    # uniform far-field flow (the all-straight-blue-lines symptom).
-    streams = mesh.streamlines(
-        vectors="U",
-        source_center=blade.center,
-        source_radius=blade.length * 0.8,
-        n_points=40,
-        max_length=blade.length * 4,
-        initial_step_length=0.05,
-        terminal_speed=1e-6,
-    )
-    if streams.n_points > 0:
-        u_clim = _percentile_clim(streams["U"])
-        plotter.add_mesh(
-            streams.tube(radius=blade.length * 0.01),
-            scalars="U",
-            cmap="turbo",
-            clim=u_clim,
-            scalar_bar_args={"title": "Velocity Magnitude (m/s)"},
-        )
-
+    if geom is not None:
+        plotter.add_mesh(geom, color="lightgray", smooth_shading=True,
+                          specular=0.5, specular_power=15)
+    if streamlines is not None:
+        plotter.add_mesh(streamlines, scalars="U_magnitude", cmap="jet",
+                          clim=[u_min, u_max], line_width=3,
+                          scalar_bar_args={"title": "Velocity Magnitude (m/s)"})
     plotter.view_isometric()
-    # Frame on the well-proportioned box, not the blade's raw (Z-thin) bounds.
-    plotter.reset_camera(bounds=frame_bounds)
+    plotter.reset_camera()
+    zoom1 = _zoom_factor_for(mesh.bounds, focus_bounds, axes=(0, 1, 2))
+    plotter.camera.zoom(zoom1)
+    print(f"STEP 10 (zoom={zoom1:.2f}): panel 1 built", flush=True)
+    plotter.show_axes()
 
-    # --- Panel 2: quantitative pressure slice, with blade for context ---
+    # --- Panel 2: pressure slice + wireframe geometry context, side view ---
     plotter.subplot(0, 1)
     plotter.add_text("Quantitative Pressure Slice (Side View)", font_size=10)
-    plotter.add_mesh(blade, style="wireframe", color="white", opacity=0.4)
-    p_clim = _percentile_clim(near_slice["p"])
-    plotter.add_mesh(
-        near_slice,
-        scalars="p",
-        cmap="coolwarm",
-        clim=p_clim,
-        scalar_bar_args={"title": "Static Pressure (Pa)"},
-    )
-    # The slice's normal is "y", so it spans the X-Z plane — view_xz looks
-    # along the Y axis, face-on to the slice. view_yz (looking along X)
-    # would view this same slice edge-on, collapsing it to a thin line.
+    if geom is not None:
+        plotter.add_mesh(geom, style="wireframe", color="gray", opacity=0.5)
+    plotter.add_mesh(sliced, scalars="p", cmap="coolwarm", clim=[p_min, p_max],
+                      scalar_bar_args={"title": "Static Pressure (Pa)"})
     plotter.view_xz()
-    plotter.reset_camera(bounds=frame_bounds)
+    plotter.reset_camera()
+    # view_xz is an orthographic projection along Y, so Y-extent never
+    # reaches the screen — including it (as the original slice_bounds
+    # math effectively did via a bigger, Y-inclusive box) understates
+    # the true on-screen size and leaves the slice too small.
+    zoom2 = _zoom_factor_for(mesh.bounds, focus_bounds, axes=(0, 2))
+    plotter.camera.zoom(zoom2)
+    print(f"STEP 11 (zoom={zoom2:.2f}): panel 2 built", flush=True)
 
-    png_path = os.path.join(output_dir, "pressure_slice.png")
+    png_path = os.path.join(output_dir, "cfd_result.png")
     plotter.screenshot(png_path)
+    print("STEP 12: screenshot done", flush=True)
+
     plotter.close()
+    print("STEP 13: plotter closed", flush=True)
 
     vtp_path = os.path.join(output_dir, "pressure_slice.vtp")
-    near_slice.extract_surface().save(vtp_path)
+    sliced.save(vtp_path)
+    print("STEP 14: vtp saved", flush=True)
 
     return png_path, vtp_path
 
 
 if __name__ == "__main__":
+    print("ENTERED MAIN", flush=True)
     if len(sys.argv) < 3:
-        print("Usage: render_result.py <casePath> <outputDir>", file=sys.stderr)
+        print("Usage: render_result.py <case_path> <output_dir>", file=sys.stderr, flush=True)
         sys.exit(1)
-
-    try:
-        png, vtp = render(sys.argv[1], sys.argv[2])
-        # Flush explicitly and print as the final statement so the C# side
-        # can safely parse "the last non-empty stdout line" instead of the
-        # whole buffer, in case any library prints incidental warnings
-        # to stdout earlier in the run.
-        print(f"{png}|{vtp}", flush=True)
-    except Exception as exc:  # noqa: BLE001 - surfaced to the C# caller's stderr
-        print(str(exc), file=sys.stderr, flush=True)
-        sys.exit(1)
+    result_png_path, result_vtp_path = render(sys.argv[1], sys.argv[2])
+    print(f"{result_png_path}|{result_vtp_path}")

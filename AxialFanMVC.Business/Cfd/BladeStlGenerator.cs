@@ -8,14 +8,18 @@ using System.Text.Json;
 namespace AxialFanMVC.Business.Cfd
 {
     /// <summary>
-    /// Generates a FIRST-PASS blade surface (constant/triSurface/fan.stl) directly
-    /// from the design's own calculated numbers (tip radius, hub ratio, blade
-    /// count, blade angle, and optionally a real 2D airfoil profile). This is
-    /// NOT a substitute for a CAD-exported blade: chord/taper are a fixed
-    /// rule-of-thumb, twist is constant span-wise (no free-vortex distribution),
-    /// and the hub itself is not modelled as a solid. It exists so the CFD
-    /// pipeline produces a real, geometry-consistent result instead of failing
-    /// on a missing file — replace with a real STL when one exists.
+    /// Generates a blade surface (constant/triSurface/fan.stl) directly from the
+    /// design's own calculated numbers (tip radius, hub ratio, blade count, RPM,
+    /// axial velocity, and optionally a real 2D airfoil profile). Twist follows a
+    /// blade-element law (local angle = atan2(axial velocity, blade speed) at each
+    /// radial station) and chord follows a constant-target-solidity distribution —
+    /// both computed per-station rather than fixed/constant across the span. This
+    /// is still NOT a substitute for a CAD-exported blade: solidity is a single
+    /// target value rather than one tuned to a real loading/diffusion-factor
+    /// analysis, and the hub itself is not modelled as a solid. It exists so the
+    /// CFD pipeline produces a real, geometry-consistent, aerodynamically-plausible
+    /// result instead of failing on a missing file — replace with a real STL when
+    /// one exists.
     ///
     /// Geometry construction (blade-element convention), verified for
     /// watertightness/outward-normal-orientation before being ported here:
@@ -24,9 +28,10 @@ namespace AxialFanMVC.Business.Cfd
     ///   eT = (-sin phi, cos phi, 0)     tangential (rotation direction)
     ///   eZ = (0, 0, 1)                  axial
     /// Chord line c = cos(beta)*eT + sin(beta)*eZ, thickness line t = eR x c,
-    /// where beta is the stagger (blade) angle from the plane of rotation.
-    /// Two radial stations (hub, tip) are lofted; both loop ends are capped
-    /// so each blade is an independent closed, manifold solid.
+    /// where beta is the local blade angle from the plane of rotation, varying
+    /// per radial station per the blade-element twist law above. N radial
+    /// stations (hub to tip) are lofted; both loop ends are capped so each
+    /// blade is an independent closed, manifold solid.
     /// </summary>
     public static class BladeStlGenerator
     {
@@ -53,10 +58,23 @@ namespace AxialFanMVC.Business.Cfd
         /// <param name="tipRadiusM">Fan tip radius in metres.</param>
         /// <param name="hubRatio">DesignInput.HubRatio (hub radius / tip radius), 0-1.</param>
         /// <param name="bladeCount">DesignInput.BladeCount.</param>
-        /// <param name="bladeAngleDeg">DesignInput.BladeAngleDeg — stagger from the plane of rotation.</param>
+        /// <param name="bladeAngleDeg">Retained for signature/call-site compatibility.
+        /// No longer used to set the blade angle directly — see rpm/axialVelocityMs
+        /// below — because a single constant angle for the whole span means only one
+        /// radius is aerodynamically correct; the rest are stalled or barely loaded.</param>
         /// <param name="profileCoordinateJson">Optional BladeProfile.CoordinateData — a closed-loop
         /// 2D airfoil outline as either [[x,y],...] or [{"x":..,"y":..},...], chordwise-normalised
         /// 0..1. Null/empty/unparseable falls back to a NACA 4412-family default.</param>
+        /// <param name="rpm">DesignInput.SpeedRpm — used with axialVelocityMs to compute the
+        /// blade-element twist law (local blade angle vs. radius).</param>
+        /// <param name="axialVelocityMs">Inlet axial velocity (matches __VELOCITY_INLET__ /
+        /// LocalCfdOrchestrator's velocityMs) — the flow-through speed each station's local
+        /// apparent-wind angle is computed against.</param>
+        /// <param name="spanStations">Number of radial stations lofted from hub to tip
+        /// (2 = old hub/tip-only behaviour; 6 gives a smooth twist curve).</param>
+        /// <param name="targetSolidity">chord(r) x bladeCount / (2*pi*r), held constant across
+        /// the span. 0.5 is a reasonable mid-range default absent a specific target from a
+        /// real fan being matched — replace with a real value if you have one.</param>
         /// <returns>Triangle count written, for the caller to sanity-check.</returns>
         public static int Generate(
             string stlFilePath,
@@ -64,7 +82,11 @@ namespace AxialFanMVC.Business.Cfd
             double hubRatio,
             int bladeCount,
             double bladeAngleDeg,
-            string? profileCoordinateJson)
+            string? profileCoordinateJson,
+            double rpm,
+            double axialVelocityMs,
+            int spanStations = 6,
+            double targetSolidity = 0.5)
         {
             if (tipRadiusM <= 0)
                 throw new ArgumentOutOfRangeException(nameof(tipRadiusM), "Tip radius must be positive.");
@@ -81,22 +103,38 @@ namespace AxialFanMVC.Business.Cfd
             List<(double X, double Y)> loop = TryParseProfile(profileCoordinateJson)
                 ?? NacaFourDigitLoop(camber: 0.04, camberPosition: 0.4, thickness: 0.12, halfPointCount: 20);
 
-            // Rule-of-thumb taper: hub chord 35% of span, tip chord 60% of hub chord.
-            // Undocumented/arbitrary otherwise, so kept as named constants rather than
-            // buried literals — first thing to replace with a real chord distribution.
-            const double hubChordFraction = 0.35;
-            const double tipToHubChordRatio = 0.6;
-            double chordHub = hubChordFraction * span;
-            double chordTip = chordHub * tipToHubChordRatio;
+            int stations = Math.Max(2, spanStations);
+            double omegaRadS = Math.Max(rpm, 0.0) * Math.PI / 30.0;
+            double axialVel = Math.Max(axialVelocityMs, 0.0);
 
-            double betaRad = bladeAngleDeg * Math.PI / 180.0;
+            var radii = new double[stations];
+            var betaRad = new double[stations];
+            var chord = new double[stations];
+            for (int s = 0; s < stations; s++)
+            {
+                double frac = (double)s / (stations - 1);
+                double r = hubRadiusM + frac * span;
+                radii[s] = r;
+
+                // Blade-element twist law: angle the chord to match the local
+                // apparent-flow direction, atan2(axial speed, blade speed at this
+                // radius). atan2 handles U(r)=0 (rpm=0) cleanly as 90 deg (fully
+                // feathered) rather than dividing by zero.
+                double u = omegaRadS * r;
+                betaRad[s] = Math.Atan2(axialVel, u);
+
+                // Solidity-based chord: chord(r) = sigma * 2*pi*r / bladeCount,
+                // constant target solidity across the span. Replaces the old
+                // undocumented 0.35/0.6 hub-tip taper rule of thumb.
+                chord[s] = targetSolidity * 2.0 * Math.PI * r / blades;
+            }
 
             var triangles = new List<(V3 A, V3 B, V3 C)>();
 
             for (int k = 0; k < blades; k++)
             {
                 double phi = 2.0 * Math.PI * k / blades;
-                BuildBlade(hubRadiusM, tipRadiusM, chordHub, chordTip, betaRad, phi, loop, triangles);
+                BuildBlade(radii, chord, betaRad, phi, loop, triangles);
             }
 
             WriteAsciiStl(stlFilePath, "fan", triangles);
@@ -104,50 +142,60 @@ namespace AxialFanMVC.Business.Cfd
         }
 
         private static void BuildBlade(
-            double hubR, double tipR, double chordHub, double chordTip,
-            double betaRad, double phi, List<(double X, double Y)> loop,
-            List<(V3 A, V3 B, V3 C)> triangles)
+            double[] radii, double[] chord, double[] betaRad, double phi,
+            List<(double X, double Y)> loop, List<(V3 A, V3 B, V3 C)> triangles)
         {
             var eR = new V3(Math.Cos(phi), Math.Sin(phi), 0.0);
             var eT = new V3(-Math.Sin(phi), Math.Cos(phi), 0.0);
             var eZ = new V3(0.0, 0.0, 1.0);
+            int n = loop.Count;
+            int stations = radii.Length;
 
-            V3 c = eT * Math.Cos(betaRad) + eZ * Math.Sin(betaRad);
-            V3 t = V3.Cross(eR, c);
-
-            V3[] Station(double r, double chord)
+            V3[] Station(double r, double ch, double beta)
             {
-                var pts = new V3[loop.Count];
+                // c/t recomputed per station: beta now varies with radius (the
+                // twist), so the chord direction rotates station to station —
+                // unlike the old two-station version where c/t were constant
+                // for the whole blade.
+                V3 c = eT * Math.Cos(beta) + eZ * Math.Sin(beta);
+                V3 t = V3.Cross(eR, c);
+                var pts = new V3[n];
                 V3 baseP = eR * r;
-                for (int i = 0; i < loop.Count; i++)
+                for (int i = 0; i < n; i++)
                 {
                     var (xf, yf) = loop[i];
-                    pts[i] = baseP + c * (xf * chord) + t * (yf * chord);
+                    pts[i] = baseP + c * (xf * ch) + t * (yf * ch);
                 }
                 return pts;
             }
 
-            V3[] hub = Station(hubR, chordHub);
-            V3[] tip = Station(tipR, chordTip);
-            int n = loop.Count;
+            var stationPts = new V3[stations][];
+            for (int s = 0; s < stations; s++)
+                stationPts[s] = Station(radii[s], chord[s], betaRad[s]);
 
             // Hub cap (fan triangulation from centroid) — winding verified to
             // point outward (away from tip) for a CCW-ordered airfoil loop.
-            V3 hubCentroid = Centroid(hub);
+            V3 hubCentroid = Centroid(stationPts[0]);
             for (int i = 0; i < n; i++)
-                triangles.Add((hubCentroid, hub[i], hub[(i + 1) % n]));
+                triangles.Add((hubCentroid, stationPts[0][i], stationPts[0][(i + 1) % n]));
 
             // Tip cap — opposite winding, points outward (away from hub).
-            V3 tipCentroid = Centroid(tip);
+            V3 tipCentroid = Centroid(stationPts[stations - 1]);
             for (int i = 0; i < n; i++)
-                triangles.Add((tipCentroid, tip[(i + 1) % n], tip[i]));
+                triangles.Add((tipCentroid, stationPts[stations - 1][(i + 1) % n], stationPts[stations - 1][i]));
 
-            // Side loft between hub and tip loops.
-            for (int i = 0; i < n; i++)
+            // Side loft between each pair of adjacent stations (generalises the
+            // old single hub-tip loft to however many stations are lofted).
+            for (int s = 0; s < stations - 1; s++)
             {
-                int j = (i + 1) % n;
-                triangles.Add((hub[i], tip[j], hub[j]));
-                triangles.Add((hub[i], tip[i], tip[j]));
+                V3[] lo = stationPts[s];
+                V3[] hi = stationPts[s + 1];
+                for (int i = 0; i < n; i++)
+                {
+                    int j = (i + 1) % n;
+                    triangles.Add((lo[i], hi[j], lo[j]));
+                    triangles.Add((lo[i], hi[i], hi[j]));
+                }
             }
         }
 
