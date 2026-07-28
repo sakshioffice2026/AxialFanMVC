@@ -1,0 +1,13 @@
+// Included by constant/MRFProperties. Kept as a separate file (v13
+// convention, e.g. tutorials/incompressibleFluid/simpleRushtonMRF) so the
+// rotation definition can be swapped or reused independently of the MRF
+// zone/patch wiring in MRFProperties itself.
+
+origin              (0 0 0);
+axis                (0 0 1);
+
+// Fixed patches (by default they 'move' with the MRF zone) — none for this
+// case, the whole cellZone rotates.
+nonRotatingPatches  ();
+
+omega               __RPM_TARGET__ [rpm];

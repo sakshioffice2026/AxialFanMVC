@@ -3,7 +3,7 @@ FoamFile
     version     2.0;
     format      ascii;
     class       dictionary;
-    object      turbulenceProperties;
+    object      momentumTransport;
 }
 
 simulationType  RAS;
@@ -13,7 +13,8 @@ RAS
     // kOmegaSST: standard choice for blade/wall-bounded turbomachinery
     // flows — better near-wall + adverse-pressure-gradient behaviour on
     // the blade suction side than k-epsilon.
-    RASModel        kOmegaSST;
+    // v13 renamed the old RASModel key to model.
+    model           kOmegaSST;
     turbulence      on;
     printCoeffs     on;
 }

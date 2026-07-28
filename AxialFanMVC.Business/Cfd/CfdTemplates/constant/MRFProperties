@@ -7,10 +7,10 @@ FoamFile
     object      MRFProperties;
 }
 
-MRF
+MRF1
 {
-    cellZone    __MRF_ZONE_NAME__;
-    origin      (0 0 0);
-    axis        (0 0 1);
-    omega       __RPM_TARGET__ [rpm];
+    cellZone        __MRF_ZONE_NAME__;
+    active          yes;
+
+    #include        "rotatingZoneProperties"
 }

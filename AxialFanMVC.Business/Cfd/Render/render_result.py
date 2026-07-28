@@ -1,10 +1,35 @@
 ﻿import os
 import sys
+import math
 import numpy as np
 print("REACHED TOP", flush=True)
 
 import pyvista as pv
 print("PYVISTA IMPORTED", flush=True)
+
+def _bounds_extent(bounds, axes=(0, 1, 2)):
+    """Diagonal of bounds restricted to the given axes (0=x,1=y,2=z).
+    An orthographic view down an axis (e.g. view_xz looks along Y)
+    doesn't put that axis's extent on screen at all, so it must be
+    excluded or the zoom factor comes out wrong for that panel."""
+    xmin, xmax, ymin, ymax, zmin, zmax = bounds
+    spans = {0: xmax - xmin, 1: ymax - ymin, 2: zmax - zmin}
+    return math.sqrt(sum(spans[a] ** 2 for a in axes))
+
+
+def _zoom_factor_for(full_bounds, focus_bounds, axes=(0, 1, 2), min_zoom=1.0, max_zoom=200.0):
+    """How much to zoom in after reset_camera() has framed full_bounds,
+    to instead tightly frame focus_bounds. reset_camera(bounds=...) is
+    unreliable in this environment (doesn't actually re-tighten the
+    frustum to the given box), so we fit the full scene first and then
+    zoom by the ratio of the two regions' on-screen extents."""
+    full_extent = _bounds_extent(full_bounds, axes)
+    focus_extent = _bounds_extent(focus_bounds, axes)
+    if focus_extent <= 0:
+        return min_zoom
+    factor = full_extent / focus_extent
+    return max(min_zoom, min(max_zoom, factor))
+
 
 def render(case_path, output_dir):
     os.makedirs(output_dir, exist_ok=True)
@@ -88,20 +113,36 @@ def render(case_path, output_dir):
         print("STEP 8: WARNING - no seed position produced streamlines; Panel 1 will show geometry only", flush=True)
     print(f"STEP 8: done ({streamlines.n_points if streamlines is not None else 0} points)", flush=True)
 
-    # Focus region for the camera, centered on the fan — reset_camera()
-    # alone fits the WHOLE domain (Z spans 1.9m vs the fan's 0.03m), so
-    # the fan renders as a speck with the actual flow structure invisible.
-    # A box a few fan-diameters across, centered on the fan, matches the
-    # tight framing in the reference image.
+    # Focus region for the camera, driven by what's actually drawn (fan
+    # geometry + resulting streamlines) rather than an arbitrary multiple
+    # of the fan's own footprint. A fan_span*2.5 pad produced a box ~4.77m
+    # wide here — bigger than the whole 2.86m x 2.86m x 1.91m domain — so
+    # reset_camera()+zoom had nothing tighter to zoom into and did nothing.
+    # Using the real extent of the drawn content keeps the box smaller
+    # than the domain (guaranteeing an actual zoom-in) and also avoids
+    # clipping off the streamlines, which reach well past the fan itself.
+    geoms_to_frame = []
     if geom is not None:
-        gxmin, gxmax, gymin, gymax, gzmin, gzmax = geom.bounds
-        fan_span = max(gxmax - gxmin, gymax - gymin)
-        cx, cy, cz = geom.center
-    else:
-        fan_span = seed_radius * 2.0
-        cx, cy, cz = seed_x, seed_y, mzmin
-    pad = fan_span * 2.5
-    focus_bounds = (cx - pad, cx + pad, cy - pad, cy + pad, cz - pad, cz + pad)
+        geoms_to_frame.append(geom.bounds)
+    if streamlines is not None:
+        geoms_to_frame.append(streamlines.bounds)
+    if not geoms_to_frame:
+        geoms_to_frame.append(mesh.bounds)
+
+    fxmin = min(b[0] for b in geoms_to_frame)
+    fxmax = max(b[1] for b in geoms_to_frame)
+    fymin = min(b[2] for b in geoms_to_frame)
+    fymax = max(b[3] for b in geoms_to_frame)
+    fzmin = min(b[4] for b in geoms_to_frame)
+    fzmax = max(b[5] for b in geoms_to_frame)
+
+    # 25% margin on each axis so the content isn't touching the frame edge
+    margin_x = 0.25 * max(fxmax - fxmin, 1e-6)
+    margin_y = 0.25 * max(fymax - fymin, 1e-6)
+    margin_z = 0.25 * max(fzmax - fzmin, 1e-6)
+    focus_bounds = (fxmin - margin_x, fxmax + margin_x,
+                     fymin - margin_y, fymax + margin_y,
+                     fzmin - margin_z, fzmax + margin_z)
     print(f"STEP 8f: camera focus bounds {focus_bounds}", flush=True)
 
     plotter = pv.Plotter(shape=(1, 2), off_screen=True, window_size=[2000, 1000])
@@ -119,9 +160,11 @@ def render(case_path, output_dir):
                           clim=[u_min, u_max], line_width=2,
                           scalar_bar_args={"title": "Velocity Magnitude (m/s)"})
     plotter.view_isometric()
-    plotter.reset_camera(bounds=focus_bounds)
+    plotter.reset_camera()
+    zoom1 = _zoom_factor_for(mesh.bounds, focus_bounds, axes=(0, 1, 2))
+    plotter.camera.zoom(zoom1)
+    print(f"STEP 10 (zoom={zoom1:.2f}): panel 1 built", flush=True)
     plotter.show_axes()
-    print("STEP 10: panel 1 built", flush=True)
 
     # --- Panel 2: pressure slice + wireframe geometry context, side view ---
     plotter.subplot(0, 1)
@@ -131,11 +174,14 @@ def render(case_path, output_dir):
     plotter.add_mesh(sliced, scalars="p", cmap="coolwarm", clim=[p_min, p_max],
                       scalar_bar_args={"title": "Static Pressure (Pa)"})
     plotter.view_xz()
-    slice_pad = pad * 2.0
-    slice_bounds = (cx - slice_pad, cx + slice_pad, cy - slice_pad, cy + slice_pad,
-                     cz - slice_pad, cz + slice_pad)
-    plotter.reset_camera(bounds=slice_bounds)
-    print("STEP 11: panel 2 built", flush=True)
+    plotter.reset_camera()
+    # view_xz is an orthographic projection along Y, so Y-extent never
+    # reaches the screen — including it (as the original slice_bounds
+    # math effectively did via a bigger, Y-inclusive box) understates
+    # the true on-screen size and leaves the slice too small.
+    zoom2 = _zoom_factor_for(mesh.bounds, focus_bounds, axes=(0, 2))
+    plotter.camera.zoom(zoom2)
+    print(f"STEP 11 (zoom={zoom2:.2f}): panel 2 built", flush=True)
 
     png_path = os.path.join(output_dir, "cfd_result.png")
     plotter.screenshot(png_path)

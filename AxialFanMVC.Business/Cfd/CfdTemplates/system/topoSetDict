@@ -6,7 +6,7 @@ FoamFile
     object      topoSetDict;
 }
 
-// Run after snappyHexMesh, before simpleFoam. Creates the __MRF_ZONE_NAME__
+// Run after snappyHexMesh, before foamRun. Creates the __MRF_ZONE_NAME__
 // cellZone that constant/fvOptions' MRFSource references — snappyHexMesh
 // only shapes the mesh around the blade STL, it doesn't know which cells
 // should rotate. This carves a cylinder centred on the blade disk:

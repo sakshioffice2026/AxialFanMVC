@@ -6,7 +6,10 @@ FoamFile
     object      controlDict;
 }
 
-application     simpleFoam;
+// v13: simpleFoam is superseded by the incompressibleFluid solver module
+// executed via foamRun (LocalCfdOrchestrator invokes foamRun accordingly).
+application     foamRun;
+solver          incompressibleFluid;
 startFrom       startTime;
 startTime       0;
 stopAt          endTime;
@@ -26,7 +29,7 @@ timeFormat      general;
 timePrecision   6;
 runTimeModifiable true;
 
-// Residual monitoring for progress reporting — simpleFoam prints these
+// Residual monitoring for progress reporting — foamRun prints these
 // every iteration to stdout; the C# process runner parses these lines
 // directly (see LocalCfdOrchestrator.ParseResidualLine).
 functions

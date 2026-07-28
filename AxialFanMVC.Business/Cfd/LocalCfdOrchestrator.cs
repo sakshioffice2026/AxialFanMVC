@@ -23,7 +23,7 @@ namespace AxialFanMVC.Business.Cfd
         private readonly IProgress<string> _progress;
 
         // templateRootPath comes from DI in Program.cs, resolved off
-        // IWebHostEnvironment.ContentRootPath — see registration snippet below.
+        // IWebHostEnvironment.ContentRootPath ? see registration snippet below.
         public LocalCfdOrchestrator(string templateRootPath, IProgress<string> progress = null)
         {
             _templateRoot = templateRootPath;
@@ -53,11 +53,13 @@ namespace AxialFanMVC.Business.Cfd
                 await RunWslCommandAsync("snappyHexMesh -overwrite", wslCasePath, ct).ConfigureAwait(false);
 
                 // Carves the rotorZone cellZone (system/topoSetDict) that
-                // constant/fvOptions' MRFSource needs — must run after
-                // snappyHexMesh has actually shaped the mesh around the blade.
+                // constant/MRFProperties' MRF1 cellZone needs — must run
+                // after snappyHexMesh has actually shaped the mesh around the blade.
                 await RunWslCommandAsync("topoSet", wslCasePath, ct).ConfigureAwait(false);
 
-                await RunWslCommandAsync("simpleFoam", wslCasePath, ct).ConfigureAwait(false);
+                // v13: simpleFoam is a deprecated shim that just prints a
+                // notice and execs this; call the real solver module directly.
+                await RunWslCommandAsync("foamRun -solver incompressibleFluid", wslCasePath, ct).ConfigureAwait(false);
 
                 return casePath;
             }
@@ -69,7 +71,7 @@ namespace AxialFanMVC.Business.Cfd
 
         /// <summary>
         /// Writes constant/triSurface/fan.stl from this design's own numbers
-        /// (BladeStlGenerator) — a first-pass solid, not a CAD export; see
+        /// (BladeStlGenerator) ? a first-pass solid, not a CAD export; see
         /// BladeStlGenerator's header comment for exactly what's approximated.
         /// Generator failures (bad HubRatio, corrupt stored profile, etc.) are
         /// wrapped as CfdSolverException so they surface the same way a
@@ -120,7 +122,7 @@ namespace AxialFanMVC.Business.Cfd
             // axial thickness centred on that plane, with 10% radial
             // clearance beyond the tip so the whole swept envelope is inside
             // the rotating frame. Both assumptions must hold for the actual
-            // blade STL once it's supplied — see topoSetDict's header comment.
+            // blade STL once it's supplied ? see topoSetDict's header comment.
             double fanZ = domainLength / 3.0;
             double rotorHalfThickness = radiusM * 0.5;
             double rotorZoneRadius = radiusM * 1.1;
@@ -166,7 +168,11 @@ namespace AxialFanMVC.Business.Cfd
             ReplaceTokensInFile(Path.Combine(casePath, "system", "blockMeshDict"), tokens);
             ReplaceTokensInFile(Path.Combine(casePath, "system", "snappyHexMeshDict"), tokens);
             ReplaceTokensInFile(Path.Combine(casePath, "system", "topoSetDict"), tokens);
+            // MRFProperties itself only carries __MRF_ZONE_NAME__ now; the
+            // rotation numbers (__RPM_TARGET__) live in the #include'd
+            // rotatingZoneProperties file (v13 simpleRushtonMRF pattern).
             ReplaceTokensInFile(Path.Combine(casePath, "constant", "MRFProperties"), tokens);
+            ReplaceTokensInFile(Path.Combine(casePath, "constant", "rotatingZoneProperties"), tokens);
             ReplaceTokensInFile(Path.Combine(casePath, "0", "U"), tokens);
             ReplaceTokensInFile(Path.Combine(casePath, "0", "k"), tokens);
             ReplaceTokensInFile(Path.Combine(casePath, "0", "omega"), tokens);

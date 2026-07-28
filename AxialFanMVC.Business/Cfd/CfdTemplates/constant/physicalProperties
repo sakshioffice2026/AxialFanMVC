@@ -3,7 +3,7 @@ FoamFile
     version     2.0;
     format      ascii;
     class       dictionary;
-    object      transportProperties;
+    object      physicalProperties;
 }
 
 // Standard air at ~20C / 1 atm. RunPipelineAsync currently only takes
@@ -13,6 +13,8 @@ FoamFile
 // TemperatureCelsius/DensityKgM3 through and derive nu (e.g. Sutherland)
 // instead of hardcoding it here.
 
-transportModel  Newtonian;
+// v13 renamed the old transportModel key to viscosityModel; Newtonian is
+// also the default so this entry could be omitted, kept explicit for clarity.
+viscosityModel  Newtonian;
 
 nu              [0 2 -1 0 0 0 0]    1.5e-05;
