@@ -412,6 +412,35 @@
                 <i class="bi bi-arrow-clockwise me-1"></i>Run Again
             </button>
         </div>
+
+        @* {{!-- Interactive 3D view of the same .vtp data as the PNG above —
+               parsed client-side (see cfdVtkViewer IIFE in Scripts), not via
+               three.js's stock VTKLoader (doesn't read named PointData
+               scalars or Lines geometry — see that IIFE's header comment).
+               Streamlines toggle is hidden entirely when this design's run
+               produced none (Model.CfdStreamlinesVtpUrl is null) — that's an
+               expected outcome for some geometries, not a failure state. --}} *@
+        <div class="mt-3 pt-3 border-top">
+            <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                <span class="fw-semibold small text-muted text-uppercase" style="letter-spacing:.03em">
+                    Interactive 3D View
+                </span>
+                <div class="btn-group btn-group-sm" role="group" id="savedCfdVtkToggle">
+                    <button type="button" class="btn btn-outline-primary active" data-vtk-mode="pressure">
+                        Pressure Slice
+                    </button>
+                    <button type="button" class="btn btn-outline-primary d-none" data-vtk-mode="streamlines" id="savedCfdStreamlinesBtn">
+                        Streamlines
+                    </button>
+                </div>
+            </div>
+            <div class="blade-viewer-stage" id="savedCfdVtkStage" style="height:360px;" data-vtp-url="@Model.CfdVtpUrl" data-streamlines-url="@Model.CfdStreamlinesVtpUrl">
+                <div class="blade-viewer-overlay" id="savedCfdVtkOverlay">
+                    <div class="spinner-border text-info" role="status"></div>
+                    <span>Loading field data…</span>
+                </div>
+            </div>
+        </div>
     </div>
     <div class="card-body text-center py-4" id="savedCfdEmpty" style="@(Model.HasCfdResult ? "display:none;" : "")">
         <p class="text-muted mb-3">
@@ -2377,6 +2406,298 @@
                     } else {
                         console.error('Optimize for me: #optimizeModal not found in DOM — the modal HTML block is missing from this page.');
                     }
+                })();
+
+                // ── CFD field-data 3D viewer (pressure slice / streamlines) ──
+                // Deliberately NOT using three.js's stock VTKLoader (already
+                // loaded above for the blade STL viewer). Checked its actual
+                // r128 source directly: its XML/.vtp branch only pulls a
+                // "Normals" array out of PointData (never named scalar
+                // arrays like "p" or "U_magnitude"), and its section list is
+                // ['PointData','Points','Strips','Polys'] — Lines is
+                // explicitly not handled, so streamlines (saved by PyVista
+                // as Lines) wouldn't render at all with it. render_result.py
+                // now saves both .vtp files as ASCII (binary=False) rather
+                // than PyVista's default binary-appended+zlib format, which
+                // is what makes this small parser tractable without pulling
+                // in a real VTK/zlib stack client-side.
+                (function () {
+                    function parseAsciiVtp(xmlText) {
+                        const dom = new DOMParser().parseFromString(xmlText, 'application/xml');
+                        const piece = dom.querySelector('Piece');
+                        if (!piece) throw new Error('No <Piece> element found in .vtp file.');
+
+                        function numbers(el) {
+                            if (!el) return null;
+                            return el.textContent.trim().split(/\s+/).filter(s => s.length).map(Number);
+                        }
+                        function dataArray(scopeEl, name) {
+                            if (!scopeEl) return null;
+                            const arrs = scopeEl.querySelectorAll('DataArray');
+                            for (const a of arrs) if (a.getAttribute('Name') === name) return a;
+                            return null;
+                        }
+                        function primitivesFrom(sectionEl) {
+                            if (!sectionEl) return [];
+                            const connectivity = numbers(dataArray(sectionEl, 'connectivity'));
+                            const offsets = numbers(dataArray(sectionEl, 'offsets'));
+                            if (!connectivity || !offsets) return [];
+                            const prims = [];
+                            let start = 0;
+                            for (const end of offsets) {
+                                prims.push(connectivity.slice(start, end));
+                                start = end;
+                            }
+                            return prims;
+                        }
+
+                        const pointsEl = piece.querySelector('Points');
+                        const pointsArr = numbers(pointsEl ? pointsEl.querySelector('DataArray') : null) || [];
+                        const points = new Float32Array(pointsArr);
+
+                        const pointData = {};
+                        const pointDataEl = piece.querySelector('PointData');
+                        if (pointDataEl) {
+                            pointDataEl.querySelectorAll('DataArray').forEach(a => {
+                                const name = a.getAttribute('Name');
+                                if (!name) return;
+                                pointData[name] = new Float32Array(numbers(a) || []);
+                            });
+                        }
+
+                        return {
+                            points,
+                            lines: primitivesFrom(piece.querySelector('Lines')),
+                            polys: primitivesFrom(piece.querySelector('Polys')),
+                            pointData
+                        };
+                    }
+
+                    // 2nd-98th percentile clip, same reasoning/values as
+                    // render_result.py's PNG coloring, so the interactive
+                    // view and the static screenshot read consistently
+                    // instead of one being washed out by a few outlier cells.
+                    function percentileClim(arr) {
+                        if (!arr || arr.length === 0) return [0, 1];
+                        const sorted = Array.from(arr).sort((a, b) => a - b);
+                        const at = p => sorted[Math.min(sorted.length - 1, Math.max(0, Math.round(p * (sorted.length - 1))))];
+                        let lo = at(0.02), hi = at(0.98);
+                        if (hi <= lo) { lo = sorted[0]; hi = sorted[sorted.length - 1]; }
+                        if (hi <= lo) hi = lo + 1e-6;
+                        return [lo, hi];
+                    }
+
+                    // Diverging blue→white→red, approximating matplotlib's
+                    // "coolwarm" used for the pressure slice PNG.
+                    function coolwarmColor(t) {
+                        t = Math.min(1, Math.max(0, t));
+                        const c0 = [0.230, 0.299, 0.754], c1 = [0.865, 0.865, 0.865], c2 = [0.706, 0.016, 0.150];
+                        const [a, b] = t < 0.5 ? [c0, c1] : [c1, c2];
+                        const f = t < 0.5 ? t / 0.5 : (t - 0.5) / 0.5;
+                        return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+                    }
+
+                    // Approximating matplotlib's "jet", used for streamline
+                    // velocity coloring in the PNG.
+                    function jetColor(t) {
+                        t = Math.min(1, Math.max(0, t));
+                        const r = Math.min(1, Math.max(0, 1.5 - Math.abs(4 * t - 3)));
+                        const g = Math.min(1, Math.max(0, 1.5 - Math.abs(4 * t - 2)));
+                        const b = Math.min(1, Math.max(0, 1.5 - Math.abs(4 * t - 1)));
+                        return [r, g, b];
+                    }
+
+                    function buildPressureMesh(parsed) {
+                        const scalars = parsed.pointData['p'];
+                        const [lo, hi] = percentileClim(scalars);
+                        const positions = [];
+                        const colors = [];
+
+                        function pushVertex(idx) {
+                            positions.push(parsed.points[idx * 3], parsed.points[idx * 3 + 1], parsed.points[idx * 3 + 2]);
+                            const t = scalars ? (scalars[idx] - lo) / (hi - lo) : 0.5;
+                            const [r, g, b] = coolwarmColor(t);
+                            colors.push(r, g, b);
+                        }
+
+                        // Fan-triangulate each polygon — correct for the
+                        // convex triangles/quads a planar mesh slice
+                        // produces; would need proper ear-clipping for
+                        // arbitrary concave polygons, which this data
+                        // doesn't produce.
+                        parsed.polys.forEach(poly => {
+                            for (let i = 1; i < poly.length - 1; i++) {
+                                pushVertex(poly[0]); pushVertex(poly[i]); pushVertex(poly[i + 1]);
+                            }
+                        });
+
+                        const geometry = new THREE.BufferGeometry();
+                        geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+                        geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+                        geometry.computeVertexNormals();
+
+                        const material = new THREE.MeshStandardMaterial({
+                            vertexColors: true, side: THREE.DoubleSide, metalness: 0.1, roughness: 0.8
+                        });
+                        return new THREE.Mesh(geometry, material);
+                    }
+
+                    function buildStreamlinesObject(parsed) {
+                        const scalars = parsed.pointData['U_magnitude'];
+                        const [lo, hi] = percentileClim(scalars);
+                        const positions = [];
+                        const colors = [];
+
+                        function pushVertex(idx) {
+                            positions.push(parsed.points[idx * 3], parsed.points[idx * 3 + 1], parsed.points[idx * 3 + 2]);
+                            const t = scalars ? (scalars[idx] - lo) / (hi - lo) : 0.5;
+                            const [r, g, b] = jetColor(t);
+                            colors.push(r, g, b);
+                        }
+
+                        // Each Lines primitive is a polyline of point
+                        // indices; emit consecutive pairs as LineSegments so
+                        // per-vertex coloring works without a fat-line
+                        // library. Known limitation: WebGL caps basic line
+                        // width at ~1px on most platforms/GPUs.
+                        parsed.lines.forEach(line => {
+                            for (let i = 0; i < line.length - 1; i++) {
+                                pushVertex(line[i]); pushVertex(line[i + 1]);
+                            }
+                        });
+
+                        const geometry = new THREE.BufferGeometry();
+                        geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+                        geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+                        const material = new THREE.LineBasicMaterial({ vertexColors: true });
+                        return new THREE.LineSegments(geometry, material);
+                    }
+
+                    function initCfdVtkStage(stageEl) {
+                        if (!stageEl || typeof THREE === 'undefined') return;
+                        const vtpUrl = stageEl.dataset.vtpUrl;
+                        if (!vtpUrl) return; // nothing to show yet for this result
+
+                        const overlayEl = stageEl.querySelector('#savedCfdVtkOverlay') || stageEl.querySelector('.blade-viewer-overlay');
+                        const toggleWrap = document.getElementById('savedCfdVtkToggle');
+                        const streamlinesBtn = document.getElementById('savedCfdStreamlinesBtn');
+                        const streamlinesUrl = stageEl.dataset.streamlinesUrl;
+
+                        // Tear down a previous instance if this is being
+                        // re-initialized after a fresh run (updateCfdResultCard).
+                        if (stageEl._cfdVtkCleanup) stageEl._cfdVtkCleanup();
+
+                        const scene = new THREE.Scene();
+                        const camera = new THREE.PerspectiveCamera(45, stageEl.clientWidth / Math.max(stageEl.clientHeight, 1), 0.01, 1000);
+                        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+                        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                        renderer.setSize(stageEl.clientWidth, stageEl.clientHeight);
+                        stageEl.appendChild(renderer.domElement);
+
+                        scene.add(new THREE.AmbientLight(0x8899aa, 0.7));
+                        const key = new THREE.DirectionalLight(0xffffff, 0.9);
+                        key.position.set(1.2, 1.6, 1.0);
+                        scene.add(key);
+
+                        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+                        controls.enableDamping = true;
+                        controls.dampingFactor = 0.08;
+
+                        let pressureMesh = null;
+                        let streamlinesObj = null;
+                        let raf = null;
+
+                        function fit(object) {
+                            const box = new THREE.Box3().setFromObject(object);
+                            const size = box.getSize(new THREE.Vector3());
+                            const center = box.getCenter(new THREE.Vector3());
+                            const maxDim = Math.max(size.x, size.y, size.z, 0.05);
+                            const fov = camera.fov * Math.PI / 180;
+                            const distance = (maxDim / 2) / Math.tan(fov / 2) * 1.6;
+                            camera.position.copy(center.clone().add(new THREE.Vector3(0.7, 0.6, 1).normalize().multiplyScalar(distance)));
+                            camera.near = distance / 100; camera.far = distance * 100;
+                            camera.updateProjectionMatrix();
+                            controls.target.copy(center);
+                            controls.update();
+                        }
+
+                        function animate() {
+                            raf = requestAnimationFrame(animate);
+                            controls.update();
+                            renderer.render(scene, camera);
+                        }
+
+                        function showMode(mode) {
+                            if (pressureMesh) pressureMesh.visible = (mode === 'pressure');
+                            if (streamlinesObj) streamlinesObj.visible = (mode === 'streamlines');
+                            if (toggleWrap) {
+                                toggleWrap.querySelectorAll('[data-vtk-mode]').forEach(btn => {
+                                    btn.classList.toggle('active', btn.dataset.vtkMode === mode);
+                                });
+                            }
+                        }
+
+                        function onToggleClick(e) {
+                            const btn = e.target.closest('[data-vtk-mode]');
+                            if (!btn || btn.classList.contains('d-none')) return;
+                            showMode(btn.dataset.vtkMode);
+                        }
+                        if (toggleWrap) toggleWrap.addEventListener('click', onToggleClick);
+
+                        function handleResize() {
+                            const w = stageEl.clientWidth, h = stageEl.clientHeight;
+                            if (!w || !h) return;
+                            camera.aspect = w / h;
+                            camera.updateProjectionMatrix();
+                            renderer.setSize(w, h);
+                        }
+                        const resizeObserver = new ResizeObserver(handleResize);
+                        resizeObserver.observe(stageEl);
+
+                        fetch(vtpUrl).then(r => r.text()).then(text => {
+                            const parsed = parseAsciiVtp(text);
+                            pressureMesh = buildPressureMesh(parsed);
+                            scene.add(pressureMesh);
+                            fit(pressureMesh);
+                            if (overlayEl) overlayEl.classList.add('d-none');
+                            animate();
+                        }).catch(err => {
+                            if (overlayEl) overlayEl.querySelector('span') && (overlayEl.querySelector('span').textContent = 'Could not load pressure field.');
+                            console.error('CFD pressure .vtp load failed:', err);
+                        });
+
+                        // Streamlines toggle only appears/works when this
+                        // result actually produced one (see render_result.py's
+                        // seed-search — legitimately absent for some geometries).
+                        if (streamlinesUrl) {
+                            if (streamlinesBtn) streamlinesBtn.classList.remove('d-none');
+                            fetch(streamlinesUrl).then(r => r.text()).then(text => {
+                                const parsed = parseAsciiVtp(text);
+                                streamlinesObj = buildStreamlinesObject(parsed);
+                                streamlinesObj.visible = false;
+                                scene.add(streamlinesObj);
+                            }).catch(err => console.error('CFD streamlines .vtp load failed:', err));
+                        } else if (streamlinesBtn) {
+                            streamlinesBtn.classList.add('d-none');
+                        }
+
+                        stageEl._cfdVtkCleanup = function () {
+                            if (raf) cancelAnimationFrame(raf);
+                            resizeObserver.disconnect();
+                            if (toggleWrap) toggleWrap.removeEventListener('click', onToggleClick);
+                            renderer.dispose();
+                            if (renderer.domElement.parentNode) renderer.domElement.parentNode.removeChild(renderer.domElement);
+                        };
+                    }
+
+                    const savedStage = document.getElementById('savedCfdVtkStage');
+                    if (savedStage) initCfdVtkStage(savedStage);
+
+                    // Exposed so updateCfdResultCard() (below) can re-render
+                    // this stage against a freshly completed run's URLs
+                    // without duplicating any of the parsing/scene logic.
+                    window.__initCfdVtkStage = initCfdVtkStage;
                 })();
 
                 // ── CFD pressure slice — mirrors the Optimize for me flow above,
