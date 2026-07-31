@@ -102,6 +102,78 @@
             animation: none !important;
         }
     }
+
+    /* ── 3D Blade Viewer ──────────────────────────────────────────── */
+    .blade-viewer-card {
+        background: #10151c;
+        border: 1px solid #232b36;
+        border-radius: 0.5rem;
+        overflow: hidden;
+    }
+
+        .blade-viewer-card .card-header {
+            background: #161d27;
+            border-bottom: 1px solid #232b36;
+            color: #e8edf3;
+        }
+
+    .blade-viewer-toolbar .btn {
+        --bs-btn-color: #cfd8e3;
+        --bs-btn-border-color: #2c3646;
+        --bs-btn-hover-bg: #232e3d;
+        --bs-btn-hover-color: #ffffff;
+        --bs-btn-hover-border-color: #3a4759;
+        --bs-btn-active-bg: #2c3646;
+        background: #1a2129;
+    }
+
+    .blade-viewer-stage {
+        position: relative;
+        width: 100%;
+        height: 480px;
+        background: radial-gradient(circle at 50% 35%, #1b2430 0%, #0c1017 75%);
+    }
+
+        .blade-viewer-stage canvas {
+            display: block;
+            width: 100% !important;
+            height: 100% !important;
+            touch-action: none;
+        }
+
+        .blade-viewer-stage:fullscreen {
+            height: 100vh;
+        }
+
+    .blade-viewer-overlay {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 0.75rem;
+        color: #aab6c5;
+        background: rgba(12, 16, 23, 0.85);
+        pointer-events: none;
+    }
+
+        .blade-viewer-overlay.d-none {
+            display: none !important;
+        }
+
+    .blade-viewer-badge {
+        position: absolute;
+        top: 0.75rem;
+        left: 0.75rem;
+        font-size: 0.72rem;
+        letter-spacing: 0.04em;
+        color: #8fa0b5;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 999px;
+        padding: 0.2rem 0.65rem;
+    }
 </style>
 
 <div class="mb-4">
@@ -267,6 +339,89 @@
         <div class="form-text">Runs locally via Ollama. Explanations only — every number it states comes from the results on this page, not from the AI itself.</div>
     </div>
 </div> *@
+
+@* {{!-- 3D Blade Viewer — real STL geometry generated from this design's
+       own calculated numbers (see CfdController.BladeStl / BladeStlGenerator).
+       Self-contained dark "premium" widget; doesn't touch the rest of the
+       page's light theme. --}} *@
+<div class="card shadow-sm mb-4 blade-viewer-card">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h5 class="card-title mb-0">
+            <i class="bi bi-badge-3d me-2 text-info"></i>3D Blade Viewer
+        </h5>
+        <div class="btn-group btn-group-sm blade-viewer-toolbar" role="group" aria-label="Viewer controls">
+            <button type="button" class="btn" id="bladeViewerReset" title="Reset view">
+                <i class="bi bi-arrow-counterclockwise"></i> Reset View
+            </button>
+            <button type="button" class="btn" id="bladeViewerAutoFit" title="Auto fit">
+                <i class="bi bi-aspect-ratio"></i> Auto Fit
+            </button>
+            <button type="button" class="btn" id="bladeViewerSpin" title="Play/pause rotation">
+                <i class="bi bi-pause-fill" id="bladeViewerSpinIcon"></i> <span id="bladeViewerSpinLabel">Pause</span>
+            </button>
+            <button type="button" class="btn" id="bladeViewerFullscreen" title="Fullscreen">
+                <i class="bi bi-fullscreen"></i> Fullscreen
+            </button>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <div class="blade-viewer-stage" id="bladeViewerStage">
+            <span class="blade-viewer-badge">
+                <i class="bi bi-info-circle me-1"></i>Geometry generated from this design's blade-element data
+            </span>
+            <div class="blade-viewer-overlay" id="bladeViewerOverlay">
+                <div class="spinner-border text-info" role="status"></div>
+                <span id="bladeViewerOverlayText">Loading blade geometry…</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+@* {{!-- Persistent CFD Result card — survives page refresh / revisit.
+       Populated on initial load from Model.HasCfdResult (ResultsController
+       checks wwwroot/cfd/{ResultId}/pressure_slice.png on disk), and kept
+       in sync afterwards by updateCfdResultCard() whenever a run completes
+       in the modal above, without touching the modal/polling logic itself. --}} *@
+<div class="card shadow-sm mb-4" id="cfdResultCard">
+    <div class="card-body" id="savedCfdBody" style="@(Model.HasCfdResult ? "" : "display:none;")">
+        <div class="d-flex justify-content-between align-items-start mb-3">
+            <h5 class="card-title mb-0">
+                <i class="bi bi-wind me-2 text-info"></i>CFD Pressure Slice
+            </h5>
+            <span class="badge bg-success" id="savedCfdStatus">Available</span>
+        </div>
+        <img id="savedCfdImage" src="@Model.CfdImageUrl" alt="Saved CFD static-pressure slice"
+             class="img-fluid rounded border mb-2" style="max-height: 320px; object-fit: contain;" />
+        <p class="text-muted small mb-3" id="savedCfdTime">
+            @if (Model.CfdGeneratedOn.HasValue)
+            {
+                @:Generated @Model.CfdGeneratedOn.Value.ToString("dd MMM yyyy, HH:mm")
+            }
+        </p>
+        <div class="d-flex gap-2 flex-wrap">
+            <a id="savedCfdView" href="@Model.CfdImageUrl" target="_blank" class="btn btn-outline-info btn-sm">
+                <i class="bi bi-arrows-fullscreen me-1"></i>View Full Size
+            </a>
+            <a id="savedCfdDownload" href="@Model.CfdImageUrl" download class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-download me-1"></i>Download PNG
+            </a>
+            <a id="savedCfdVtp" href="@Model.CfdVtpUrl" download class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-download me-1"></i>Download VTP
+            </a>
+            <button type="button" class="btn btn-outline-warning btn-sm" data-bs-toggle="modal" data-bs-target="#cfdModal">
+                <i class="bi bi-arrow-clockwise me-1"></i>Run Again
+            </button>
+        </div>
+    </div>
+    <div class="card-body text-center py-4" id="savedCfdEmpty" style="@(Model.HasCfdResult ? "display:none;" : "")">
+        <p class="text-muted mb-3">
+            <i class="bi bi-wind me-2"></i>No CFD Result Available
+        </p>
+        <button type="button" class="btn btn-info btn-sm" data-bs-toggle="modal" data-bs-target="#cfdModal">
+            <i class="bi bi-play-fill me-1"></i>Generate CFD
+        </button>
+    </div>
+</div>
 
 <div class="row g-4">
 
@@ -1063,7 +1218,11 @@
                         <div id="cfdRunning" class="d-none text-center py-5">
                             <div class="spinner-border text-info mb-3" role="status"></div>
                             <p class="mb-0 fw-semibold" id="cfdStatusLabel">Queued…</p>
-                            <small class="text-muted">This page will update automatically — no need to refresh.</small>
+                            <small class="text-muted d-block mb-3">This page will update automatically — no need to refresh.</small>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="cfdMinimizeBtn" data-bs-dismiss="modal">
+                                <i class="bi bi-arrow-down-square me-1"></i>Minimize (notify me when done)
+                            </button>
+                            <small class="text-muted d-block mt-2">The solver keeps running in the background — you can close this window and keep working.</small>
                         </div>
 
                         @* Error state *@
@@ -1091,6 +1250,9 @@
         </div>
 
 @section Scripts {
+            <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+            <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+            <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
             <script>
                 // ── Initial curve data from server ───────────────────────────
                 const initialCurves = @Html.Raw(Model.CurveJson);
@@ -1173,6 +1335,241 @@
                     });
                 })();
 
+                // ── 3D Blade Viewer ──────────────────────────────────────────────
+                // Loads real STL geometry from /Cfd/BladeStl/{resultId} (generated
+                // server-side by BladeStlGenerator from this design's own tip/hub
+                // radius, blade count, RPM and axial velocity — see CfdController).
+                // Self-contained: doesn't touch any other script block on this page.
+                (function () {
+                    const stageEl = document.getElementById('bladeViewerStage');
+                    if (!stageEl || typeof THREE === 'undefined') return;
+
+                    const overlayEl     = document.getElementById('bladeViewerOverlay');
+                    const overlayTextEl = document.getElementById('bladeViewerOverlayText');
+                    const btnReset      = document.getElementById('bladeViewerReset');
+                    const btnAutoFit    = document.getElementById('bladeViewerAutoFit');
+                    const btnSpin       = document.getElementById('bladeViewerSpin');
+                    const btnSpinIcon   = document.getElementById('bladeViewerSpinIcon');
+                    const btnSpinLabel  = document.getElementById('bladeViewerSpinLabel');
+                    const btnFullscreen = document.getElementById('bladeViewerFullscreen');
+
+                    // Same clamp formula as the flow-diagram SVG's fvSpinSeconds
+                    // above, so "faster fan = faster spin" feels consistent
+                    // between the plain-language diagram and this real geometry.
+                    const spinSeconds = Math.min(Math.max(3000.0 / Math.max(designRpm, 1), 0.4), 3.0);
+                    const angularVelocityRadPerSec = (2 * Math.PI) / spinSeconds;
+
+                    const hubDiameterMm = @Model.HubDiameterMm;
+                    const tipDiameterMm = @Model.TipDiameterMm;
+                    // Scene units: metres, matching BladeStlGenerator's output.
+                    const hubRadiusM = (hubDiameterMm / 2) / 1000;
+                    const hubLengthM = Math.max((tipDiameterMm - hubDiameterMm) / 1000 * 0.35, hubRadiusM * 0.6);
+
+                    let renderer, scene, camera, controls, clock;
+                    let modelGroup = null;
+                    let spinning = true;
+                    let defaultCameraPos = null;
+                    let resizeObserver = null;
+
+                    function initScene() {
+                        scene = new THREE.Scene();
+
+                        camera = new THREE.PerspectiveCamera(45, stageEl.clientWidth / stageEl.clientHeight, 0.01, 100);
+
+                        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+                        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                        renderer.setSize(stageEl.clientWidth, stageEl.clientHeight);
+                        renderer.shadowMap.enabled = true;
+                        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                        renderer.outputColorSpace = THREE.SRGBColorSpace || THREE.sRGBEncoding;
+                        stageEl.appendChild(renderer.domElement);
+
+                        // Lighting — key + fill + soft ambient, all shadow-casting
+                        // where relevant, for a "premium" rendered look rather
+                        // than flat/unlit geometry.
+                        scene.add(new THREE.AmbientLight(0x8899aa, 0.55));
+
+                        const keyLight = new THREE.DirectionalLight(0xffffff, 1.15);
+                        keyLight.position.set(1.4, 1.8, 1.1);
+                        keyLight.castShadow = true;
+                        keyLight.shadow.mapSize.set(1024, 1024);
+                        keyLight.shadow.camera.near = 0.05;
+                        keyLight.shadow.camera.far = 10;
+                        scene.add(keyLight);
+
+                        const fillLight = new THREE.DirectionalLight(0x6fa8dc, 0.4);
+                        fillLight.position.set(-1.2, -0.6, -0.8);
+                        scene.add(fillLight);
+
+                        const rimLight = new THREE.PointLight(0x66ccff, 0.5, 8);
+                        rimLight.position.set(0, 1.2, -1.4);
+                        scene.add(rimLight);
+
+                        // Grid + axes helpers, sized relative to the fan geometry.
+                        const gridSize = Math.max((tipDiameterMm / 1000) * 3, 0.6);
+                        const grid = new THREE.GridHelper(gridSize, 20, 0x2c3a4a, 0x1a222c);
+                        grid.position.y = -(tipDiameterMm / 2000) * 1.05;
+                        scene.add(grid);
+
+                        const axes = new THREE.AxesHelper(Math.max(tipDiameterMm / 2000, 0.2));
+                        scene.add(axes);
+
+                        controls = new THREE.OrbitControls(camera, renderer.domElement);
+                        controls.enableDamping = true;
+                        controls.dampingFactor = 0.08;
+                        controls.minDistance = Math.max(tipDiameterMm / 2000, 0.1) * 0.6;
+                        controls.maxDistance = Math.max(tipDiameterMm / 1000, 0.5) * 12;
+                        controls.enablePan = true;
+                        controls.enableZoom = true;
+                        controls.enableRotate = true;
+                        controls.screenSpacePanning = true;
+
+                        modelGroup = new THREE.Group();
+                        // BladeStlGenerator builds blades with eZ (0,0,1) as the
+                        // rotation axis; rotate the whole group so that axis
+                        // reads as "up-ish"/forward in a natural viewing pose,
+                        // matching the axial-fan convention (looking down the bore).
+                        modelGroup.rotation.x = -0.35;
+                        scene.add(modelGroup);
+
+                        // Hub cylinder, sized from this result's own
+                        // HubDiameterMm/TipDiameterMm — illustrative shaft/hub
+                        // volume the blades attach to, since BladeStlGenerator
+                        // doesn't model a solid hub itself (see its docstring).
+                        const hubGeometry = new THREE.CylinderGeometry(hubRadiusM, hubRadiusM, hubLengthM, 32);
+                        hubGeometry.rotateX(Math.PI / 2); // align cylinder axis with Z (eZ)
+                        const hubMaterial = new THREE.MeshStandardMaterial({
+                            color: 0x4a5a6c, metalness: 0.55, roughness: 0.35
+                        });
+                        const hubMesh = new THREE.Mesh(hubGeometry, hubMaterial);
+                        hubMesh.castShadow = true;
+                        hubMesh.receiveShadow = true;
+                        modelGroup.add(hubMesh);
+
+                        clock = new THREE.Clock();
+
+                        resizeObserver = new ResizeObserver(() => handleResize());
+                        resizeObserver.observe(stageEl);
+
+                        animate();
+                    }
+
+                    function handleResize() {
+                        if (!renderer || !camera) return;
+                        const w = stageEl.clientWidth;
+                        const h = stageEl.clientHeight;
+                        if (w === 0 || h === 0) return;
+                        camera.aspect = w / h;
+                        camera.updateProjectionMatrix();
+                        renderer.setSize(w, h);
+                    }
+
+                    function animate() {
+                        requestAnimationFrame(animate);
+                        const delta = clock.getDelta();
+                        if (spinning && modelGroup) {
+                            modelGroup.rotateOnWorldAxis(new THREE.Vector3(0, 0, 1), angularVelocityRadPerSec * delta);
+                        }
+                        controls.update();
+                        renderer.render(scene, camera);
+                    }
+
+                    function fitCameraToObject(object, offset) {
+                        offset = offset || 1.6;
+                        const box = new THREE.Box3().setFromObject(object);
+                        const size = box.getSize(new THREE.Vector3());
+                        const center = box.getCenter(new THREE.Vector3());
+
+                        const maxDim = Math.max(size.x, size.y, size.z, 0.05);
+                        const fov = camera.fov * (Math.PI / 180);
+                        let distance = (maxDim / 2) / Math.tan(fov / 2);
+                        distance *= offset;
+
+                        const direction = new THREE.Vector3(0.6, 0.45, 1).normalize();
+                        const newPos = center.clone().add(direction.multiplyScalar(distance));
+
+                        camera.position.copy(newPos);
+                        camera.near = Math.max(distance / 100, 0.01);
+                        camera.far = distance * 100;
+                        camera.updateProjectionMatrix();
+
+                        controls.target.copy(center);
+                        controls.update();
+
+                        if (!defaultCameraPos) {
+                            defaultCameraPos = { position: newPos.clone(), target: center.clone() };
+                        }
+                    }
+
+                    function loadBladeStl() {
+                        const loader = new THREE.STLLoader();
+                        loader.load(
+                            `/Cfd/BladeStl/${resultId}`,
+                            (geometry) => {
+                                geometry.computeVertexNormals();
+                                geometry.computeBoundingBox();
+
+                                const material = new THREE.MeshStandardMaterial({
+                                    color: 0xb9c6d6,
+                                    metalness: 0.65,
+                                    roughness: 0.28,
+                                    side: THREE.DoubleSide
+                                });
+
+                                const bladeMesh = new THREE.Mesh(geometry, material);
+                                bladeMesh.castShadow = true;
+                                bladeMesh.receiveShadow = true;
+                                // STL coordinates are in metres already (BladeStlGenerator
+                                // works directly in metres), no extra scaling needed.
+                                modelGroup.add(bladeMesh);
+
+                                fitCameraToObject(modelGroup);
+                                overlayEl.classList.add('d-none');
+                            },
+                            undefined,
+                            (err) => {
+                                overlayTextEl.textContent = 'Could not load blade geometry.';
+                                overlayEl.querySelector('.spinner-border')?.classList.add('d-none');
+                                console.error('Blade STL load failed:', err);
+                            }
+                        );
+                    }
+
+                    // ── Toolbar ────────────────────────────────────────────────
+                    btnReset?.addEventListener('click', () => {
+                        if (!defaultCameraPos) return;
+                        camera.position.copy(defaultCameraPos.position);
+                        controls.target.copy(defaultCameraPos.target);
+                        controls.update();
+                    });
+
+                    btnAutoFit?.addEventListener('click', () => {
+                        if (modelGroup) fitCameraToObject(modelGroup);
+                    });
+
+                    btnSpin?.addEventListener('click', () => {
+                        spinning = !spinning;
+                        btnSpinIcon.className = spinning ? 'bi bi-pause-fill' : 'bi bi-play-fill';
+                        btnSpinLabel.textContent = spinning ? 'Pause' : 'Play';
+                    });
+
+                    btnFullscreen?.addEventListener('click', () => {
+                        if (!document.fullscreenElement) {
+                            stageEl.requestFullscreen?.();
+                        } else {
+                            document.exitFullscreen?.();
+                        }
+                    });
+
+                    stageEl.addEventListener('fullscreenchange', () => {
+                        // Give the browser a frame to apply the fullscreen layout
+                        // before resizing the renderer against it.
+                        requestAnimationFrame(handleResize);
+                    });
+
+                    initScene();
+                    loadBladeStl();
+                })();
 
                 const MAX_CURVES = 10;
                 const COLOR_PALETTE = [
@@ -1987,6 +2384,10 @@
                 // shows an image instead of a candidate list.
                 (function () {
                     let pollTimer = null;
+                    // Tracks state across modal open/close so a minimized job
+                    // isn't lost and doesn't restart from scratch on reopen.
+                    let cfdJobInProgress = false;
+                    let cfdCompletedData = null;
 
                     function q(id) { return document.getElementById(id); }
 
@@ -2012,7 +2413,63 @@
                         return document.querySelector('#cfdModal input[name="__RequestVerificationToken"]')?.value || '';
                     }
 
+                    function requestNotifyPermission() {
+                        if ('Notification' in window && Notification.permission === 'default') {
+                            Notification.requestPermission();
+                        }
+                    }
+
+                    function notifyDone(success) {
+                        if (!('Notification' in window) || Notification.permission !== 'granted') return;
+                        try {
+                            new Notification(success ? 'CFD render completed successfully' : 'CFD render failed', {
+                                body: success
+                                    ? 'Your pressure slice for this design is ready to view.'
+                                    : 'The CFD run failed — reopen this design to see details.',
+                                icon: success ? undefined : undefined
+                            });
+                        } catch (e) { /* Notification not permitted/available — ignore, UI state still updates */ }
+                    }
+
+                    function populateResults(data) {
+                        q('cfdResultImage').src = data.pngUrl || '';
+                        const vtpLink = q('cfdDownloadVtp');
+                        if (vtpLink) vtpLink.href = data.vtpUrl || '';
+                    }
+
+                    // Keeps the persistent CFD Result card (outside the modal,
+                    // see cfdResultCard above) in sync the moment a run
+                    // completes, so the user sees it right away instead of
+                    // only after their next page load — without touching any
+                    // polling/minimize/notification logic above.
+                    function updateCfdResultCard(data) {
+                        const img = q('savedCfdImage');
+                        if (img) img.src = data.pngUrl || '';
+
+                        const view = q('savedCfdView');
+                        if (view) view.href = data.pngUrl || '';
+
+                        const download = q('savedCfdDownload');
+                        if (download) download.href = data.pngUrl || '';
+
+                        const vtp = q('savedCfdVtp');
+                        if (vtp) vtp.href = data.vtpUrl || '';
+
+                        const status = q('savedCfdStatus');
+                        if (status) status.textContent = 'Available';
+
+                        const time = q('savedCfdTime');
+                        if (time) time.textContent = 'Generated ' + new Date().toLocaleString();
+
+                        const body = q('savedCfdBody');
+                        if (body) body.style.display = '';
+                        const empty = q('savedCfdEmpty');
+                        if (empty) empty.style.display = 'none';
+                    }
+
                     async function startCfd() {
+                        cfdJobInProgress = true;
+                        cfdCompletedData = null;
                         showOnly('cfdRunning');
                         setStatusLabel('Queued…');
                         try {
@@ -2027,6 +2484,7 @@
                             const data = await res.json();
                             pollStatus(data.jobId);
                         } catch (err) {
+                            cfdJobInProgress = false;
                             setError(err.message);
                         }
                     }
@@ -2039,34 +2497,67 @@
 
                             if (data.status === 'Queued' || data.status === 'Running') {
                                 setStatusLabel(data.status === 'Queued' ? 'Queued…' : 'Running solver — this can take a few minutes…');
+                                // Keep polling regardless of whether the modal is
+                                // currently open — this is what lets the job keep
+                                // being tracked after the user minimizes it.
                                 pollTimer = setTimeout(() => pollStatus(jobId), 3000);
                             } else if (data.status === 'Completed') {
-                                q('cfdResultImage').src = data.pngUrl || '';
-                                const vtpLink = q('cfdDownloadVtp');
-                                if (vtpLink) vtpLink.href = data.vtpUrl || '';
-                                showOnly('cfdResults');
+                                cfdJobInProgress = false;
+                                cfdCompletedData = data;
+                                populateResults(data);
+                                updateCfdResultCard(data);
+                                if (cfdModalEl.classList.contains('show')) {
+                                    showOnly('cfdResults');
+                                } else {
+                                    notifyDone(true);
+                                }
                             } else {
-                                setError(data.errorMessage || 'CFD run failed for an unknown reason.');
+                                cfdJobInProgress = false;
+                                const message = data.errorMessage || 'CFD run failed for an unknown reason.';
+                                if (cfdModalEl.classList.contains('show')) {
+                                    setError(message);
+                                } else {
+                                    notifyDone(false);
+                                }
                             }
                         } catch (err) {
-                            setError(err.message);
+                            cfdJobInProgress = false;
+                            if (cfdModalEl.classList.contains('show')) setError(err.message);
                         }
                     }
 
                     document.addEventListener('click', function (e) {
                         if (e.target.closest('#cfdStartBtn') || e.target.closest('#cfdRerunBtn')) {
+                            requestNotifyPermission();
                             startCfd();
+                        }
+                        if (e.target.closest('#cfdMinimizeBtn')) {
+                            requestNotifyPermission();
                         }
                     });
 
                     const cfdModalEl = q('cfdModal');
                     if (cfdModalEl) {
                         cfdModalEl.addEventListener('show.bs.modal', () => {
-                            if (pollTimer) clearTimeout(pollTimer);
-                            showOnly('cfdIdle');
+                            // Restore whatever state this job is actually in,
+                            // instead of always resetting to the idle screen —
+                            // otherwise reopening after a minimize looks like
+                            // the job never ran.
+                            if (cfdCompletedData) {
+                                populateResults(cfdCompletedData);
+                                showOnly('cfdResults');
+                            } else if (cfdJobInProgress) {
+                                showOnly('cfdRunning');
+                            } else {
+                                showOnly('cfdIdle');
+                            }
                         });
                         cfdModalEl.addEventListener('hidden.bs.modal', () => {
-                            if (pollTimer) clearTimeout(pollTimer);
+                            // Intentionally NOT clearing pollTimer here anymore —
+                            // the solver keeps running server-side regardless, and
+                            // clearing this timer just meant the UI stopped
+                            // noticing when it finished. Only cfdJobInProgress
+                            // being false (job actually done/failed) stops polling now.
                         });
                     } else {
                         console.error('CFD pressure slice: #cfdModal not found in DOM — the modal HTML block is missing from this page.');

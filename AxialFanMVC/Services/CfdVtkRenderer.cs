@@ -1,34 +1,91 @@
 using System.Diagnostics;
 using System.Text;
+using System.Text.Json;
 
 namespace AxialFanMVC.Services
 {
-    // Renders the pressure-slice PNG/.vtp by shelling out to a Python
-    // script (Cfd/Render/render_result.py) using pyvista, the same way
-    // LocalCfdOrchestrator shells out to wsl.exe for OpenFOAM itself.
+    // Renders the pressure-slice PNG/.vtp for a completed CFD case.
     //
-    // Replaces the old ActiViz.NET/Kitware.VTK path and the CfdRenderHost
-    // net48 project — that library is a mixed-mode assembly .NET 8's
-    // CoreCLR cannot load at all. pyvista's VTK bindings are normal
-    // cross-platform pip wheels, so this sidesteps that incompatibility
-    // entirely instead of working around it with a separate process
-    // targeting a different .NET runtime.
+    // render_result.py's VTK/PyVista stack ultimately goes through
+    // OpenGL/WGL to create its rendering context (even the Mesa
+    // software-rendering fallback, libgallium_wgl.dll, is still WGL
+    // underneath) — that requires an interactive desktop session.
+    // Launching python.exe directly from IIS's app pool worker process
+    // (or from a Windows Service, or a "run whether user is logged on or
+    // not" Scheduled Task) runs it in a non-interactive session, so
+    // context creation fails and takes the whole process down with a
+    // native 0xC0000005 access violation instead of a catchable
+    // exception — that crash reproduced identically outside IIS too,
+    // which ruled out App Pool identity/permissions/env vars as the
+    // cause.
     //
-    // Configure via appsettings.json -> CfdRender:PythonExe / ScriptPath
-    // (wired in Program.cs).
+    // Fix: this no longer shells out to python.exe itself. Instead it
+    // drops a request file into CfdRender:IpcDirectory and triggers a
+    // Scheduled Task (CfdRender:TaskName) configured to "Run only when
+    // user is logged on", so the actual rendering happens on an
+    // interactive desktop. That task's action is render_dispatch.py
+    // (Cfd/Render/render_dispatch.py), which calls render_result.py's
+    // render() and writes a matching response file back to the same
+    // IPC directory for this class to pick up.
+    //
+    // Public API is unchanged — RenderOffscreen(casePath, outputDir) —
+    // so CfdBackgroundService and anything else calling this needs no
+    // changes.
+    //
+    // Configure via appsettings.json -> CfdRender:* (wired in Program.cs).
     public static class CfdVtkRenderer
     {
+        // No longer used directly by this class (the Scheduled Task's
+        // action already has its own fixed python.exe + script path),
+        // kept only as a reference for whoever sets that task up.
         public static string PythonExe { get; set; } = "python";
-       
-         public static string ScriptPath { get; set; } =
-             @"D:\Office\AxialFanMVC.Business\Cfd\Render\render_result.py";
+
+        public static string ScriptPath { get; set; } =
+            @"D:\Office\AxialFanMVC.Business\Cfd\Render\render_result.py";
+
+        public static string TaskName { get; set; } = "AxialFanCfdRender";
+
+        public static string IpcDirectory { get; set; } = @"D:\Office\CfdIpc";
+
+        public static int TimeoutSeconds { get; set; } = 300;
 
         public static (string PngPath, string VtpPath) RenderOffscreen(string casePath, string outputDir)
         {
+            Directory.CreateDirectory(IpcDirectory);
+
+            string requestId = Guid.NewGuid().ToString("N");
+            string requestPath = Path.Combine(IpcDirectory, $"{requestId}.request.json");
+            string responsePath = Path.Combine(IpcDirectory, $"{requestId}.response.json");
+
+            File.WriteAllText(requestPath, JsonSerializer.Serialize(new { casePath, outputDir }));
+
+            TriggerScheduledTask();
+
+            var (pngPath, vtpPath, log) = WaitForResponse(requestPath, responsePath);
+
+            // render_dispatch.py can report a non-fatal issue in the log
+            // while still succeeding (e.g. a field missing on the slice).
+            // Persist the log next to the output unconditionally, not
+            // just on failure, so a "succeeded but looks wrong" run is
+            // still debuggable afterward — same reasoning as before this
+            // rewrite, just sourced from the IPC response now instead of
+            // a direct stderr capture.
+            try
+            {
+                Directory.CreateDirectory(outputDir);
+                File.WriteAllText(Path.Combine(outputDir, "render.log"), log ?? string.Empty);
+            }
+            catch { /* diagnostics best-effort — never let logging failure mask the real result */ }
+
+            return (pngPath, vtpPath);
+        }
+
+        private static void TriggerScheduledTask()
+        {
             var psi = new ProcessStartInfo
             {
-                FileName = PythonExe,
-                Arguments = $"\"{ScriptPath}\" \"{casePath}\" \"{outputDir}\"",
+                FileName = "schtasks",
+                Arguments = $"/run /tn \"{TaskName}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
@@ -37,43 +94,96 @@ namespace AxialFanMVC.Services
 
             using var process = new Process { StartInfo = psi };
 
-            var stdout = new StringBuilder();
             var stderr = new StringBuilder();
-            process.OutputDataReceived += (s, e) => { if (e.Data != null) stdout.AppendLine(e.Data); };
             process.ErrorDataReceived += (s, e) => { if (e.Data != null) stderr.AppendLine(e.Data); };
 
             process.Start();
-            process.BeginOutputReadLine();
             process.BeginErrorReadLine();
-            process.WaitForExit();
 
-            // render_result.py can print non-fatal warnings to stderr (e.g.
-            // a field missing on the slice) while still exiting 0 with a
-            // blank/partial image. Persist stderr next to the output
-            // unconditionally, not just on failure, so a "succeeded but
-            // looks wrong" run is still debuggable afterward.
-            try
+            // schtasks /run just enqueues the task and returns almost
+            // immediately — this isn't waiting for the render itself, so
+            // a short, fixed timeout here is enough; the real wait
+            // happens in WaitForResponse via CfdRender:TimeoutSeconds.
+            if (!process.WaitForExit(15000))
             {
-                Directory.CreateDirectory(outputDir);
-                File.WriteAllText(Path.Combine(outputDir, "render.log"), stderr.ToString());
+                process.Kill(true);
+                throw new CfdRenderException(
+                    "schtasks /run did not return within 15s.", stderr.ToString());
             }
-            catch { /* diagnostics best-effort — never let logging failure mask the real result */ }
 
             if (process.ExitCode != 0)
             {
                 throw new CfdRenderException(
-                    $"render_result.py failed (exit {process.ExitCode}).", stderr.ToString());
+                    $"schtasks /run failed (exit {process.ExitCode}) for task \"{TaskName}\" — " +
+                    "confirm the task exists and is enabled.",
+                    stderr.ToString());
             }
+        }
 
-            string[] parts = stdout.ToString().Trim().Split('|');
-            if (parts.Length != 2)
+        private static (string PngPath, string VtpPath, string Log) WaitForResponse(
+            string requestPath, string responsePath)
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(TimeoutSeconds);
+
+            while (DateTime.UtcNow < deadline)
             {
-                throw new CfdRenderException(
-                    "render_result.py exited 0 but didn't print the expected \"pngPath|vtpPath\" line.",
-                    stdout.ToString());
+                if (File.Exists(responsePath))
+                {
+                    // render_dispatch.py writes to a .tmp file and
+                    // renames it into place, so existence implies a
+                    // complete write — still guard against a transient
+                    // sharing-violation race on the rename itself.
+                    string json;
+                    try
+                    {
+                        json = File.ReadAllText(responsePath);
+                    }
+                    catch (IOException)
+                    {
+                        Thread.Sleep(250);
+                        continue;
+                    }
+
+                    using var doc = JsonDocument.Parse(json);
+                    var root = doc.RootElement;
+
+                    string log = root.TryGetProperty("log", out var logProp)
+                        ? logProp.GetString() ?? string.Empty
+                        : string.Empty;
+                    bool success = root.TryGetProperty("success", out var successProp)
+                        && successProp.GetBoolean();
+
+                    TryCleanup(requestPath, responsePath);
+
+                    if (!success)
+                    {
+                        string error = root.TryGetProperty("error", out var errProp)
+                            ? errProp.GetString() ?? string.Empty
+                            : "render_dispatch.py reported failure with no error detail.";
+                        throw new CfdRenderException(
+                            "render_dispatch.py failed.", $"{error}\n\n--- log ---\n{log}");
+                    }
+
+                    string pngPath = root.GetProperty("pngPath").GetString()!;
+                    string vtpPath = root.GetProperty("vtpPath").GetString()!;
+                    return (pngPath, vtpPath, log);
+                }
+
+                Thread.Sleep(1000);
             }
 
-            return (parts[0], parts[1]);
+            TryCleanup(requestPath, responsePath);
+            throw new CfdRenderException(
+                $"Timed out after {TimeoutSeconds}s waiting for the CFD render Scheduled Task " +
+                $"(\"{TaskName}\") to respond. Check that a user is logged into the server's " +
+                "desktop session and that the task is enabled.",
+                string.Empty);
+        }
+
+        private static void TryCleanup(string requestPath, string responsePath)
+        {
+            try { if (File.Exists(requestPath)) File.Delete(requestPath); } catch { /* best-effort */ }
+            try { if (File.Exists(responsePath)) File.Delete(responsePath); } catch { /* best-effort */ }
         }
     }
 

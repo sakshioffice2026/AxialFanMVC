@@ -429,6 +429,16 @@ namespace AxialFanMVC.ViewModels
         public CurveComparisonViewModel BaselineComparison { get; set; }
         public CurveComparisonViewModel PinnComparison { get; set; }
 
+        // ===== Persistent CFD Result =====
+        // Populated by ResultsController.Result() from wwwroot/cfd/{ResultId}/
+        // on disk (see CfdController for how those files get written), so a
+        // previously generated pressure slice survives a page refresh /
+        // revisit without needing to rerun the solver.
+        public bool HasCfdResult { get; set; }
+        public string? CfdImageUrl { get; set; }
+        public string? CfdVtpUrl { get; set; }
+        public DateTime? CfdGeneratedOn { get; set; }
+
     }
 
     public class DrawingViewModel

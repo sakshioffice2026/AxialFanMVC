@@ -143,6 +143,22 @@ namespace AxialFanMVC.Services
                         : solverEx.SolverLog;
                     job.ErrorMessage = $"{ex.Message}\n\n--- solver log (tail) ---\n{tail}";
                 }
+                // CfdRenderException carries the render_dispatch.py/pyvista
+                // log (or, for a schtasks/timeout failure, the schtasks
+                // stderr) in RendererLog — previously this branch didn't
+                // exist, so a render failure only ever surfaced the
+                // generic wrapper message in job.ErrorMessage and diagnosing
+                // it meant manually digging through Task Scheduler history,
+                // Event Viewer, and Python logs on the box instead of the
+                // job record itself.
+                else if (ex is CfdRenderException renderEx && !string.IsNullOrEmpty(renderEx.RendererLog))
+                {
+                    const int maxLen = 4000;
+                    string tail = renderEx.RendererLog.Length > maxLen
+                        ? renderEx.RendererLog[^maxLen..]
+                        : renderEx.RendererLog;
+                    job.ErrorMessage = $"{ex.Message}\n\n--- renderer log (tail) ---\n{tail}";
+                }
                 else
                 {
                     job.ErrorMessage = ex.Message;

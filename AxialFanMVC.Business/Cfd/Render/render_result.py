@@ -152,6 +152,42 @@ def render(case_path, output_dir):
     if not geoms_to_frame:
         geoms_to_frame.append(mesh.bounds)
 
+    # ── Flow-direction arrow — a real 3D glyph in the solve's own
+    # coordinate system, not a pixel-position guess overlaid after the
+    # fact. Placed just outside the fan's footprint (so it never overlaps
+    # geometry/streamlines) and spans mesh z_min (inlet, same reference
+    # point streamline seeding already uses) toward the seed's z, matching
+    # the solver's actual +Z flow direction (streamlines_from_source used
+    # integration_direction="forward" from a seed near mzmin).
+    content_bxmin = min(b[0] for b in geoms_to_frame)
+    content_bxmax = max(b[1] for b in geoms_to_frame)
+    content_bymin = min(b[2] for b in geoms_to_frame)
+    content_bymax = max(b[3] for b in geoms_to_frame)
+
+    arrow_x = content_bxmax + 0.12 * max(content_bxmax - content_bxmin, 1e-6)
+    arrow_y = (content_bymin + content_bymax) / 2.0
+    arrow_z_start = mzmin + 0.02 * z_span
+    arrow_z_end = mzmin + 0.30 * z_span
+    arrow_length = arrow_z_end - arrow_z_start
+
+    flow_arrow = pv.Arrow(
+        start=(arrow_x, arrow_y, arrow_z_start),
+        direction=(0, 0, 1),
+        scale=arrow_length,
+        tip_length=0.35, tip_radius=0.12, shaft_radius=0.045,
+    )
+    flow_label_points = np.array([
+        (arrow_x, arrow_y, arrow_z_start),
+        (arrow_x, arrow_y, arrow_z_end),
+    ])
+    flow_label_text = ["INLET (air in)", "OUTLET (air out)"]
+    print(f"STEP 8g: flow arrow x={arrow_x:.3f} z=[{arrow_z_start:.3f}, {arrow_z_end:.3f}]", flush=True)
+
+    # Fold the arrow into the same framing math as everything else, so the
+    # camera zoom that already accounts for geometry+streamlines also
+    # guarantees the arrow (and its labels) stay on-screen in both panels.
+    geoms_to_frame.append(flow_arrow.bounds)
+
     fxmin = min(b[0] for b in geoms_to_frame)
     fxmax = max(b[1] for b in geoms_to_frame)
     fymin = min(b[2] for b in geoms_to_frame)
@@ -182,6 +218,10 @@ def render(case_path, output_dir):
         plotter.add_mesh(streamlines, scalars="U_magnitude", cmap="jet",
                           clim=[u_min, u_max], line_width=3,
                           scalar_bar_args={"title": "Velocity Magnitude (m/s)"})
+    plotter.add_mesh(flow_arrow, color="black")
+    plotter.add_point_labels(flow_label_points, flow_label_text, font_size=14,
+                              text_color="black", shape_color="white",
+                              shape_opacity=0.85, always_visible=True, show_points=False)
     plotter.view_isometric()
     plotter.reset_camera()
     zoom1 = _zoom_factor_for(mesh.bounds, focus_bounds, axes=(0, 1, 2))
@@ -196,6 +236,10 @@ def render(case_path, output_dir):
         plotter.add_mesh(geom, style="wireframe", color="gray", opacity=0.5)
     plotter.add_mesh(sliced, scalars="p", cmap="coolwarm", clim=[p_min, p_max],
                       scalar_bar_args={"title": "Static Pressure (Pa)"})
+    plotter.add_mesh(flow_arrow, color="black")
+    plotter.add_point_labels(flow_label_points, flow_label_text, font_size=14,
+                              text_color="black", shape_color="white",
+                              shape_opacity=0.85, always_visible=True, show_points=False)
     plotter.view_xz()
     plotter.reset_camera()
     # view_xz is an orthographic projection along Y, so Y-extent never

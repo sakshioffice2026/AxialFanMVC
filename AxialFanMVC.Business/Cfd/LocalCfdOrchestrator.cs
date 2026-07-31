@@ -59,6 +59,15 @@ namespace AxialFanMVC.Business.Cfd
 
                 // v13: simpleFoam is a deprecated shim that just prints a
                 // notice and execs this; call the real solver module directly.
+                //
+                // NOTE (fixed): previously used "bash -ic" (interactive shell),
+                // which sources ~/.bashrc to pick up the OpenFOAM environment.
+                // Under IIS's non-interactive worker process this reliably hung
+                // at topoSet/foamRun with 0% CPU (no real terminal attached).
+                // RunWslCommandAsync now uses non-interactive "bash -c" with the
+                // OpenFOAM environment sourced explicitly inline instead, so it
+                // no longer depends on ~/.bashrc staying uncorrupted or on an
+                // interactive shell being viable under Process.Start.
                 await RunWslCommandAsync("foamRun -solver incompressibleFluid", wslCasePath, ct).ConfigureAwait(false);
 
                 return casePath;
@@ -71,7 +80,7 @@ namespace AxialFanMVC.Business.Cfd
 
         /// <summary>
         /// Writes constant/triSurface/fan.stl from this design's own numbers
-        /// (BladeStlGenerator) — a first-pass solid, not a CAD export; see
+        /// (BladeStlGenerator) ? a first-pass solid, not a CAD export; see
         /// BladeStlGenerator's header comment for exactly what's approximated.
         /// Generator failures (bad HubRatio, corrupt stored profile, etc.) are
         /// wrapped as CfdSolverException so they surface the same way a
@@ -154,9 +163,9 @@ namespace AxialFanMVC.Business.Cfd
                 ["__VELOCITY_INLET__"] = velocityMs.ToString("F4"),
                 ["__DOMAIN_RADIUS__"] = domainRadius.ToString("F4"),
                 ["__DOMAIN_LENGTH__"] = domainLength.ToString("F4"),
-                ["__MESH_DIVISIONS__"] = "40 40 60",
+                ["__MESH_DIVISIONS__"] = "24 24 36",
                 ["__MRF_ZONE_NAME__"] = "rotorZone",
-                ["__MAX_ITERATIONS__"] = "800",
+                ["__MAX_ITERATIONS__"] = "300",
                 ["__ROTOR_ZONE_RADIUS__"] = rotorZoneRadius.ToString("F4"),
                 ["__ROTOR_ZONE_Z_MIN__"] = rotorZoneZMin.ToString("F4"),
                 ["__ROTOR_ZONE_Z_MAX__"] = rotorZoneZMax.ToString("F4"),
@@ -191,7 +200,11 @@ namespace AxialFanMVC.Business.Cfd
             var psi = new ProcessStartInfo
             {
                 FileName = "wsl.exe",
-                Arguments = $"-e bash -ic \"cd '{wslCasePath}' && {command}\"",
+                // Non-interactive shell (-c, not -ic) with OpenFOAM's environment
+                // sourced explicitly. Interactive bash (-ic) hung indefinitely
+                // when launched via Process.Start with no real terminal attached
+                // (e.g. from IIS's worker process) - see note in RunPipelineAsync.
+                Arguments = $"-e bash -c \"source /opt/openfoam13/etc/bashrc && cd '{wslCasePath}' && {command}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,

@@ -4,7 +4,9 @@ using AxialFanMVC.Repositories.Inteface;
 using AxialFanMVC.Services;
 using AxialFanMVC.ViewModels;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
+using System.IO;
 using System.Security.Claims;
 using System.Text.Json;
 
@@ -17,17 +19,20 @@ namespace AxialFanMVC.Controllers
         private readonly ICurveGeneration _curveService;
         private readonly IExceptionHandlerRepository _exceptionHandlerRepository;
         private readonly IPhysicsValidationEngine _validator;
+        private readonly IWebHostEnvironment _env;
 
         public ResultsController(
         IDesignResultRepository repo,
         ICurveGeneration curveService,
         IExceptionHandlerRepository exceptionHandlerRepository,
-        IPhysicsValidationEngine validator)
+        IPhysicsValidationEngine validator,
+        IWebHostEnvironment env)
         {
             _repo = repo;
             _curveService = curveService;
             _exceptionHandlerRepository = exceptionHandlerRepository;
             _validator = validator;
+            _env = env;
         }
         private int CurrentUserId =>
             int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -193,6 +198,8 @@ namespace AxialFanMVC.Controllers
                     }).ToList()
                 };
 
+                PopulateCfdResult(vm);
+
                 return View(vm);
             }
             catch (Exception ex)
@@ -206,6 +213,28 @@ namespace AxialFanMVC.Controllers
 
                 return RedirectToAction(nameof(Index));
             }
+        }
+
+        // Checks wwwroot/cfd/{ResultId}/pressure_slice.png for a
+        // previously-generated CFD result and, if present, fills in the
+        // view model so Result.cshtml can show the persistent CFD card
+        // without the user having to rerun the solver. Files are written
+        // there by CfdController once a job completes — see
+        // CfdController.PersistCfdResult. Purely a file check: no new
+        // database table involved.
+        private void PopulateCfdResult(DesignResultViewModel vm)
+        {
+            var cfdDir = Path.Combine(_env.WebRootPath, "cfd", vm.ResultId.ToString());
+            var pngPath = Path.Combine(cfdDir, "pressure_slice.png");
+
+            if (!System.IO.File.Exists(pngPath)) return;
+
+            var vtpPath = Path.Combine(cfdDir, "pressure_slice.vtp");
+
+            vm.HasCfdResult = true;
+            vm.CfdImageUrl = $"/cfd/{vm.ResultId}/pressure_slice.png";
+            vm.CfdVtpUrl = System.IO.File.Exists(vtpPath) ? $"/cfd/{vm.ResultId}/pressure_slice.vtp" : null;
+            vm.CfdGeneratedOn = System.IO.File.GetLastWriteTime(pngPath);
         }
 
         // POST /Results/GenerateCurve — AJAX endpoint

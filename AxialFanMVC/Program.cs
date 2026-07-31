@@ -24,6 +24,13 @@ builder.Services.AddScoped<ICurveGeneration, CurveGeneration>();
 builder.Services.AddScoped<ICalibrationCaseRepository, CalibrationCaseRepository>();
 AxialFanMVC.Services.CfdVtkRenderer.PythonExe = builder.Configuration["CfdRender:PythonExe"] ?? AxialFanMVC.Services.CfdVtkRenderer.PythonExe;
 AxialFanMVC.Services.CfdVtkRenderer.ScriptPath = builder.Configuration["CfdRender:ScriptPath"] ?? AxialFanMVC.Services.CfdVtkRenderer.ScriptPath;
+// Scheduled Task + IPC settings for the interactive-desktop render
+// workaround — see CfdVtkRenderer.cs for why this can no longer just
+// shell out to python.exe directly from the app pool.
+AxialFanMVC.Services.CfdVtkRenderer.TaskName = builder.Configuration["CfdRender:TaskName"] ?? AxialFanMVC.Services.CfdVtkRenderer.TaskName;
+AxialFanMVC.Services.CfdVtkRenderer.IpcDirectory = builder.Configuration["CfdRender:IpcDirectory"] ?? AxialFanMVC.Services.CfdVtkRenderer.IpcDirectory;
+if (int.TryParse(builder.Configuration["CfdRender:TimeoutSeconds"], out var cfdRenderTimeoutSeconds))
+    AxialFanMVC.Services.CfdVtkRenderer.TimeoutSeconds = cfdRenderTimeoutSeconds;
 builder.Services.AddScoped<IHandbookChunkRepository, HandbookChunkRepository>();
 
 // Ollama chat client ? base URL configurable via appsettings ("Ollama:BaseUrl")
