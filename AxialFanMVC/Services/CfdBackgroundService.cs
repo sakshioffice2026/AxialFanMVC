@@ -76,9 +76,10 @@ namespace AxialFanMVC.Services
             try
             {
                 var result = await db.design_results
-                    .Include(r => r.DesignInput)
-                    .FirstOrDefaultAsync(r => r.Id == job.ResultId, stoppingToken)
-                    ?? throw new InvalidOperationException("DesignResult not found for this CFD job.");
+                .Include(r => r.DesignInput)
+                    .ThenInclude(d => d.BladeProfile)
+                .FirstOrDefaultAsync(r => r.Id == job.ResultId, stoppingToken)
+                ?? throw new InvalidOperationException("DesignResult not found for this CFD job.");
 
                 string templateRoot = Path.Combine(_env.ContentRootPath, "..", "AxialFanMVC.Business", "Cfd", "CfdTemplates");
                 var orchestrator = new LocalCfdOrchestrator(templateRoot);
@@ -98,14 +99,14 @@ namespace AxialFanMVC.Services
                     throw new InvalidOperationException("Could not derive a valid inlet velocity from this design's geometry.");
 
                 string casePath = await orchestrator.RunPipelineAsync(
-                         rpm,
-                         axialVelocityMs,
-                         tipRadiusM,
-                         di.BladeCount,
-                         di.HubRatio,
-                         di.BladeAngleDeg,
-                         null,
-                         stoppingToken);
+                              rpm,
+                              axialVelocityMs,
+                              tipRadiusM,
+                              di.BladeCount,
+                              di.HubRatio,
+                              di.BladeAngleDeg,
+                              di.BladeProfile?.CoordinateData,
+                              stoppingToken);
 
                 string outputDir = Path.Combine(_env.WebRootPath, "cfd-results", job.ResultId.ToString());
                 var (pngPath, vtpPath) = CfdVtkRenderer.RenderOffscreen(casePath, outputDir);

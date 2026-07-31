@@ -47,15 +47,16 @@ namespace AxialFanMVC.Business.Cfd
                 GenerateBladeGeometry(casePath, radiusM, hubRatio, bladeCount, bladeAngleDeg, bladeProfileCoordinateJson, rpm, velocityMs);
                 InjectCalculatedValues(casePath, rpm, velocityMs, radiusM);
 
-                string wslCasePath = ConvertWindowsPathToWsl(casePath);
-                await RunWslCommandAsync("blockMesh", wslCasePath, ct).ConfigureAwait(false);
-                await RunWslCommandAsync("surfaceFeatures", wslCasePath, ct).ConfigureAwait(false);
-                await RunWslCommandAsync("snappyHexMesh -overwrite", wslCasePath, ct).ConfigureAwait(false);
+                await RunWslCommandAsync("blockMesh", casePath, ct).ConfigureAwait(false);
+                await RunWslCommandAsync("surfaceFeatures", casePath, ct).ConfigureAwait(false);
+                await RunWslCommandAsync("snappyHexMesh -overwrite", casePath, ct).ConfigureAwait(false);
+                await RunWslCommandAsync("topoSet", casePath, ct).ConfigureAwait(false);
+                await RunWslCommandAsync("foamRun -solver incompressibleFluid", casePath, ct).ConfigureAwait(false);
 
                 // Carves the rotorZone cellZone (system/topoSetDict) that
                 // constant/MRFProperties' MRF1 cellZone needs ? must run
                 // after snappyHexMesh has actually shaped the mesh around the blade.
-                await RunWslCommandAsync("topoSet", wslCasePath, ct).ConfigureAwait(false);
+                await RunWslCommandAsync("topoSet", casePath, ct).ConfigureAwait(false);
 
                 // v13: simpleFoam is a deprecated shim that just prints a
                 // notice and execs this; call the real solver module directly.
@@ -68,7 +69,7 @@ namespace AxialFanMVC.Business.Cfd
                 // OpenFOAM environment sourced explicitly inline instead, so it
                 // no longer depends on ~/.bashrc staying uncorrupted or on an
                 // interactive shell being viable under Process.Start.
-                await RunWslCommandAsync("foamRun -solver incompressibleFluid", wslCasePath, ct).ConfigureAwait(false);
+                await RunWslCommandAsync("foamRun -solver incompressibleFluid", casePath, ct).ConfigureAwait(false);
 
                 return casePath;
             }
@@ -199,12 +200,12 @@ namespace AxialFanMVC.Business.Cfd
         {
             var psi = new ProcessStartInfo
             {
-                FileName = "wsl.exe",
+                FileName = "/bin/bash",
                 // Non-interactive shell (-c, not -ic) with OpenFOAM's environment
                 // sourced explicitly. Interactive bash (-ic) hung indefinitely
                 // when launched via Process.Start with no real terminal attached
                 // (e.g. from IIS's worker process) - see note in RunPipelineAsync.
-                Arguments = $"-e bash -c \"source /opt/openfoam13/etc/bashrc && cd '{wslCasePath}' && {command}\"",
+                Arguments = $"-lc \"cd '{wslCasePath}' && {command}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
@@ -243,11 +244,11 @@ namespace AxialFanMVC.Business.Cfd
                 : $"[{stage}] {line}");
         }
 
-        private static string ConvertWindowsPathToWsl(string windowsPath)
-        {
-            string drive = windowsPath.Substring(0, 1).ToLowerInvariant();
-            string rest = windowsPath.Substring(2).Replace('\\', '/');
-            return $"/mnt/{drive}{rest}";
-        }
+        //private static string ConvertWindowsPathToWsl(string windowsPath)
+        //{
+        //    string drive = windowsPath.Substring(0, 1).ToLowerInvariant();
+        //    string rest = windowsPath.Substring(2).Replace('\\', '/');
+        //    return $"/mnt/{drive}{rest}";
+        //}
     }
 }

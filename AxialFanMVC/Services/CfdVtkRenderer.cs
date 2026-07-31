@@ -38,11 +38,8 @@ namespace AxialFanMVC.Services
         // No longer used directly by this class (the Scheduled Task's
         // action already has its own fixed python.exe + script path),
         // kept only as a reference for whoever sets that task up.
-        public static string PythonExe { get; set; } = "python";
-
-        public static string ScriptPath { get; set; } =
-            @"D:\Office\AxialFanMVC.Business\Cfd\Render\render_result.py";
-
+        public static string PythonExe { get; set; } = "python3";
+        public static string ScriptPath { get; set; } = "";
         public static string TaskName { get; set; } = "AxialFanCfdRender";
 
         public static string IpcDirectory { get; set; } = @"D:\Office\CfdIpc";
