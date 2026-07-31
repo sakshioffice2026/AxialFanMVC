@@ -437,6 +437,10 @@ namespace AxialFanMVC.ViewModels
         public bool HasCfdResult { get; set; }
         public string? CfdImageUrl { get; set; }
         public string? CfdVtpUrl { get; set; }
+        // Null when this run's seed produced no streamlines - expected for
+        // some geometries, not a failure. Result.cshtml hides the
+        // Streamlines toggle in that case.
+        public string? CfdStreamlinesVtpUrl { get; set; }
         public DateTime? CfdGeneratedOn { get; set; }
 
     }

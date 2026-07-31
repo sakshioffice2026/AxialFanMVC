@@ -196,16 +196,45 @@ namespace AxialFanMVC.Business.Cfd
             File.WriteAllText(filePath, text);
         }
 
-        private async Task RunWslCommandAsync(string command, string wslCasePath, CancellationToken ct)
+        // Path inside WSL to the OpenFOAM install actually in use (confirmed
+        // via `which blockMesh` -> /opt/openfoam13/platforms/.../bin/blockMesh
+        // on this box, even though ~/.bashrc also has a stray `source
+        // /opt/openfoam14/etc/bashrc` line further down that never wins).
+        // Sourced explicitly below rather than relied on via ~/.bashrc,
+        // because a non-interactive login shell (bash -lc) does NOT read
+        // ~/.bashrc - only /etc/profile + ~/.bash_profile/~/.profile - which
+        // is exactly why `blockMesh` came back "command not found" (exit 127)
+        // even though the wsl.exe launch itself was working correctly.
+        private const string OpenFoamBashrcPath = "/opt/openfoam13/etc/bashrc";
+
+        private async Task RunWslCommandAsync(string command, string windowsCasePath, CancellationToken ct)
         {
+            // windowsCasePath is a native Windows path (Path.GetTempPath()-based,
+            // e.g. C:\Users\...\AppData\Local\Temp\AxialFanCFD_xxx) because this
+            // app runs on Windows Server. OpenFOAM only exists inside WSL, so it
+            // has no meaning as a WSL path until converted (WSL can't resolve
+            // "C:\..." - it needs "/mnt/c/...").
+            string wslCasePath = ConvertWindowsPathToWsl(windowsCasePath);
+
             var psi = new ProcessStartInfo
             {
-                FileName = "/bin/bash",
-                // Non-interactive shell (-c, not -ic) with OpenFOAM's environment
-                // sourced explicitly. Interactive bash (-ic) hung indefinitely
-                // when launched via Process.Start with no real terminal attached
-                // (e.g. from IIS's worker process) - see note in RunPipelineAsync.
-                Arguments = $"-lc \"cd '{wslCasePath}' && {command}\"",
+                // This app is hosted on Windows Server; bash and OpenFOAM live
+                // inside WSL, not on the Windows filesystem, so this must be
+                // launched via wsl.exe rather than starting "/bin/bash" (or
+                // "bash.exe") directly - Process.Start has no WSL-path
+                // resolution of its own, hence "the system cannot find the
+                // file specified" when FileName was set to "/bin/bash".
+                FileName = "wsl.exe",
+                // -e runs the given command line directly via the specified
+                // interpreter (bash -lc "..."), rather than letting wsl.exe's
+                // own default-shell translation get involved.
+                // Non-interactive shell (-c, not -ic - interactive hung
+                // indefinitely under IIS's worker process with no real
+                // terminal attached, see note in RunPipelineAsync). Sources
+                // OpenFOAM's bashrc explicitly first, since neither a
+                // non-interactive login (-l) nor non-login shell reads
+                // ~/.bashrc, which is where OpenFOAM's env normally lives.
+                Arguments = $"-e bash -c \"source '{OpenFoamBashrcPath}' && cd '{wslCasePath}' && {command}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
@@ -244,11 +273,14 @@ namespace AxialFanMVC.Business.Cfd
                 : $"[{stage}] {line}");
         }
 
-        //private static string ConvertWindowsPathToWsl(string windowsPath)
-        //{
-        //    string drive = windowsPath.Substring(0, 1).ToLowerInvariant();
-        //    string rest = windowsPath.Substring(2).Replace('\\', '/');
-        //    return $"/mnt/{drive}{rest}";
-        //}
+        // Converts a native Windows path (e.g. "C:\Users\...\Temp\Foo") to the
+        // equivalent WSL mount path ("/mnt/c/Users/.../Temp/Foo") so it can be
+        // used inside a `wsl.exe -e bash -lc "cd '...' && ..."` invocation.
+        private static string ConvertWindowsPathToWsl(string windowsPath)
+        {
+            string drive = windowsPath.Substring(0, 1).ToLowerInvariant();
+            string rest = windowsPath.Substring(2).Replace('\\', '/');
+            return $"/mnt/{drive}{rest}";
+        }
     }
 }

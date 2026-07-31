@@ -42,12 +42,13 @@ def process_one(request_path):
 
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            png_path, vtp_path = render(case_path, output_dir)
+            png_path, vtp_path, streamlines_path = render(case_path, output_dir)
 
         response = {
             "success": True,
             "pngPath": png_path,
             "vtpPath": vtp_path,
+            "streamlinesVtpPath": streamlines_path,
             "log": buf.getvalue(),
         }
     except Exception:

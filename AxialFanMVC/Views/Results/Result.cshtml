@@ -417,24 +417,30 @@
                parsed client-side (see cfdVtkViewer IIFE in Scripts), not via
                three.js's stock VTKLoader (doesn't read named PointData
                scalars or Lines geometry — see that IIFE's header comment).
-               Streamlines toggle is hidden entirely when this design's run
-               produced none (Model.CfdStreamlinesVtpUrl is null) — that's an
-               expected outcome for some geometries, not a failure state. --}} *@
+               Blade profile is an independent on/off layer (spatial
+               reference), shown alongside whichever of Pressure/Streamlines
+               is active — not mutually exclusive with them. Pressure Slice
+               and Streamlines buttons are each hidden when this result has
+               no corresponding data yet (no completed run / that seed
+               produced no streamlines) - expected states, not failures. --}} *@
         <div class="mt-3 pt-3 border-top">
             <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
                 <span class="fw-semibold small text-muted text-uppercase" style="letter-spacing:.03em">
                     Interactive 3D View
                 </span>
                 <div class="btn-group btn-group-sm" role="group" id="savedCfdVtkToggle">
-                    <button type="button" class="btn btn-outline-primary active" data-vtk-mode="pressure">
+                    <button type="button" class="btn btn-outline-primary active d-none" data-vtk-mode="pressure" id="savedCfdPressureBtn">
                         Pressure Slice
                     </button>
                     <button type="button" class="btn btn-outline-primary d-none" data-vtk-mode="streamlines" id="savedCfdStreamlinesBtn">
                         Streamlines
                     </button>
+                    <button type="button" class="btn btn-outline-secondary" id="savedCfdBladeBtn">
+                        Blade profile
+                    </button>
                 </div>
             </div>
-            <div class="blade-viewer-stage" id="savedCfdVtkStage" style="height:360px;" data-vtp-url="@Model.CfdVtpUrl" data-streamlines-url="@Model.CfdStreamlinesVtpUrl">
+            <div class="blade-viewer-stage" id="savedCfdVtkStage" style="height:360px;" data-vtp-url="@Model.CfdVtpUrl" data-streamlines-url="@Model.CfdStreamlinesVtpUrl" data-result-id="@Model.ResultId">
                 <div class="blade-viewer-overlay" id="savedCfdVtkOverlay">
                     <div class="spinner-border text-info" role="status"></div>
                     <span>Loading field data…</span>
@@ -2576,13 +2582,20 @@
 
                     function initCfdVtkStage(stageEl) {
                         if (!stageEl || typeof THREE === 'undefined') return;
+                        // vtpUrl/streamlinesUrl are only null when this result
+                        // has no completed run yet (or that run produced no
+                        // streamlines) — the blade profile below has no such
+                        // dependency, so the whole viewer must NOT bail out
+                        // just because CFD data isn't ready yet.
                         const vtpUrl = stageEl.dataset.vtpUrl;
-                        if (!vtpUrl) return; // nothing to show yet for this result
+                        const streamlinesUrl = stageEl.dataset.streamlinesUrl;
+                        const stageResultId = stageEl.dataset.resultId || resultId;
 
                         const overlayEl = stageEl.querySelector('#savedCfdVtkOverlay') || stageEl.querySelector('.blade-viewer-overlay');
                         const toggleWrap = document.getElementById('savedCfdVtkToggle');
+                        const pressureBtn = document.getElementById('savedCfdPressureBtn');
                         const streamlinesBtn = document.getElementById('savedCfdStreamlinesBtn');
-                        const streamlinesUrl = stageEl.dataset.streamlinesUrl;
+                        const bladeBtn = document.getElementById('savedCfdBladeBtn');
 
                         // Tear down a previous instance if this is being
                         // re-initialized after a fresh run (updateCfdResultCard).
@@ -2606,7 +2619,9 @@
 
                         let pressureMesh = null;
                         let streamlinesObj = null;
+                        let bladeGroup = null;
                         let raf = null;
+                        let hasFitted = false; // first thing to load frames the camera; later loads don't yank it around
 
                         function fit(object) {
                             const box = new THREE.Box3().setFromObject(object);
@@ -2622,26 +2637,48 @@
                             controls.update();
                         }
 
+                        function fitOnce(object) {
+                            if (hasFitted) return;
+                            hasFitted = true;
+                            fit(object);
+                        }
+
+                        function ready() {
+                            if (overlayEl) overlayEl.classList.add('d-none');
+                            if (!raf) animate();
+                        }
+
                         function animate() {
                             raf = requestAnimationFrame(animate);
                             controls.update();
                             renderer.render(scene, camera);
                         }
 
-                        function showMode(mode) {
+                        // Pressure/Streamlines stay mutually exclusive with
+                        // each other (only one field-data layer at a time).
+                        // Blade profile is a separate, independent on/off
+                        // layer — a spatial reference you can leave on
+                        // alongside either field-data mode, not a third
+                        // exclusive "mode".
+                        function showFieldMode(mode) {
                             if (pressureMesh) pressureMesh.visible = (mode === 'pressure');
                             if (streamlinesObj) streamlinesObj.visible = (mode === 'streamlines');
-                            if (toggleWrap) {
-                                toggleWrap.querySelectorAll('[data-vtk-mode]').forEach(btn => {
-                                    btn.classList.toggle('active', btn.dataset.vtkMode === mode);
-                                });
-                            }
+                            [pressureBtn, streamlinesBtn].forEach(btn => {
+                                if (btn) btn.classList.toggle('active', btn && btn.dataset.vtkMode === mode);
+                            });
                         }
 
                         function onToggleClick(e) {
                             const btn = e.target.closest('[data-vtk-mode]');
-                            if (!btn || btn.classList.contains('d-none')) return;
-                            showMode(btn.dataset.vtkMode);
+                            if (btn) {
+                                if (btn.classList.contains('d-none')) return;
+                                showFieldMode(btn.dataset.vtkMode);
+                                return;
+                            }
+                            if (e.target.closest('#savedCfdBladeBtn') && bladeGroup) {
+                                bladeGroup.visible = !bladeGroup.visible;
+                                bladeBtn.classList.toggle('active', bladeGroup.visible);
+                            }
                         }
                         if (toggleWrap) toggleWrap.addEventListener('click', onToggleClick);
 
@@ -2655,17 +2692,45 @@
                         const resizeObserver = new ResizeObserver(handleResize);
                         resizeObserver.observe(stageEl);
 
-                        fetch(vtpUrl).then(r => r.text()).then(text => {
-                            const parsed = parseAsciiVtp(text);
-                            pressureMesh = buildPressureMesh(parsed);
-                            scene.add(pressureMesh);
-                            fit(pressureMesh);
-                            if (overlayEl) overlayEl.classList.add('d-none');
-                            animate();
-                        }).catch(err => {
-                            if (overlayEl) overlayEl.querySelector('span') && (overlayEl.querySelector('span').textContent = 'Could not load pressure field.');
-                            console.error('CFD pressure .vtp load failed:', err);
-                        });
+                        // ── Blade profile (independent of any CFD run) ──
+                        // Real STL from /Cfd/BladeStl/{resultId} — same
+                        // generator/coordinate frame as the standalone blade
+                        // viewer above. Visible by default so there's always
+                        // something to look at even before a CFD run exists.
+                        const bladeLoader = new THREE.STLLoader();
+                        bladeGroup = new THREE.Group();
+                        bladeGroup.visible = true;
+                        scene.add(bladeGroup);
+                        if (bladeBtn) bladeBtn.classList.add('active');
+                        bladeLoader.load(
+                            `/Cfd/BladeStl/${stageResultId}`,
+                            (geometry) => {
+                                geometry.computeVertexNormals();
+                                const material = new THREE.MeshStandardMaterial({
+                                    color: 0xb9c6d6, metalness: 0.6, roughness: 0.3, side: THREE.DoubleSide
+                                });
+                                bladeGroup.add(new THREE.Mesh(geometry, material));
+                                fitOnce(bladeGroup);
+                                ready();
+                            },
+                            undefined,
+                            (err) => console.error('Blade STL load failed (combined viewer):', err)
+                        );
+
+                        // ── Pressure slice — only if this result has one yet ──
+                        if (vtpUrl) {
+                            if (pressureBtn) pressureBtn.classList.remove('d-none');
+                            fetch(vtpUrl).then(r => r.text()).then(text => {
+                                const parsed = parseAsciiVtp(text);
+                                pressureMesh = buildPressureMesh(parsed);
+                                pressureMesh.visible = pressureBtn ? pressureBtn.classList.contains('active') : true;
+                                scene.add(pressureMesh);
+                                fitOnce(pressureMesh);
+                                ready();
+                            }).catch(err => console.error('CFD pressure .vtp load failed:', err));
+                        } else if (pressureBtn) {
+                            pressureBtn.classList.add('d-none');
+                        }
 
                         // Streamlines toggle only appears/works when this
                         // result actually produced one (see render_result.py's
@@ -2677,6 +2742,7 @@
                                 streamlinesObj = buildStreamlinesObject(parsed);
                                 streamlinesObj.visible = false;
                                 scene.add(streamlinesObj);
+                                ready();
                             }).catch(err => console.error('CFD streamlines .vtp load failed:', err));
                         } else if (streamlinesBtn) {
                             streamlinesBtn.classList.add('d-none');

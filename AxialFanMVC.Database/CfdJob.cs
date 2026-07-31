@@ -33,6 +33,12 @@ namespace AxialFanMVC.Database
         [Column("vtp_path")]
         public string? VtpPath { get; set; }
 
+        // Relative path under wwwroot, e.g. "cfd-results/7/streamlines.vtp".
+        // Null when this run's seed produced no streamlines - an expected
+        // outcome for some geometries, not a failure (see render_result.py).
+        [Column("streamlines_vtp_path")]
+        public string? StreamlinesVtpPath { get; set; }
+
         [Column("created_at")]
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

@@ -70,7 +70,8 @@ namespace AxialFanMVC.Controllers
                 status = job.Status,
                 errorMessage = job.ErrorMessage,
                 pngUrl = job.PngPath != null ? Url.Content("~/" + job.PngPath) : null,
-                vtpUrl = job.VtpPath != null ? Url.Content("~/" + job.VtpPath) : null
+                vtpUrl = job.VtpPath != null ? Url.Content("~/" + job.VtpPath) : null,
+                streamlinesVtpUrl = job.StreamlinesVtpPath != null ? Url.Content("~/" + job.StreamlinesVtpPath) : null
             });
         }
 
@@ -82,7 +83,7 @@ namespace AxialFanMVC.Controllers
         // repeat view/refresh doesn't regenerate it. Ownership is checked the
         // same way as Start()/Status() above: DesignResult -> DesignInput ->
         // Project.UserId == CurrentUserId.
-        [HttpGet]
+        [HttpGet("Cfd/BladeStl/{resultId:int}")]
         public async Task<IActionResult> BladeStl(int resultId)
         {
             var result = await _db.design_results
@@ -149,6 +150,7 @@ namespace AxialFanMVC.Controllers
 
                 CopyIfNeeded(job.PngPath, Path.Combine(destDir, "pressure_slice.png"));
                 CopyIfNeeded(job.VtpPath, Path.Combine(destDir, "pressure_slice.vtp"));
+                CopyIfNeeded(job.StreamlinesVtpPath, Path.Combine(destDir, "streamlines.vtp"));
             }
             catch
             {

@@ -261,7 +261,18 @@ def render(case_path, output_dir):
     sliced.save(vtp_path)
     print("STEP 14: vtp saved", flush=True)
 
-    return png_path, vtp_path
+    # Streamlines were already computed in-memory above (Panel 1); persist
+    # them as their own .vtp so the browser can load velocity streamlines
+    # independently of the pressure slice. None when no seed produced any
+    # (see the STEP 8 warning above) - that's an expected outcome for some
+    # geometries, not a failure.
+    streamlines_path = None
+    if streamlines is not None:
+        streamlines_path = os.path.join(output_dir, "streamlines.vtp")
+        streamlines.save(streamlines_path)
+        print("STEP 15: streamlines vtp saved", flush=True)
+
+    return png_path, vtp_path, streamlines_path
 
 
 if __name__ == "__main__":
@@ -269,5 +280,5 @@ if __name__ == "__main__":
     if len(sys.argv) < 3:
         print("Usage: render_result.py <case_path> <output_dir>", file=sys.stderr, flush=True)
         sys.exit(1)
-    result_png_path, result_vtp_path = render(sys.argv[1], sys.argv[2])
-    print(f"{result_png_path}|{result_vtp_path}")
+    result_png_path, result_vtp_path, result_streamlines_path = render(sys.argv[1], sys.argv[2])
+    print(f"{result_png_path}|{result_vtp_path}|{result_streamlines_path or ''}")

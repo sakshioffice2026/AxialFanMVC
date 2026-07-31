@@ -46,7 +46,7 @@ namespace AxialFanMVC.Services
 
         public static int TimeoutSeconds { get; set; } = 300;
 
-        public static (string PngPath, string VtpPath) RenderOffscreen(string casePath, string outputDir)
+        public static (string PngPath, string VtpPath, string? StreamlinesVtpPath) RenderOffscreen(string casePath, string outputDir)
         {
             Directory.CreateDirectory(IpcDirectory);
 
@@ -58,7 +58,7 @@ namespace AxialFanMVC.Services
 
             TriggerScheduledTask();
 
-            var (pngPath, vtpPath, log) = WaitForResponse(requestPath, responsePath);
+            var (pngPath, vtpPath, streamlinesVtpPath, log) = WaitForResponse(requestPath, responsePath);
 
             // render_dispatch.py can report a non-fatal issue in the log
             // while still succeeding (e.g. a field missing on the slice).
@@ -74,7 +74,7 @@ namespace AxialFanMVC.Services
             }
             catch { /* diagnostics best-effort — never let logging failure mask the real result */ }
 
-            return (pngPath, vtpPath);
+            return (pngPath, vtpPath, streamlinesVtpPath);
         }
 
         private static void TriggerScheduledTask()
@@ -117,7 +117,7 @@ namespace AxialFanMVC.Services
             }
         }
 
-        private static (string PngPath, string VtpPath, string Log) WaitForResponse(
+        private static (string PngPath, string VtpPath, string? StreamlinesVtpPath, string Log) WaitForResponse(
             string requestPath, string responsePath)
         {
             var deadline = DateTime.UtcNow.AddSeconds(TimeoutSeconds);
@@ -163,7 +163,15 @@ namespace AxialFanMVC.Services
 
                     string pngPath = root.GetProperty("pngPath").GetString()!;
                     string vtpPath = root.GetProperty("vtpPath").GetString()!;
-                    return (pngPath, vtpPath, log);
+                    // Nullable: not every case produces streamlines (see
+                    // render_result.py's STEP 8 warning) - that's expected,
+                    // not a failure, so a missing/null property here just
+                    // means no streamlines file for this run.
+                    string? streamlinesVtpPath = root.TryGetProperty("streamlinesVtpPath", out var slProp)
+                        && slProp.ValueKind != JsonValueKind.Null
+                        ? slProp.GetString()
+                        : null;
+                    return (pngPath, vtpPath, streamlinesVtpPath, log);
                 }
 
                 Thread.Sleep(1000);

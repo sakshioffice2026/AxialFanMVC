@@ -230,10 +230,14 @@ namespace AxialFanMVC.Controllers
             if (!System.IO.File.Exists(pngPath)) return;
 
             var vtpPath = Path.Combine(cfdDir, "pressure_slice.vtp");
+            var streamlinesVtpPath = Path.Combine(cfdDir, "streamlines.vtp");
 
             vm.HasCfdResult = true;
             vm.CfdImageUrl = $"/cfd/{vm.ResultId}/pressure_slice.png";
             vm.CfdVtpUrl = System.IO.File.Exists(vtpPath) ? $"/cfd/{vm.ResultId}/pressure_slice.vtp" : null;
+            // Null when this run's seed produced no streamlines - expected
+            // for some geometries, not a failure (see render_result.py).
+            vm.CfdStreamlinesVtpUrl = System.IO.File.Exists(streamlinesVtpPath) ? $"/cfd/{vm.ResultId}/streamlines.vtp" : null;
             vm.CfdGeneratedOn = System.IO.File.GetLastWriteTime(pngPath);
         }
 

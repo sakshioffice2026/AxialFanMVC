@@ -34,4 +34,6 @@
     <Folder Include="Models\" />
   </ItemGroup>
 
+  <ProjectExtensions><VisualStudio><UserProperties appsettings_1json__JsonSchema="https://www.schemastore.org/attw.json" /></VisualStudio></ProjectExtensions>
+
 </Project>

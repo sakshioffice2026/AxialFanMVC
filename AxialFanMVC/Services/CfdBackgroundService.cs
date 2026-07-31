@@ -109,10 +109,15 @@ namespace AxialFanMVC.Services
                               stoppingToken);
 
                 string outputDir = Path.Combine(_env.WebRootPath, "cfd-results", job.ResultId.ToString());
-                var (pngPath, vtpPath) = CfdVtkRenderer.RenderOffscreen(casePath, outputDir);
+                var (pngPath, vtpPath, streamlinesVtpPath) = CfdVtkRenderer.RenderOffscreen(casePath, outputDir);
 
                 job.PngPath = Path.Combine("cfd-results", job.ResultId.ToString(), Path.GetFileName(pngPath)).Replace('\\', '/');
                 job.VtpPath = Path.Combine("cfd-results", job.ResultId.ToString(), Path.GetFileName(vtpPath)).Replace('\\', '/');
+                // Null when this run's seed produced no streamlines - expected
+                // for some geometries, not a failure (see render_result.py).
+                job.StreamlinesVtpPath = streamlinesVtpPath != null
+                    ? Path.Combine("cfd-results", job.ResultId.ToString(), Path.GetFileName(streamlinesVtpPath)).Replace('\\', '/')
+                    : null;
                 job.Status = "Completed";
 
                 // TEMPORARILY DISABLED for debugging the blank-render issue —
