@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Runtime.InteropServices;
 
 namespace AxialFanMVC.Business.Cfd
 {
@@ -49,6 +50,14 @@ namespace AxialFanMVC.Business.Cfd
 
                 await RunWslCommandAsync("blockMesh", casePath, ct).ConfigureAwait(false);
                 await RunWslCommandAsync("surfaceFeatures", casePath, ct).ConfigureAwait(false);
+
+                string expectedEMesh = Path.Combine(casePath, "constant", "triSurface", "fan.eMesh");
+                if (!File.Exists(expectedEMesh))
+                {
+                    throw new CfdSolverException(
+                        $"surfaceFeatures reported success but did not produce {expectedEMesh}.",
+                        $"Case path: {casePath}");
+                }
                 await RunWslCommandAsync("snappyHexMesh -overwrite", casePath, ct).ConfigureAwait(false);
                 await RunWslCommandAsync("topoSet", casePath, ct).ConfigureAwait(false);
                 await RunWslCommandAsync("foamRun -solver incompressibleFluid", casePath, ct).ConfigureAwait(false);
@@ -207,47 +216,72 @@ namespace AxialFanMVC.Business.Cfd
         // even though the wsl.exe launch itself was working correctly.
         private const string OpenFoamBashrcPath = "/opt/openfoam13/etc/bashrc";
 
-        private async Task RunWslCommandAsync(string command, string windowsCasePath, CancellationToken ct)
+        private async Task RunWslCommandAsync(string command, string casePath, CancellationToken ct)
         {
-            // windowsCasePath is a native Windows path (Path.GetTempPath()-based,
-            // e.g. C:\Users\...\AppData\Local\Temp\AxialFanCFD_xxx) because this
-            // app runs on Windows Server. OpenFOAM only exists inside WSL, so it
-            // has no meaning as a WSL path until converted (WSL can't resolve
-            // "C:\..." - it needs "/mnt/c/...").
-            string wslCasePath = ConvertWindowsPathToWsl(windowsCasePath);
+            // OS-aware on purpose: this method runs unchanged through both the
+            // Windows dev machine (still using WSL for OpenFOAM) and the
+            // deployed Ubuntu server (native OpenFOAM, no WSL layer at all).
+            // Callers just pass casePath as-is - all OS-specific handling
+            // (WSL path translation, which shell binary to launch) lives here
+            // and only here, so RunPipelineAsync's five call sites never need
+            // to know or care which OS they're actually running on.
+            ProcessStartInfo psi;
 
-            var psi = new ProcessStartInfo
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
-                // This app is hosted on Windows Server; bash and OpenFOAM live
-                // inside WSL, not on the Windows filesystem, so this must be
-                // launched via wsl.exe rather than starting "/bin/bash" (or
-                // "bash.exe") directly - Process.Start has no WSL-path
-                // resolution of its own, hence "the system cannot find the
-                // file specified" when FileName was set to "/bin/bash".
-                FileName = "wsl.exe",
-                // -e runs the given command line directly via the specified
-                // interpreter (bash -lc "..."), rather than letting wsl.exe's
-                // own default-shell translation get involved.
-                // Non-interactive shell (-c, not -ic - interactive hung
-                // indefinitely under IIS's worker process with no real
-                // terminal attached, see note in RunPipelineAsync). Sources
-                // OpenFOAM's bashrc explicitly first, since neither a
-                // non-interactive login (-l) nor non-login shell reads
-                // ~/.bashrc, which is where OpenFOAM's env normally lives.
-                Arguments = $"-e bash -c \"source '{OpenFoamBashrcPath}' && cd '{wslCasePath}' && {command}\"",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            };
+                // Dev machine: casePath is a native Windows path
+                // (Path.GetTempPath()-based, e.g. C:\Users\...\Temp\AxialFanCFD_xxx).
+                // OpenFOAM only exists inside WSL here, so it has no meaning as
+                // a WSL path until converted (WSL can't resolve "C:\..." - it
+                // needs "/mnt/c/...").
+                string wslCasePath = ConvertWindowsPathToWsl(casePath);
 
+                psi = new ProcessStartInfo
+                {
+                    // bash and OpenFOAM live inside WSL, not on the Windows
+                    // filesystem, so this must be launched via wsl.exe rather
+                    // than starting "/bin/bash" directly - Process.Start has
+                    // no WSL-path resolution of its own, hence "the system
+                    // cannot find the file specified" when FileName was set
+                    // to "/bin/bash" on this machine.
+                    FileName = "wsl.exe",
+                    // -e runs the given command line directly via the specified
+                    // interpreter (bash -c "..."), rather than letting wsl.exe's
+                    // own default-shell translation get involved.
+                    // Non-interactive shell (-c, not -ic - interactive hung
+                    // indefinitely under IIS's worker process with no real
+                    // terminal attached, see note in RunPipelineAsync). Sources
+                    // OpenFOAM's bashrc explicitly first, since neither a
+                    // non-interactive login (-l) nor non-login shell reads
+                    // ~/.bashrc, which is where OpenFOAM's env normally lives.
+                    Arguments = $"-e bash -c \"source '{OpenFoamBashrcPath}' && cd '{wslCasePath}' && {command}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                };
+            }
+            else
+            {
+                // Deployed server: casePath is already a native Linux path, no
+                // WSL translation needed. OpenFOAM's bashrc is sourced
+                // explicitly for the same reason as the Windows branch - a
+                // non-interactive shell doesn't read ~/.bashrc on its own.
+                psi = new ProcessStartInfo
+                {
+                    FileName = "/bin/bash",
+                    Arguments = $"-c \"source '{OpenFoamBashrcPath}' && cd '{casePath}' && {command}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                };
+            }
             var log = new StringBuilder();
-            var tcs = new TaskCompletionSource<int>();
-            using var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
+            using var process = new Process { StartInfo = psi };
 
             process.OutputDataReceived += (s, e) => { if (e.Data != null) { log.AppendLine(e.Data); ReportProgressLine(command, e.Data); } };
             process.ErrorDataReceived += (s, e) => { if (e.Data != null) log.AppendLine(e.Data); };
-            process.Exited += (s, e) => tcs.TrySetResult(process.ExitCode);
 
             using var ctReg = ct.Register(() => { try { if (!process.HasExited) process.Kill(true); } catch { } });
 
@@ -255,8 +289,17 @@ namespace AxialFanMVC.Business.Cfd
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
 
-            int exitCode = await tcs.Task.ConfigureAwait(false);
+            // WaitForExitAsync (unlike the old Exited-event pattern) correctly
+            // waits for the process to fully exit AND guarantees redirected
+            // stdout/stderr streams have finished being read before returning -
+            // avoids a race where very fast commands (e.g. surfaceFeatures,
+            // which can finish in ~16ms) exit before output events fully fire.
+            await process.WaitForExitAsync(ct).ConfigureAwait(false);
+
+            int exitCode = process.ExitCode;
             string fullLog = log.ToString();
+
+            _progress?.Report($"[{command}] exit={exitCode}\n{fullLog}");
 
             if (exitCode != 0 || fullLog.Contains("FOAM FATAL ERROR") || fullLog.Contains("blown up"))
                 throw new CfdSolverException($"{command} failed or diverged (exit {exitCode}).", fullLog);
