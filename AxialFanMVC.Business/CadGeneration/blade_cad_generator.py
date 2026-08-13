@@ -15,6 +15,44 @@ Run via freecadcmd.exe only:
 
 Standalone test (no env vars set -> uses sample parameters):
     freecadcmd.exe -c "exec(open('blade_cad_generator.py').read())"
+
+MECHANICAL/GEOMETRY FIX PASS (this revision):
+  1. build_blade(): replaced the manual hub_face/tip_face/Shell/Solid hand-
+     assembly (which silently produced an INVALID/EMPTY shape whenever
+     Part.Shell([open_loft_shell, cap, cap]) choked on being handed a
+     multi-face Shell instead of flat Faces - the root cause of the empty
+     STEP and the hub-only/tip-only OBJ mesh) with Part.makeLoft(sections,
+     solid=True). This is FreeCAD's own capped-solid loft: it caps the
+     first and last (closed, planar) section wires and returns one real
+     watertight Solid, per blade, with no manual shell surgery to get wrong.
+  2. Every solid is now VALIDATED (isValid(), Volume > 0, ShapeType) right
+     after construction. A blade or hub that fails is a HARD ERROR, not a
+     swallowed warning - a fan assembly silently missing blades must never
+     reach export as if it were correct.
+  3. export_step(): dropped the risky boolean fuse() attempt (fusing N
+     independent lofted solids has no mechanical benefit for an assembly
+     and is a common source of OCCT failures); exports a validated
+     multi-solid compound directly, which is the standard/robust way to
+     hand off a multi-part assembly to STEP.
+  4. export_dxf(): the old version fabricated the blade side-view from a
+     single hardcoded stagger_angle_deg and a single average chord,
+     completely disconnected from the actual per-station chord/twist the
+     solid was built from. It now derives the LEADING EDGE and TRAILING
+     EDGE curves directly from the same (radius, chord, beta) station data
+     used to loft the real blade, plus draws the real hub/tip airfoil
+     cross-sections to scale - so the drawing can no longer contradict the
+     3D model.
+
+Coordinate/stacking convention (unchanged, documented explicitly here
+because export_dxf's geometry-derivation depends on it):
+  Each blade section is stacked so the airfoil LEADING EDGE (local x=0)
+  sits exactly on the radial ray at that station's (r, phi) - i.e. LE is
+  the "spine" the sections are threaded on. The chord vector then rotates
+  by the local blade angle beta(r), so the TRAILING EDGE (local x=chord)
+  swings axially by chord*sin(beta) relative to the LE. That is why, in a
+  developed (r vs axial) view, the true LE curve is a straight vertical
+  line and the true TE curve is the one that carries the twist - see
+  export_dxf().
 """
 
 import os
@@ -45,6 +83,14 @@ from FreeCAD import Vector
 import Part
 
 
+class BladeGeometryError(RuntimeError):
+    """Raised when the blade/hub solid does not come out mechanically
+    valid (missing blades, zero-volume solid, non-solid shape, etc).
+    Deliberately NOT caught anywhere that would let export proceed -
+    a broken assembly must fail loudly, not export an empty/partial
+    STEP that looks like a successful 200/201 response."""
+
+
 class BladeCADGenerator:
     """Generates parametric blade/hub assembly in FreeCAD."""
 
@@ -53,6 +99,15 @@ class BladeCADGenerator:
         self.doc = App.newDocument(doc_name)
         self.blade_solids = []
         self.hub_solid = None
+
+        # Station data actually used to build blade 0 - stashed here so
+        # export_dxf() can derive the drawing from the SAME numbers the
+        # solid was lofted from, instead of recomputing/guessing them.
+        self.station_radii = []
+        self.station_chords = []
+        self.station_beta_rad = []
+        self.airfoil_loop = []
+        self.hub_height_m = 0.0
 
     @staticmethod
     def parse_profile(profile_json: str) -> list:
@@ -125,7 +180,7 @@ class BladeCADGenerator:
         azimuth_rad: float,
         airfoil_loop: list
     ) -> list:
-        """Build loft sections - one per radial station."""
+        """Build loft sections - one closed planar wire per radial station."""
         cos_phi = math.cos(azimuth_rad)
         sin_phi = math.sin(azimuth_rad)
         eR = Vector(cos_phi, sin_phi, 0)
@@ -162,36 +217,44 @@ class BladeCADGenerator:
         chords: list,
         beta_rad: list,
         azimuth_rad: float,
-        airfoil_loop: list
+        airfoil_loop: list,
+        blade_index: int = 0
     ) -> Part.Solid:
-        """Build single blade via lofting sections."""
+        """Build a single blade as a real watertight solid, by lofting the
+        closed section wires with capped ends (FreeCAD's own loft-to-solid,
+        not a hand-built Shell/Solid). Raises BladeGeometryError instead of
+        returning a degenerate shape."""
         sections = self.build_blade_sections(radii, chords, beta_rad, azimuth_rad, airfoil_loop)
 
         if len(sections) < 2:
-            raise ValueError(f"Need at least 2 sections, got {len(sections)}")
+            raise BladeGeometryError(
+                f"Blade {blade_index}: need at least 2 span sections, got {len(sections)}"
+            )
 
         try:
-            lofted = Part.makeLoft(sections, solid=False)
+            # solid=True: FreeCAD caps the first/last (closed, planar)
+            # wires itself and returns one real Solid - this is the
+            # standard, robust way to loft a capped solid and replaces
+            # the previous manual Shell([open_loft, hub_face, tip_face])
+            # construction, which was passing a multi-face Shell where a
+            # flat list of Faces was expected and produced an invalid
+            # shape that silently failed to export any BREP data.
+            blade_solid = Part.makeLoft(sections, solid=True, ruled=False)
         except Exception as e:
-            raise RuntimeError(f"Loft failed: {e}")
+            raise BladeGeometryError(f"Blade {blade_index}: loft-to-solid failed: {e}")
 
-        hub_pts = sections[0]
-        hub_verts = hub_pts.Vertexes
-        hub_center = sum([v.Point for v in hub_verts], Vector(0, 0, 0)) * (1.0 / len(hub_verts))
-
-        tip_pts = sections[-1]
-        tip_verts = tip_pts.Vertexes
-        tip_center = sum([v.Point for v in tip_verts], Vector(0, 0, 0)) * (1.0 / len(tip_verts))
-
-        try:
-            hub_face = Part.makeFace(hub_pts) if len(hub_verts) > 2 else lofted
-            tip_face = Part.makeFace(tip_pts) if len(tip_verts) > 2 else lofted
-            shell = Part.Shell([lofted, hub_face, tip_face])
-            blade_solid = Part.Solid(shell)
-            blade_solid.removeInternalFaces()
-        except Exception as e:
-            print(f"Warning: Solid construction failed: {e}")
-            blade_solid = lofted
+        if blade_solid is None or blade_solid.ShapeType != "Solid":
+            raise BladeGeometryError(
+                f"Blade {blade_index}: loft did not produce a Solid "
+                f"(got {getattr(blade_solid, 'ShapeType', None)})"
+            )
+        if not blade_solid.isValid():
+            raise BladeGeometryError(f"Blade {blade_index}: resulting solid failed isValid() check")
+        if blade_solid.Volume <= 1e-12:
+            raise BladeGeometryError(
+                f"Blade {blade_index}: resulting solid has zero/near-zero volume "
+                f"({blade_solid.Volume}) - sections likely self-intersect or are degenerate"
+            )
 
         return blade_solid
 
@@ -207,9 +270,11 @@ class BladeCADGenerator:
         span_stations: int = 6,
         target_solidity: float = 0.5
     ) -> None:
-        """Generate full blade/hub assembly."""
+        """Generate full blade/hub assembly. Raises BladeGeometryError if
+        the hub or ANY blade does not come out as a valid solid - a fan
+        assembly missing blades must never be exported as if it succeeded."""
         if tip_radius_m <= 0:
-            raise ValueError(f"Tip radius must be positive")
+            raise BladeGeometryError("Tip radius must be positive")
 
         hub_ratio = max(0.15, min(0.85, hub_ratio if 0 < hub_ratio < 1 else 0.45))
         blade_count = max(1, blade_count)
@@ -219,7 +284,7 @@ class BladeCADGenerator:
         span = tip_radius_m - hub_radius_m
 
         if span <= 0:
-            raise ValueError(f"Hub >= tip radius")
+            raise BladeGeometryError("Hub radius must be smaller than tip radius")
 
         airfoil = (self.parse_profile(profile_json) or
                    self.naca_four_digit_loop())
@@ -243,84 +308,118 @@ class BladeCADGenerator:
             chord = target_solidity * 2.0 * math.pi * r / blade_count
             chords.append(chord)
 
+        # Stash the exact station data used, so export_dxf() can derive
+        # a drawing that matches this solid instead of a separately
+        # fabricated approximation.
+        self.station_radii = radii
+        self.station_chords = chords
+        self.station_beta_rad = beta_rad_list
+        self.airfoil_loop = airfoil
+
         # Build hub (solid cylinder)
         hub_height = tip_radius_m * 0.15
-        self.hub_solid = Part.makeCylinder(hub_radius_m, hub_height, Vector(0, 0, -hub_height/2))
+        self.hub_height_m = hub_height
+        self.hub_solid = Part.makeCylinder(hub_radius_m, hub_height, Vector(0, 0, -hub_height / 2))
+
+        if not self.hub_solid.isValid() or self.hub_solid.Volume <= 1e-12:
+            raise BladeGeometryError("Hub cylinder is invalid or has zero volume")
+
         hub_obj = self.doc.addObject("Part::Feature", "Hub")
         hub_obj.Shape = self.hub_solid
 
-        # Build blades
+        # Build blades - ANY failure here is fatal (see BladeGeometryError
+        # docstring). No more per-blade try/except-and-skip: a fan that
+        # silently ends up with fewer blades than requested is not a
+        # partially-successful result, it's a wrong part.
         for k in range(blade_count):
             phi = 2.0 * math.pi * k / blade_count
-            try:
-                blade_solid = self.build_blade(radii, chords, beta_rad_list, phi, airfoil)
-                self.blade_solids.append(blade_solid)
-                blade_obj = self.doc.addObject("Part::Feature", f"Blade_{k}")
-                blade_obj.Shape = blade_solid
-            except Exception as e:
-                print(f"Warning: Blade {k} failed: {e}")
-                continue
+            blade_solid = self.build_blade(radii, chords, beta_rad_list, phi, airfoil, blade_index=k)
+            self.blade_solids.append(blade_solid)
+            blade_obj = self.doc.addObject("Part::Feature", f"Blade_{k}")
+            blade_obj.Shape = blade_solid
 
-        print(f"Assembly generated: hub + {len(self.blade_solids)} blades")
+        if len(self.blade_solids) != blade_count:
+            raise BladeGeometryError(
+                f"Only {len(self.blade_solids)} of {blade_count} blades built successfully"
+            )
+
+        print(f"Assembly generated: hub + {len(self.blade_solids)} blades (all valid solids)")
 
     def export_step(self, output_path: str) -> None:
-        """Export hub + blades as STEP assembly."""
-        if not self.blade_solids and not self.hub_solid:
-            raise ValueError("No geometry to export")
+        """Export hub + blades as a multi-solid STEP assembly.
 
-        shapes = [self.hub_solid] if self.hub_solid else []
-        shapes.extend(self.blade_solids)
+        Deliberately does NOT attempt to boolean-fuse the blades into the
+        hub: fusing N independently-lofted solids adds real OCCT failure
+        risk for no mechanical benefit (a STEP assembly of separate,
+        correctly-positioned solids is standard and perfectly valid for
+        manufacturing/CAM). Every shape is validated before export so an
+        empty/degenerate STEP (as previously happened silently) can no
+        longer occur.
+        """
+        if not self.blade_solids or self.hub_solid is None:
+            raise BladeGeometryError("No valid geometry to export (hub or blades missing)")
 
-        if len(shapes) == 1:
-            combined = shapes[0]
-        else:
-            try:
-                combined = shapes[0]
-                for s in shapes[1:]:
-                    combined = combined.fuse(s)
-            except:
-                combined = Part.makeCompound(shapes)
+        shapes = [self.hub_solid] + self.blade_solids
+        for i, s in enumerate(shapes):
+            if s is None or not s.isValid() or s.Volume <= 1e-12:
+                raise BladeGeometryError(f"Shape index {i} is invalid or zero-volume - refusing to export")
 
-        Part.export(combined, output_path)
-        print(f"Exported STEP: {output_path}")
+        combined = Part.makeCompound(shapes)
+        Part.export([combined], output_path)
+        print(f"Exported STEP: {output_path} ({len(shapes)} solids)")
 
     def export_obj(self, output_path: str) -> None:
         """Export as OBJ (for web viewer)."""
-        shapes = [self.hub_solid] if self.hub_solid else []
-        shapes.extend(self.blade_solids)
+        if not self.blade_solids or self.hub_solid is None:
+            raise BladeGeometryError("No valid geometry to export (hub or blades missing)")
 
-        if not shapes:
-            raise ValueError("No geometry to export")
+        shapes = [self.hub_solid] + self.blade_solids
+        combined = Part.makeCompound(shapes)
 
-        combined = Part.makeCompound(shapes) if len(shapes) > 1 else shapes[0]
-        
-        mesh = combined.tessellate(0.01)
-        
+        vertices, facets = combined.tessellate(0.01)
+        if not vertices or not facets:
+            raise BladeGeometryError("Tessellation produced no geometry")
+
         with open(output_path, 'w') as f:
             f.write("# AxialFan blade assembly\n")
-            v_offset = 1
-            for tri in mesh:
-                for pt in tri:
-                    f.write(f"v {pt.x:.6f} {pt.y:.6f} {pt.z:.6f}\n")
-                f.write(f"f {v_offset} {v_offset+1} {v_offset+2}\n")
-                v_offset += 3
+            for v in vertices:
+                f.write(f"v {v.x:.6f} {v.y:.6f} {v.z:.6f}\n")
+            for f1, f2, f3 in facets:
+                # OBJ face indices are 1-based
+                f.write(f"f {f1 + 1} {f2 + 1} {f3 + 1}\n")
 
-        print(f"Exported OBJ: {output_path}")
+        print(f"Exported OBJ: {output_path} ({len(vertices)} verts, {len(facets)} faces)")
 
-    def export_dxf(self, output_path: str, tip_radius_m: float, hub_radius_m: float, 
-                   blade_count: int, avg_chord: float, stagger_angle_deg: float = 30.0) -> None:
-        """Export 2D engineering drawing with hardcoded dimensions."""
+    def export_dxf(self, output_path: str, tip_radius_m: float, hub_radius_m: float,
+                   blade_count: int) -> None:
+        """Export a 2D engineering drawing DERIVED FROM THE ACTUAL SOLID's
+        station data (self.station_radii/chords/beta_rad, set by
+        generate_assembly) - not from a separately hardcoded stagger angle
+        or average chord. See the stacking-convention note in the module
+        docstring for why the LE curve is a straight line and the TE curve
+        is the one carrying the twist.
+        """
         try:
             import ezdxf
+            from ezdxf.enums import TextEntityAlignment
         except ImportError:
             print("WARNING: ezdxf not available - skipping DXF export")
             return
 
+        if not self.station_radii:
+            raise BladeGeometryError("export_dxf called before generate_assembly (no station data)")
+
+        def place_text(text_entity, pos):
+            text_entity.set_placement(pos, align=TextEntityAlignment.LEFT)
+
         tip_diameter = tip_radius_m * 2 * 1000
         hub_diameter = hub_radius_m * 2 * 1000
-        chord_mm = avg_chord * 1000
-        hub_width = tip_radius_m * 0.15 * 1000
+        hub_width = self.hub_height_m * 1000
         blade_pitch = (2 * math.pi * tip_radius_m) / blade_count * 1000
+        root_chord_mm = self.station_chords[0] * 1000
+        tip_chord_mm = self.station_chords[-1] * 1000
+        root_beta_deg = math.degrees(self.station_beta_rad[0])
+        tip_beta_deg = math.degrees(self.station_beta_rad[-1])
 
         doc = ezdxf.new('R2000')
         msp = doc.modelspace()
@@ -329,10 +428,11 @@ class BladeCADGenerator:
         doc.layers.add('Geometry', color=7)
         doc.layers.add('Text', color=3)
 
+        # ---- Front view: tip/hub circles + real blade angular positions ----
         msp.add_circle((0, 0), tip_radius_m * 1000, dxfattribs={'layer': 'Geometry'})
         msp.add_circle((0, 0), hub_radius_m * 1000, dxfattribs={'layer': 'Geometry'})
 
-        for k in range(2):
+        for k in range(blade_count):
             phi = 2 * math.pi * k / blade_count
             x1 = hub_radius_m * 1000 * math.cos(phi)
             y1 = hub_radius_m * 1000 * math.sin(phi)
@@ -340,47 +440,65 @@ class BladeCADGenerator:
             y2 = tip_radius_m * 1000 * math.sin(phi)
             msp.add_line((x1, y1), (x2, y2), dxfattribs={'layer': 'Geometry'})
 
-        msp.add_text(f"O {tip_diameter:.1f} mm (Tip)", dxfattribs={'layer': 'Text'}).set_pos(
-            (50, tip_radius_m * 1000 + 120), align=0)
-        msp.add_text(f"O {hub_diameter:.1f} mm (Hub)", dxfattribs={'layer': 'Text'}).set_pos(
-            (50, hub_radius_m * 1000 + 50), align=0)
-        msp.add_text(f"Blades: {blade_count} @ {blade_pitch:.1f} mm pitch", 
-                     dxfattribs={'layer': 'Text'}).set_pos(
-            (-tip_radius_m * 1000 - 200, tip_radius_m * 1000 - 100), align=0)
+        place_text(msp.add_text(f"O {tip_diameter:.1f} mm (Tip)", dxfattribs={'layer': 'Text'}),
+                   (50, tip_radius_m * 1000 + 120))
+        place_text(msp.add_text(f"O {hub_diameter:.1f} mm (Hub)", dxfattribs={'layer': 'Text'}),
+                   (50, hub_radius_m * 1000 + 50))
+        place_text(msp.add_text(f"Blades: {blade_count} @ {blade_pitch:.1f} mm pitch",
+                   dxfattribs={'layer': 'Text'}), (-tip_radius_m * 1000 - 200, tip_radius_m * 1000 - 100))
 
+        # ---- Side (developed r-vs-axial) view: REAL LE/TE curves ----
+        # LE is the stacking spine -> straight line at axial offset 0 for
+        # every station (see module docstring). TE = LE + chord(r)*sin(beta(r)),
+        # taken straight from the same arrays the solid was lofted from.
         view_offset_x = tip_radius_m * 1000 + 300
+        r_to_y = lambda r_m: r_m * 1000  # radius maps to the view's vertical axis
 
-        msp.add_line((view_offset_x, 0), (view_offset_x + hub_width, 0), 
-                     dxfattribs={'layer': 'Geometry'})
-        msp.add_line((view_offset_x + hub_width, 0), (view_offset_x + hub_width, hub_diameter / 2), 
-                     dxfattribs={'layer': 'Geometry'})
-        msp.add_line((view_offset_x + hub_width, hub_diameter / 2), (view_offset_x, hub_diameter / 2), 
-                     dxfattribs={'layer': 'Geometry'})
-        msp.add_line((view_offset_x, hub_diameter / 2), (view_offset_x, 0), 
-                     dxfattribs={'layer': 'Geometry'})
+        le_pts = []
+        te_pts = []
+        for r, ch, beta in zip(self.station_radii, self.station_chords, self.station_beta_rad):
+            le_x = view_offset_x
+            te_x = view_offset_x + ch * math.sin(beta) * 1000
+            y = r_to_y(r)
+            le_pts.append((le_x, y))
+            te_pts.append((te_x, y))
 
-        stagger_rad = math.radians(stagger_angle_deg)
-        blade_axial_offset = chord_mm * math.cos(stagger_rad)
-        blade_height = (tip_diameter - hub_diameter) / 2
+        for i in range(len(le_pts) - 1):
+            msp.add_line(le_pts[i], le_pts[i + 1], dxfattribs={'layer': 'Geometry'})
+            msp.add_line(te_pts[i], te_pts[i + 1], dxfattribs={'layer': 'Geometry'})
+        # Root and tip closing lines (root/tip chord)
+        msp.add_line(le_pts[0], te_pts[0], dxfattribs={'layer': 'Geometry'})
+        msp.add_line(le_pts[-1], te_pts[-1], dxfattribs={'layer': 'Geometry'})
 
-        msp.add_line((view_offset_x, hub_diameter / 2), 
-                     (view_offset_x + blade_axial_offset, hub_diameter / 2 + blade_height), 
-                     dxfattribs={'layer': 'Geometry'})
-        msp.add_line((view_offset_x + hub_width, hub_diameter / 2), 
-                     (view_offset_x + hub_width + blade_axial_offset, hub_diameter / 2 + blade_height), 
-                     dxfattribs={'layer': 'Geometry'})
+        place_text(msp.add_text(f"{hub_width:.1f} mm hub width", dxfattribs={'layer': 'Text'}),
+                   (view_offset_x, r_to_y(self.station_radii[0]) - 80))
+        place_text(msp.add_text(f"Root chord: {root_chord_mm:.1f} mm @ {root_beta_deg:.1f} deg",
+                   dxfattribs={'layer': 'Text'}),
+                   (view_offset_x - 250, r_to_y(self.station_radii[0]) - 130))
+        place_text(msp.add_text(f"Tip chord: {tip_chord_mm:.1f} mm @ {tip_beta_deg:.1f} deg",
+                   dxfattribs={'layer': 'Text'}),
+                   (view_offset_x - 250, r_to_y(self.station_radii[-1]) + 60))
 
-        msp.add_text(f"{hub_width:.1f} mm", dxfattribs={'layer': 'Text'}).set_pos(
-            (view_offset_x + hub_width / 2 - 30, -80), align=0)
-        msp.add_text(f"Chord: {chord_mm:.1f} mm", dxfattribs={'layer': 'Text'}).set_pos(
-            (view_offset_x + blade_axial_offset / 2, hub_diameter / 2 + blade_height + 50), align=0)
-        msp.add_text(f"Stagger: {stagger_angle_deg:.1f} deg", dxfattribs={'layer': 'Text'}).set_pos(
-            (view_offset_x + blade_axial_offset + 30, hub_diameter / 2 + blade_height / 2), align=0)
+        # ---- Real airfoil cross-sections at root and tip, drawn to scale ----
+        def draw_airfoil(cx, cy, chord_m):
+            pts = [(cx + xf * chord_m * 1000, cy + yf * chord_m * 1000)
+                   for xf, yf in self.airfoil_loop]
+            pts.append(pts[0])
+            msp.add_lwpolyline(pts, dxfattribs={'layer': 'Geometry'})
 
-        msp.add_text("Axial Fan Blade Assembly", dxfattribs={'layer': 'Text', 'height': 5}).set_pos(
-            (-tip_radius_m * 1000 - 100, -tip_radius_m * 1000 - 100), align=0)
-        msp.add_text(f"Scale: 1:1 (mm)", dxfattribs={'layer': 'Text'}).set_pos(
-            (-tip_radius_m * 1000 - 100, -tip_radius_m * 1000 - 150), align=0)
+        airfoil_view_x = view_offset_x + 500
+        draw_airfoil(airfoil_view_x, 0, self.station_chords[0])
+        place_text(msp.add_text("Root section", dxfattribs={'layer': 'Text'}),
+                   (airfoil_view_x, -150))
+
+        draw_airfoil(airfoil_view_x, 400, self.station_chords[-1])
+        place_text(msp.add_text("Tip section", dxfattribs={'layer': 'Text'}),
+                   (airfoil_view_x, 250))
+
+        place_text(msp.add_text("Axial Fan Blade Assembly", dxfattribs={'layer': 'Text', 'height': 5}),
+                   (-tip_radius_m * 1000 - 100, -tip_radius_m * 1000 - 100))
+        place_text(msp.add_text("Scale: 1:1 (mm)", dxfattribs={'layer': 'Text'}),
+                   (-tip_radius_m * 1000 - 100, -tip_radius_m * 1000 - 150))
 
         doc.saveas(output_path)
         print(f"Exported DXF: {output_path}")
@@ -443,9 +561,6 @@ if __name__ == "__main__":
             tip_radius_m=params["tip_radius_m"],
             hub_radius_m=params["tip_radius_m"] * params.get("hub_ratio", 0.45),
             blade_count=params.get("blade_count", 6),
-            avg_chord=params.get("target_solidity", 0.5) * 2.0 * 3.14159 * 
-                     (params["tip_radius_m"] + params["tip_radius_m"] * params.get("hub_ratio", 0.45)) / 2 / params.get("blade_count", 6),
-            stagger_angle_deg=params.get("stagger_angle_deg", 30.0)
         )
         gen.export_obj(obj_file)
 
