@@ -1,7 +1,4 @@
-using netDxf;
-using netDxf.Entities;
-using netDxf.Tables;
-using netDxf.Header;
+
 using System.Linq;
 using AxialFanMVC.Database;
 using ModelPoint2D = AxialFanMVC.Models.Point2D;

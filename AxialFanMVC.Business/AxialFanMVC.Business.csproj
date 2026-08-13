@@ -9,6 +9,8 @@
   <ItemGroup>
    
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.27.0" />
+   
+    <PackageReference Include="netDxf" Version="2023.11.10" />
     <PackageReference Include="QuestPDF" Version="2026.6.1" />
   </ItemGroup>
 

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 
@@ -19,14 +20,20 @@ namespace AxialFanMVC.Services
     // which ruled out App Pool identity/permissions/env vars as the
     // cause.
     //
-    // Fix: this no longer shells out to python.exe itself. Instead it
-    // drops a request file into CfdRender:IpcDirectory and triggers a
-    // Scheduled Task (CfdRender:TaskName) configured to "Run only when
-    // user is logged on", so the actual rendering happens on an
-    // interactive desktop. That task's action is render_dispatch.py
+    // Fix (Windows): this no longer shells out to python.exe itself.
+    // Instead it drops a request file into CfdRender:IpcDirectory and
+    // triggers a Scheduled Task (CfdRender:TaskName) configured to
+    // "Run only when user is logged on", so the actual rendering happens
+    // on an interactive desktop. That task's action is render_dispatch.py
     // (Cfd/Render/render_dispatch.py), which calls render_result.py's
     // render() and writes a matching response file back to the same
     // IPC directory for this class to pick up.
+    //
+    // Fix (Linux): Linux has no interactive-desktop restriction the way
+    // IIS/Windows did — Xvfb provides a standard virtual framebuffer for
+    // headless OpenGL, so on Linux we just run render_result.py directly
+    // and synchronously instead of going through the Scheduled
+    // Task/IPC workaround Windows needed.
     //
     // Public API is unchanged — RenderOffscreen(casePath, outputDir) —
     // so CfdBackgroundService and anything else calling this needs no
@@ -35,9 +42,10 @@ namespace AxialFanMVC.Services
     // Configure via appsettings.json -> CfdRender:* (wired in Program.cs).
     public static class CfdVtkRenderer
     {
-        // No longer used directly by this class (the Scheduled Task's
-        // action already has its own fixed python.exe + script path),
-        // kept only as a reference for whoever sets that task up.
+        // Windows: not used directly (the Scheduled Task's action already
+        // has its own fixed python.exe + script path), kept only as a
+        // reference for whoever sets that task up.
+        // Linux: used directly below to invoke render_result.py via Xvfb.
         public static string PythonExe { get; set; } = "python3";
         public static string ScriptPath { get; set; } = "";
         public static string TaskName { get; set; } = "AxialFanCfdRender";
@@ -48,6 +56,9 @@ namespace AxialFanMVC.Services
 
         public static (string PngPath, string VtpPath, string? StreamlinesVtpPath) RenderOffscreen(string casePath, string outputDir)
         {
+            if (!System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+                return RenderOffscreenLinux(casePath, outputDir);
+
             Directory.CreateDirectory(IpcDirectory);
 
             string requestId = Guid.NewGuid().ToString("N");
@@ -73,6 +84,82 @@ namespace AxialFanMVC.Services
                 File.WriteAllText(Path.Combine(outputDir, "render.log"), log ?? string.Empty);
             }
             catch { /* diagnostics best-effort — never let logging failure mask the real result */ }
+
+            return (pngPath, vtpPath, streamlinesVtpPath);
+        }
+
+        // Linux has no interactive-desktop restriction the way IIS/Windows
+        // did — Xvfb provides a standard virtual framebuffer for headless
+        // OpenGL, so we just run the render script directly and
+        // synchronously instead of going through the Scheduled
+        // Task/IPC workaround Windows needed. Requires the `xvfb` package
+        // installed (provides xvfb-run) and PythonExe pointed at a venv
+        // with render_result.py's dependencies (pyvista, vtk, numpy)
+        // installed.
+        private static (string PngPath, string VtpPath, string? StreamlinesVtpPath) RenderOffscreenLinux(string casePath, string outputDir)
+        {
+            Directory.CreateDirectory(outputDir);
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = "xvfb-run",
+                Arguments = $"-a \"{PythonExe}\" \"{ScriptPath}\" \"{casePath}\" \"{outputDir}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+
+            var stdout = new StringBuilder();
+            var stderr = new StringBuilder();
+            using var process = new Process { StartInfo = psi };
+
+            process.OutputDataReceived += (s, e) => { if (e.Data != null) stdout.AppendLine(e.Data); };
+            process.ErrorDataReceived += (s, e) => { if (e.Data != null) stderr.AppendLine(e.Data); };
+
+            process.Start();
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+
+            bool exited = process.WaitForExit(TimeoutSeconds * 1000);
+            if (!exited)
+            {
+                try { process.Kill(true); } catch { /* best-effort */ }
+                throw new CfdRenderException(
+                    $"render_result.py did not complete within {TimeoutSeconds}s.",
+                    stdout.ToString() + stderr.ToString());
+            }
+
+            string fullLog = stdout.ToString() + stderr.ToString();
+
+            try
+            {
+                File.WriteAllText(Path.Combine(outputDir, "render.log"), fullLog);
+            }
+            catch { /* diagnostics best-effort — never let logging failure mask the real result */ }
+
+            if (process.ExitCode != 0)
+            {
+                throw new CfdRenderException(
+                    $"render_result.py failed (exit {process.ExitCode}).", fullLog);
+            }
+
+            // render_result.py's __main__ block prints "png|vtp|streamlines"
+            // as its final stdout line — parse that instead of re-deriving
+            // paths, so the C# side never drifts out of sync with what the
+            // script actually wrote.
+            string? resultLine = stdout.ToString()
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .LastOrDefault(l => l.Contains('|'));
+
+            if (resultLine == null)
+                throw new CfdRenderException(
+                    "render_result.py exited 0 but produced no parseable output line.", fullLog);
+
+            var parts = resultLine.Trim().Split('|');
+            string pngPath = parts[0];
+            string vtpPath = parts.Length > 1 ? parts[1] : "";
+            string? streamlinesVtpPath = parts.Length > 2 && parts[2].Length > 0 ? parts[2] : null;
 
             return (pngPath, vtpPath, streamlinesVtpPath);
         }
