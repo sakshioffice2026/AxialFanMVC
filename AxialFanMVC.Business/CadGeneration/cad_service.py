@@ -50,6 +50,19 @@ class BladeCadRequest(BaseModel):
     target_solidity: float = Field(0.5, gt=0, description="Chord solidity target")
     stagger_angle_deg: float = Field(30.0, description="Blade stagger angle for DXF")
 
+    # Casing/shaft/flange - optional. Casing is only built when
+    # casing_length_m is set (None/omitted -> rotor-only, unchanged
+    # behavior for existing callers).
+    casing_length_m: Optional[float] = Field(None, gt=0, description="Casing axial length")
+    shaft_radius_m: Optional[float] = Field(None, gt=0, description="Shaft radius (defaults to half hub radius)")
+    tip_clearance_m: float = Field(0.002, ge=0, description="Blade tip to casing bore clearance")
+    wall_thickness_m: float = Field(0.003, gt=0, description="Casing wall thickness")
+    flange_thickness_m: float = Field(0.008, gt=0, description="Bolted flange thickness")
+    flange_width_m: float = Field(0.02, gt=0, description="Flange radial width")
+    flange_bolt_dia_m: float = Field(0.008, gt=0, description="Flange bolt hole diameter")
+    flange_bolt_count: int = Field(8, ge=3, description="Bolt hole count per flange")
+    shaft_protrude_m: float = Field(0.03, ge=0, description="Shaft protrusion beyond each casing end")
+
 
 class BladeCadResponse(BaseModel):
     """Response with generated file paths."""
@@ -57,6 +70,8 @@ class BladeCadResponse(BaseModel):
     step_file: str
     dxf_file: str
     obj_file: str
+    front_2d_dxf: Optional[str] = None
+    side_2d_dxf: Optional[str] = None
     message: str
 
 
@@ -111,7 +126,16 @@ async def generate_blade_cad(req: BladeCadRequest, bg_tasks: BackgroundTasks):
         "axial_velocity_ms": req.axial_velocity_ms,
         "span_stations": req.span_stations,
         "target_solidity": req.target_solidity,
-        "stagger_angle_deg": req.stagger_angle_deg
+        "stagger_angle_deg": req.stagger_angle_deg,
+        "casing_length_m": req.casing_length_m,
+        "shaft_radius_m": req.shaft_radius_m,
+        "tip_clearance_m": req.tip_clearance_m,
+        "wall_thickness_m": req.wall_thickness_m,
+        "flange_thickness_m": req.flange_thickness_m,
+        "flange_width_m": req.flange_width_m,
+        "flange_bolt_dia_m": req.flange_bolt_dia_m,
+        "flange_bolt_count": req.flange_bolt_count,
+        "shaft_protrude_m": req.shaft_protrude_m,
     }
 
     try:
@@ -155,8 +179,13 @@ async def generate_blade_cad(req: BladeCadRequest, bg_tasks: BackgroundTasks):
 
         # Verify output files exist
         step_file = case_dir / f"fan_{case_id}.step"
-        dxf_file = case_dir / f"fan_{case_id}.dxf"
         obj_file = case_dir / f"fan_{case_id}.obj"
+        # The real 2D drawing: a genuine flattened projection of the same
+        # solid as the STEP/OBJ (via TechDraw), not a separately hand-
+        # drawn sketch - see blade_cad_generator.py's export_true_2d_views.
+        dxf_file = case_dir / f"fan_{case_id}_front_2d.dxf"
+        side_2d = case_dir / f"fan_{case_id}_side_2d.dxf"
+        top_2d = case_dir / f"fan_{case_id}_top_2d.dxf"
 
         if not step_file.exists():
             print(f"[CAD] ERROR: Expected STEP file not found: {step_file}", flush=True)
@@ -174,6 +203,8 @@ async def generate_blade_cad(req: BladeCadRequest, bg_tasks: BackgroundTasks):
             step_file=str(step_file),
             dxf_file=str(dxf_file),
             obj_file=str(obj_file),
+            front_2d_dxf=str(dxf_file) if dxf_file.exists() else None,
+            side_2d_dxf=str(side_2d) if side_2d.exists() else None,
             message=f"Generated: {req.blade_count} blades, O{req.tip_radius_m*2:.3f}m, {int(req.rpm)} RPM"
         )
 

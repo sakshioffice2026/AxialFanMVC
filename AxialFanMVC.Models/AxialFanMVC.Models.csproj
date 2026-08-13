@@ -10,6 +10,7 @@
     <PackageReference Include="Activiz.NET.x64" Version="5.8.0" />
     <PackageReference Include="Microsoft.AspNet.Mvc" Version="5.3.0" />
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.27.0" />
+    <PackageReference Include="netDxf" Version="2023.11.10" />
     <PackageReference Include="QuestPDF" Version="2026.6.1" />
   </ItemGroup>
 

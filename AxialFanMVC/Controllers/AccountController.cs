@@ -8,6 +8,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Win32;
 using System.Security.Claims;
+using System.Text;
+using System.Text.Encodings.Web;
 
 namespace AxialFanMVC.Controllers
 {
@@ -15,6 +17,7 @@ namespace AxialFanMVC.Controllers
     {
         private readonly AxialFanDbContext _db;
         private readonly IExceptionHandlerRepository _exceptionHandlerRepository;
+
         public AccountController(AxialFanDbContext db, IExceptionHandlerRepository exceptionHandlerRepository)
         {
             _db = db;
@@ -58,7 +61,7 @@ namespace AxialFanMVC.Controllers
                 {
                     Name = vm.Name,
                     Email = vm.Email,
-                    PasswordHash = BCrypt.Net.BCrypt.HashPassword(vm.Password)
+                    PasswordHash = Convert.ToBase64String(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(vm.Password)))
                 };
                 _db.Users.Add(user);
                 await _db.SaveChangesAsync();
@@ -109,7 +112,10 @@ namespace AxialFanMVC.Controllers
                 if (!ModelState.IsValid) return View(vm);
 
                 var user = await _db.Users.FirstOrDefaultAsync(u => u.Email == vm.Email);
-                if (user == null || !BCrypt.Net.BCrypt.Verify(vm.Password, user.PasswordHash))
+                if (user == null || !(
+                    Convert.FromBase64String(user.PasswordHash)!
+                        .SequenceEqual(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(vm.Password)))
+                ))
                 {
                     ModelState.AddModelError(string.Empty, "Invalid email or password.");
                     return View(vm);
@@ -156,7 +162,6 @@ namespace AxialFanMVC.Controllers
             }
         }
 
-        // Private helper — left unchanged per convention
         private async Task SignInUser(User user, bool persistent = false)
         {
             var claims = new List<Claim>

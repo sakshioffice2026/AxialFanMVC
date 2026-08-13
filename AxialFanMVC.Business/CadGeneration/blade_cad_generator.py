@@ -81,6 +81,7 @@ _add_freecad_to_path()
 import FreeCAD as App
 from FreeCAD import Vector
 import Part
+import TechDraw
 
 
 class BladeGeometryError(RuntimeError):
@@ -108,6 +109,16 @@ class BladeCADGenerator:
         self.station_beta_rad = []
         self.airfoil_loop = []
         self.hub_height_m = 0.0
+
+        # Casing/shaft/flange solids - populated by build_casing_assembly().
+        # Kept separate from hub_solid/blade_solids (rotor group) since
+        # casing is stationary and shaft protrudes beyond the rotor.
+        self.casing_solid = None
+        self.shaft_solid = None
+        self.inlet_flange_solid = None
+        self.outlet_flange_solid = None
+        self._casing_clearance_m = 0.0
+        self._casing_wall_m = 0.0
 
     @staticmethod
     def parse_profile(profile_json: str) -> list:
@@ -258,6 +269,111 @@ class BladeCADGenerator:
 
         return blade_solid
 
+    @staticmethod
+    def _round_flange(radius_inner_m, z_m, extend_forward, flange_t_m,
+                       flange_width_m, bolt_dia_m, bolt_count, overlap_m=0.005):
+        """Flat annular bolted flange, welded onto a round duct end.
+        Same overlap-into-the-shell technique as CyclonApp's flange
+        builder: fuse() needs real shared volume, not a zero-area ring
+        contact, or the flange ends up a disconnected solid."""
+        radius_outer = radius_inner_m + flange_width_m
+        height = flange_t_m + overlap_m
+        z0 = (z_m - overlap_m) if extend_forward else (z_m - flange_t_m)
+        direction = Vector(0, 0, 1)
+
+        outer_disc = Part.makeCylinder(radius_outer, height, Vector(0, 0, z0), direction)
+        inner_hole = Part.makeCylinder(radius_inner_m, height + 0.002,
+                                        Vector(0, 0, z0 - 0.001), direction)
+        flange = outer_disc.cut(inner_hole)
+
+        bolt_circle_r = (radius_inner_m + radius_outer) / 2.0
+        for i in range(bolt_count):
+            ang = 2.0 * math.pi * i / bolt_count
+            bx = bolt_circle_r * math.cos(ang)
+            by = bolt_circle_r * math.sin(ang)
+            bolt = Part.makeCylinder(bolt_dia_m / 2.0, height + 0.002,
+                                      Vector(bx, by, z0 - 0.001), direction)
+            flange = flange.cut(bolt)
+
+        if not flange.isValid() or flange.Volume <= 1e-12:
+            raise BladeGeometryError("Flange solid is invalid or zero-volume")
+        return flange
+
+    def build_casing_assembly(
+        self,
+        tip_radius_m: float,
+        casing_length_m: float,
+        shaft_radius_m: float,
+        tip_clearance_m: float = 0.002,
+        wall_thickness_m: float = 0.003,
+        flange_thickness_m: float = 0.008,
+        flange_width_m: float = 0.02,
+        flange_bolt_dia_m: float = 0.008,
+        flange_bolt_count: int = 8,
+        shaft_protrude_m: float = 0.03,
+    ) -> None:
+        """Build stationary casing (cylindrical shell + bolted flanges at
+        both ends) and the through-shaft, centered on the same Z axis the
+        rotor (hub + blades) is built on. Kept as a SEPARATE solid group
+        from the rotor - casing is stationary, shaft passes through the
+        hub bore, neither is fused to the rotating hub/blades. Raises
+        BladeGeometryError on any invalid/zero-volume result, same
+        validate-or-fail posture as build_blade / generate_assembly."""
+        if casing_length_m <= 0:
+            raise BladeGeometryError("Casing length must be positive")
+        if shaft_radius_m <= 0 or shaft_radius_m >= tip_radius_m:
+            raise BladeGeometryError(
+                f"Shaft radius must be positive and smaller than tip radius "
+                f"(got shaft_radius_m={shaft_radius_m}, tip_radius_m={tip_radius_m})"
+            )
+
+        casing_inner_r = tip_radius_m + tip_clearance_m
+        casing_outer_r = casing_inner_r + wall_thickness_m
+        # Stashed so export_dxf() can redraw casing circles without
+        # recomputing/duplicating these numbers.
+        self._casing_clearance_m = tip_clearance_m
+        self._casing_wall_m = wall_thickness_m
+
+        # Casing shell centered so rotor mid-plane (z=0, from
+        # generate_assembly's hub placement) sits at casing mid-length.
+        z0 = -casing_length_m / 2.0
+        outer = Part.makeCylinder(casing_outer_r, casing_length_m, Vector(0, 0, z0))
+        bore = Part.makeCylinder(casing_inner_r, casing_length_m + 0.002,
+                                  Vector(0, 0, z0 - 0.001))
+        casing = outer.cut(bore)
+
+        inlet_flange = self._round_flange(
+            casing_outer_r, z0, False, flange_thickness_m, flange_width_m,
+            flange_bolt_dia_m, flange_bolt_count
+        )
+        outlet_flange = self._round_flange(
+            casing_outer_r, z0 + casing_length_m, True, flange_thickness_m,
+            flange_width_m, flange_bolt_dia_m, flange_bolt_count
+        )
+
+        casing = casing.fuse(inlet_flange).fuse(outlet_flange)
+        if not casing.isValid() or casing.Volume <= 1e-12:
+            raise BladeGeometryError("Casing+flange assembly is invalid or zero-volume")
+
+        shaft_len = casing_length_m + 2.0 * shaft_protrude_m
+        shaft = Part.makeCylinder(shaft_radius_m, shaft_len,
+                                   Vector(0, 0, z0 - shaft_protrude_m))
+        if not shaft.isValid() or shaft.Volume <= 1e-12:
+            raise BladeGeometryError("Shaft solid is invalid or zero-volume")
+
+        self.casing_solid = casing
+        self.shaft_solid = shaft
+        self.inlet_flange_solid = inlet_flange
+        self.outlet_flange_solid = outlet_flange
+
+        casing_obj = self.doc.addObject("Part::Feature", "Casing")
+        casing_obj.Shape = casing
+        shaft_obj = self.doc.addObject("Part::Feature", "Shaft")
+        shaft_obj.Shape = shaft
+
+        print(f"Casing+shaft built: casing OD={casing_outer_r*2*1000:.1f}mm, "
+              f"length={casing_length_m*1000:.1f}mm, shaft dia={shaft_radius_m*2*1000:.1f}mm")
+
     def generate_assembly(
         self,
         tip_radius_m: float,
@@ -360,12 +476,23 @@ class BladeCADGenerator:
             raise BladeGeometryError("No valid geometry to export (hub or blades missing)")
 
         shapes = [self.hub_solid] + self.blade_solids
+        if self.casing_solid is not None:
+            shapes.append(self.casing_solid)
+        if self.shaft_solid is not None:
+            shapes.append(self.shaft_solid)
         for i, s in enumerate(shapes):
             if s is None or not s.isValid() or s.Volume <= 1e-12:
                 raise BladeGeometryError(f"Shape index {i} is invalid or zero-volume - refusing to export")
 
         combined = Part.makeCompound(shapes)
-        Part.export([combined], output_path)
+        # Part.export() expects FreeCAD document objects (things with a
+        # .Shape attribute) - handing it a raw Part.Shape/compound (as
+        # before) silently writes a STEP file with only header/axis-
+        # placement entities and NO actual B-Rep geometry (confirmed:
+        # exported files were ~1.6KB with no SHAPE_REPRESENTATION solid
+        # data, despite OBJ export of the same shapes working fine).
+        # Shape.exportStep() writes the real geometry directly.
+        combined.exportStep(output_path)
         print(f"Exported STEP: {output_path} ({len(shapes)} solids)")
 
     def export_obj(self, output_path: str) -> None:
@@ -374,6 +501,10 @@ class BladeCADGenerator:
             raise BladeGeometryError("No valid geometry to export (hub or blades missing)")
 
         shapes = [self.hub_solid] + self.blade_solids
+        if self.casing_solid is not None:
+            shapes.append(self.casing_solid)
+        if self.shaft_solid is not None:
+            shapes.append(self.shaft_solid)
         combined = Part.makeCompound(shapes)
 
         vertices, facets = combined.tessellate(0.01)
@@ -432,6 +563,16 @@ class BladeCADGenerator:
         msp.add_circle((0, 0), tip_radius_m * 1000, dxfattribs={'layer': 'Geometry'})
         msp.add_circle((0, 0), hub_radius_m * 1000, dxfattribs={'layer': 'Geometry'})
 
+        # Casing outer/bore circles, only if casing was built.
+        if self.casing_solid is not None:
+            casing_outer_r_mm = (tip_radius_m + self._casing_clearance_m
+                                  + self._casing_wall_m) * 1000
+            casing_bore_r_mm = (tip_radius_m + self._casing_clearance_m) * 1000
+            msp.add_circle((0, 0), casing_outer_r_mm, dxfattribs={'layer': 'Geometry'})
+            msp.add_circle((0, 0), casing_bore_r_mm, dxfattribs={'layer': 'Geometry'})
+            place_text(msp.add_text(f"O {casing_outer_r_mm*2:.1f} mm (Casing OD)",
+                       dxfattribs={'layer': 'Text'}), (50, casing_outer_r_mm + 190))
+
         for k in range(blade_count):
             phi = 2 * math.pi * k / blade_count
             x1 = hub_radius_m * 1000 * math.cos(phi)
@@ -439,6 +580,23 @@ class BladeCADGenerator:
             x2 = tip_radius_m * 1000 * math.cos(phi)
             y2 = tip_radius_m * 1000 * math.sin(phi)
             msp.add_line((x1, y1), (x2, y2), dxfattribs={'layer': 'Geometry'})
+
+            # Blade silhouette (leading/trailing edge envelope at hub and
+            # tip, using the real chord/beta at each station) - the bare
+            # centerline above only marks blade ANGULAR POSITION, it is
+            # not the blade outline, so it reads as a spoke rather than
+            # a recognizable blade shape.
+            perp = phi + math.pi / 2
+            hub_half_w = (self.station_chords[0] * math.cos(self.station_beta_rad[0])) * 1000 / 2
+            tip_half_w = (self.station_chords[-1] * math.cos(self.station_beta_rad[-1])) * 1000 / 2
+            silhouette = [
+                (x1 + hub_half_w * math.cos(perp), y1 + hub_half_w * math.sin(perp)),
+                (x2 + tip_half_w * math.cos(perp), y2 + tip_half_w * math.sin(perp)),
+                (x2 - tip_half_w * math.cos(perp), y2 - tip_half_w * math.sin(perp)),
+                (x1 - hub_half_w * math.cos(perp), y1 - hub_half_w * math.sin(perp)),
+            ]
+            silhouette.append(silhouette[0])
+            msp.add_lwpolyline(silhouette, dxfattribs={'layer': 'Geometry'})
 
         place_text(msp.add_text(f"O {tip_diameter:.1f} mm (Tip)", dxfattribs={'layer': 'Text'}),
                    (50, tip_radius_m * 1000 + 120))
@@ -451,7 +609,12 @@ class BladeCADGenerator:
         # LE is the stacking spine -> straight line at axial offset 0 for
         # every station (see module docstring). TE = LE + chord(r)*sin(beta(r)),
         # taken straight from the same arrays the solid was lofted from.
-        view_offset_x = tip_radius_m * 1000 + 300
+        # Gap is proportional to fan size (was a fixed +300mm, which for
+        # a small fan left a huge empty gap and made the whole sheet's
+        # bounding box many times bigger than the fan itself - "fit to
+        # view" then rendered the fan as a tiny speck next to empty space).
+        gap = tip_radius_m * 1000 * 0.4
+        view_offset_x = tip_radius_m * 1000 * 2 + gap
         r_to_y = lambda r_m: r_m * 1000  # radius maps to the view's vertical axis
 
         le_pts = []
@@ -486,7 +649,7 @@ class BladeCADGenerator:
             pts.append(pts[0])
             msp.add_lwpolyline(pts, dxfattribs={'layer': 'Geometry'})
 
-        airfoil_view_x = view_offset_x + 500
+        airfoil_view_x = view_offset_x + tip_radius_m * 1000 * 0.6 + gap
         draw_airfoil(airfoil_view_x, 0, self.station_chords[0])
         place_text(msp.add_text("Root section", dxfattribs={'layer': 'Text'}),
                    (airfoil_view_x, -150))
@@ -503,6 +666,89 @@ class BladeCADGenerator:
         doc.saveas(output_path)
         print(f"Exported DXF: {output_path}")
 
+    def export_true_2d_views(self, output_dir: str, base_name: str = "fan") -> dict:
+        """Exports GENUINE flattened 2D orthographic views (front + side)
+        by projecting the ACTUAL solid (hub + blades + casing + shaft, all
+        the real fused/lofted geometry) through FreeCAD's TechDraw engine
+        - not a separately hand-drawn approximation. This is what makes
+        the 2D DXF and the 3D STEP/OBJ guaranteed to match, same as the
+        CyclonApp pipeline's _export_view_dxf: TechDraw.writeDXFView on a
+        DrawViewPart, falling back to a raw wireframe dump if TechDraw's
+        headless writer is unavailable on this FreeCAD build."""
+        shapes = [self.hub_solid] + self.blade_solids
+        if self.casing_solid is not None:
+            shapes.append(self.casing_solid)
+        if self.shaft_solid is not None:
+            shapes.append(self.shaft_solid)
+        if self.hub_solid is None or not self.blade_solids:
+            raise BladeGeometryError("No valid geometry to project (hub or blades missing)")
+
+        combined = Part.makeCompound(shapes)
+        tmp_obj = self.doc.addObject("Part::Feature", "TmpAssembly2D")
+        tmp_obj.Shape = combined
+        self.doc.recompute()
+
+        views = {"front": Vector(0, -1, 0), "side": Vector(1, 0, 0), "top": Vector(0, 0, -1)}
+        result = {}
+        for name, direction in views.items():
+            filename = f"{base_name}_{name}_2d.dxf"
+            dxf_path = os.path.join(output_dir, filename)
+
+            page = self.doc.addObject("TechDraw::DrawPage", f"Page_{name}")
+            template = self.doc.addObject("TechDraw::DrawSVGTemplate", f"Tpl_{name}")
+            template_path = os.path.join(
+                App.getResourceDir(), "Mod", "TechDraw", "Templates", "A3_Landscape.svg"
+            )
+            if os.path.isfile(template_path):
+                template.Template = template_path
+            page.Template = template
+
+            view = self.doc.addObject("TechDraw::DrawViewPart", f"View_{name}")
+            view.Source = [tmp_obj]
+            view.Direction = direction
+            view.Scale = 1.0
+            view.X = 0
+            view.Y = 0
+            # Show hidden-line edges too - without this, blades that fall
+            # behind another blade or the casing from this view angle are
+            # silently dropped (only 1-2 of N blades survive projection),
+            # which is why earlier exports looked like most blades were
+            # missing. Property name varies by FreeCAD build, so this is
+            # best-effort and non-fatal if unavailable.
+            for prop_name in ("HardHidden", "VisibleHiddenEdges"):
+                try:
+                    setattr(view, prop_name, True)
+                except Exception:
+                    pass
+            page.addView(view)
+            self.doc.recompute()
+
+            try:
+                TechDraw.writeDXFView(view, dxf_path)
+            except Exception as e:
+                print(f"WARNING: writeDXFView failed for {name} ({e}), falling back to raw wireframe")
+                try:
+                    import importDXF
+                    importDXF.export([tmp_obj], dxf_path)
+                except Exception as e2:
+                    print(f"WARNING: fallback export also failed for {name}: {e2}")
+                    dxf_path = None
+
+            for obj in (page, template, view):
+                try:
+                    self.doc.removeObject(obj.Name)
+                except Exception:
+                    pass
+            result[name] = dxf_path
+
+        try:
+            self.doc.removeObject(tmp_obj.Name)
+        except Exception:
+            pass
+
+        print(f"Exported true 2D views (projected from actual solid): {result}")
+        return result
+
 
 # ---- Main execution (when run by freecadcmd.exe) ----
 if __name__ == "__main__":
@@ -516,12 +762,18 @@ if __name__ == "__main__":
             "tip_radius_m": 0.2,
             "hub_ratio": 0.45,
             "blade_count": 6,
-            "rpm": 1500,
-            "axial_velocity_ms": 5.0,
+            "rpm": 300,               # was 1500 - low rpm gives a real
+                                       # pitch angle instead of near-
+                                       # feathered hairline blades
+            "axial_velocity_ms": 12.0,  # was 5.0 - raises pitch angle
             "span_stations": 6,
-            "target_solidity": 0.5,
+            "target_solidity": 0.9,   # was 0.5 - wider, more visible chord
             "stagger_angle_deg": 30.0,
-            "profile_coordinate_json": None
+            "profile_coordinate_json": None,
+            "casing_length_m": 0.15,  # was unset - casing+shaft now
+                                       # included in the default test run,
+                                       # matching cyclone's full-assembly
+                                       # default output
         }
         print("[Blade CAD] Using sample parameters")
     else:
@@ -549,6 +801,24 @@ if __name__ == "__main__":
             target_solidity=params.get("target_solidity", 0.5)
         )
 
+        # Casing/shaft/flange - optional. Only built when casing_length_m
+        # is given, so existing rotor-only requests behave unchanged.
+        if params.get("casing_length_m"):
+            gen.build_casing_assembly(
+                tip_radius_m=params["tip_radius_m"],
+                casing_length_m=params["casing_length_m"],
+                shaft_radius_m=params.get("shaft_radius_m") or (
+                    params["tip_radius_m"] * params.get("hub_ratio", 0.45) * 0.5
+                ),
+                tip_clearance_m=params.get("tip_clearance_m", 0.002),
+                wall_thickness_m=params.get("wall_thickness_m", 0.003),
+                flange_thickness_m=params.get("flange_thickness_m", 0.008),
+                flange_width_m=params.get("flange_width_m", 0.02),
+                flange_bolt_dia_m=params.get("flange_bolt_dia_m", 0.008),
+                flange_bolt_count=params.get("flange_bolt_count", 8),
+                shaft_protrude_m=params.get("shaft_protrude_m", 0.03),
+            )
+
         # Export files
         case_id = params.get("case_id", "test")
         step_file = os.path.join(output_dir, f"fan_{case_id}.step")
@@ -556,15 +826,19 @@ if __name__ == "__main__":
         obj_file = os.path.join(output_dir, f"fan_{case_id}.obj")
 
         gen.export_step(step_file)
-        gen.export_dxf(
-            dxf_file,
-            tip_radius_m=params["tip_radius_m"],
-            hub_radius_m=params["tip_radius_m"] * params.get("hub_ratio", 0.45),
-            blade_count=params.get("blade_count", 6),
-        )
         gen.export_obj(obj_file)
 
-        print(f"[Blade CAD] SUCCESS: Generated {step_file}, {dxf_file}, {obj_file}")
+        # ONLY 2D deliverable: real flattened views projected from the
+        # actual 3D solid via TechDraw (front/top/side) - same approach
+        # as the cyclone pipeline. The old export_dxf() (a separately
+        # hand-drawn sketch built from formulas, not a projection of the
+        # real solid) is no longer called - it repeatedly produced
+        # scattered/inconsistent drawings because it was never actually
+        # derived from the same geometry as the STEP/OBJ.
+        true_2d_paths = gen.export_true_2d_views(output_dir, base_name=f"fan_{case_id}")
+        dxf_file = true_2d_paths.get("front")
+
+        print(f"[Blade CAD] SUCCESS: Generated {step_file}, {dxf_file}, {obj_file}, {true_2d_paths}")
         sys.exit(0)
 
     except Exception as e:

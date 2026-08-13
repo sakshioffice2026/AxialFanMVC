@@ -1,8 +1,11 @@
-
 using System.Linq;
+using netDxf;
+using netDxf.Tables;
+using netDxf.Entities;
 using AxialFanMVC.Database;
 using ModelPoint2D = AxialFanMVC.Models.Point2D;
 using ModelBladeProfileData = AxialFanMVC.Models.BladeProfileData;
+
 
 namespace AxialFanMVC.Services;
 
@@ -794,7 +797,7 @@ public static class AxialFanDrawingService
         return doc;
     }
 
-    private static Text MakeText(string content, double height, double x, double y, Layer layer)
+    private static Text MakeText(string content, double height, double x, double y, netDxf.Tables.Layer layer)
         => new Text(content, new Vector2(x, y), height) { Layer = layer };
 
     private static byte[] SaveToBytes(DxfDocument doc)
