@@ -1,25 +1,26 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
+	<PropertyGroup>
+		<TargetFramework>net8.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+	</PropertyGroup>
 
-  <ItemGroup>
-    <PackageReference Include="Activiz.NET.x64" Version="5.8.0" />
-    <PackageReference Include="LLamaSharp" Version="0.27.0" />
-    <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.27.0" />
-    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.27.0" />
-    <PackageReference Include="Microsoft.SemanticKernel" Version="1.80.1" />
-    <PackageReference Include="Microsoft.SemanticKernel.Connectors.Qdrant" Version="1.74.0-preview" />
-    <PackageReference Include="netDxf" Version="2023.11.10" />
-    <PackageReference Include="QuestPDF" Version="2026.6.1" />
-  </ItemGroup>
+	<ItemGroup>
+		<PackageReference Include="Activiz.NET.x64" Version="5.8.0" />
+		<PackageReference Include="LLamaSharp" Version="0.24.0" />
+		<PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.24.0" />
+		<PackageReference Include="Microsoft.Extensions.VectorData.Abstractions" Version="9.7.0" />
+		<PackageReference Include="Microsoft.SemanticKernel.Connectors.Qdrant" Version="1.57.0-preview" />
+		<PackageReference Include="Microsoft.SemanticKernel.Core" Version="1.57.0" />
+		<PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.27.0" />
+		<PackageReference Include="netDxf" Version="2023.11.10" />
+		<PackageReference Include="QuestPDF" Version="2026.6.1" />
+	</ItemGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\AxialFanMVC.Database\AxialFanMVC.Database.csproj" />
-    <ProjectReference Include="..\AxialFanMVC.Models\AxialFanMVC.Models.csproj" />
-  </ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\AxialFanMVC.Database\AxialFanMVC.Database.csproj" />
+		<ProjectReference Include="..\AxialFanMVC.Models\AxialFanMVC.Models.csproj" />
+	</ItemGroup>
 
 </Project>

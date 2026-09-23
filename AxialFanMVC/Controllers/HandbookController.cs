@@ -22,13 +22,16 @@ namespace AxialFanMVC.Controllers
     public class HandbookController : Controller
     {
         private readonly IHandbookChunkRepository _handbookRepo;
+        private readonly IHandbookVectorSyncService _vectorSyncService;
         private readonly IExceptionHandlerRepository _exceptionHandlerRepository;
 
         public HandbookController(
             IHandbookChunkRepository handbookRepo,
+            IHandbookVectorSyncService vectorSyncService,
             IExceptionHandlerRepository exceptionHandlerRepository)
         {
             _handbookRepo = handbookRepo;
+            _vectorSyncService = vectorSyncService;
             _exceptionHandlerRepository = exceptionHandlerRepository;
         }
 
@@ -94,6 +97,18 @@ namespace AxialFanMVC.Controllers
         {
             var count = await _handbookRepo.BackfillEmbeddingsAsync();
             return Content($"Embedded {count} chunk(s). Remaining chunks already had embeddings.");
+        }
+
+        // ── TEMPORARY — ONE-TIME OPERATION ──────────────────────────────
+        // Embeds every clean handbook chunk locally via LLamaSharp and
+        // upserts the vectors into Qdrant — the new retrieval path used by
+        // IRagChatOrchestrator. Safe to re-run; each run re-upserts by id.
+        // Visit /Handbook/SyncToQdrant once after Qdrant is running and the
+        // embedding .gguf model is configured, then delete this action.
+        public async Task<IActionResult> SyncToQdrant()
+        {
+            var count = await _vectorSyncService.SyncAllToQdrantAsync();
+            return Content($"Synced {count} chunk(s) to Qdrant.");
         }
 
     }

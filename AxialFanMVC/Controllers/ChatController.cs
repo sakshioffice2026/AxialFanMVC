@@ -20,10 +20,10 @@ namespace AxialFan.Web.Controllers
     [Route("Chat")]
     public class ChatController : ControllerBase
     {
-        private readonly IOllamaChatRepository _chatService;
-        private readonly IExceptionHandlerRepository _exceptionHandlerRepository;   
+        private readonly IRagChatOrchestrator _chatService;
+        private readonly IExceptionHandlerRepository _exceptionHandlerRepository;
 
-        public ChatController(IOllamaChatRepository chatService, IExceptionHandlerRepository exceptionHandlerRepository)
+        public ChatController(IRagChatOrchestrator chatService, IExceptionHandlerRepository exceptionHandlerRepository)
         {
             _chatService = chatService;
             _exceptionHandlerRepository = exceptionHandlerRepository;

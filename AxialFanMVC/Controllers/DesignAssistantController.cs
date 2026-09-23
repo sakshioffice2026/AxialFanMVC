@@ -31,10 +31,10 @@ namespace AxialFanMVC.Controllers
     public class DesignAssistantController : ControllerBase
     {
         private readonly AxialFanDbContext _db;
-        private readonly IOllamaChatRepository _chatRepo;
+        private readonly IRagChatOrchestrator _chatRepo;
         private readonly IExceptionHandlerRepository _exceptionHandlerRepository;
 
-        public DesignAssistantController(AxialFanDbContext db, IOllamaChatRepository chatRepo, IExceptionHandlerRepository exceptionHandlerRepository)
+        public DesignAssistantController(AxialFanDbContext db, IRagChatOrchestrator chatRepo, IExceptionHandlerRepository exceptionHandlerRepository)
         {
             _db = db;
             _chatRepo = chatRepo;

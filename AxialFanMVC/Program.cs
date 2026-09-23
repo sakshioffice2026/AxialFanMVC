@@ -31,12 +31,6 @@ AxialFanMVC.Services.CfdVtkRenderer.TaskName = builder.Configuration["CfdRender:
 AxialFanMVC.Services.CfdVtkRenderer.IpcDirectory = builder.Configuration["CfdRender:IpcDirectory"] ?? AxialFanMVC.Services.CfdVtkRenderer.IpcDirectory;
 if (int.TryParse(builder.Configuration["CfdRender:TimeoutSeconds"], out var cfdRenderTimeoutSeconds))
     AxialFanMVC.Services.CfdVtkRenderer.TimeoutSeconds = cfdRenderTimeoutSeconds;
-// Local dev only (dotnet run / Visual Studio) — the process already owns
-// an interactive desktop, so skip the Scheduled Task/IPC workaround that
-// exists only for IIS's non-interactive worker process. Never set this
-// true in an IIS-hosted appsettings.
-if (bool.TryParse(builder.Configuration["CfdRender:UseDirectRenderOnWindows"], out var cfdUseDirectRender))
-    AxialFanMVC.Services.CfdVtkRenderer.UseDirectRenderOnWindows = cfdUseDirectRender;
 builder.Services.AddScoped<IHandbookChunkRepository, HandbookChunkRepository>();
 
 // Ollama chat client ? base URL configurable via appsettings ("Ollama:BaseUrl")
@@ -58,6 +52,16 @@ builder.Services.AddHttpClient<IHandbookChunkRepository, HandbookChunkRepository
     client.BaseAddress = new Uri(baseUrl);
     client.Timeout = TimeSpan.FromSeconds(180);
 });
+
+// LLamaSharp in-process local LLM — single shared model provider (loads .gguf
+// weights once), with per-native-context SemaphoreSlim locks (see
+// LlamaModelProvider) to keep concurrent HTTP requests from corrupting the
+// underlying llama.cpp native context.
+builder.Services.AddSingleton<ILlamaModelProvider, LlamaModelProvider>();
+builder.Services.AddScoped<ILlamaSharpChatService, LlamaSharpChatService>();
+builder.Services.AddScoped<ILlamaSharpEmbeddingService, LlamaSharpEmbeddingService>();
+builder.Services.AddSingleton<IQdrantHandbookVectorService, QdrantHandbookVectorService>();
+builder.Services.AddScoped<IHandbookVectorSyncService, HandbookVectorSyncService>();
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
@@ -94,7 +98,6 @@ builder.Services.AddSingleton<ICfdJobSignal>(sp => sp.GetRequiredService<CfdJobC
 builder.Services.AddHostedService<CfdBackgroundService>();
 
 var app = builder.Build();
-
 
 CurveCorrectionService.Initialize(Path.Combine(builder.Environment.ContentRootPath, "MLModels", "efficiency_correction.onnx"),
     app.Logger);
