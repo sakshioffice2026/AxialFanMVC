@@ -1,4 +1,5 @@
 ﻿using LLama;
+using LLama.Common;
 
 namespace AxialFanMVC.Repositories.Inteface
 {
@@ -6,9 +7,7 @@ namespace AxialFanMVC.Repositories.Inteface
     {
         LLamaWeights ChatModel { get; }
         LLamaWeights EmbeddingModel { get; }
-        LLamaContext CreateChatContext();
-        LLamaContext CreateEmbeddingContext();
-        SemaphoreSlim ChatLock { get; }
-        SemaphoreSlim EmbeddingLock { get; }
+        ModelParams ChatParams { get; }
+        ModelParams EmbeddingParams { get; }
     }
 }

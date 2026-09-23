@@ -1,61 +1,53 @@
-﻿using LLama;
+﻿using AxialFanMVC.Repositories.Inteface;
+using LLama;
 using LLama.Common;
-using AxialFanMVC.Repositories.Inteface;
 using Microsoft.Extensions.Configuration;
 
 namespace AxialFanMVC.Repositories
 {
     public class LlamaModelProvider : ILlamaModelProvider
     {
-        private readonly LLamaWeights _chatModel;
-        private readonly LLamaWeights _embeddingModel;
-        private readonly ModelParams _chatParams;
-        private readonly ModelParams _embeddingParams;
+        private bool _disposed;
 
-        public SemaphoreSlim ChatLock { get; } = new SemaphoreSlim(1, 1);
-        public SemaphoreSlim EmbeddingLock { get; } = new SemaphoreSlim(1, 1);
-
-        public LLamaWeights ChatModel => _chatModel;
-        public LLamaWeights EmbeddingModel => _embeddingModel;
+        public LLamaWeights ChatModel { get; }
+        public LLamaWeights EmbeddingModel { get; }
+        public ModelParams ChatParams { get; }
+        public ModelParams EmbeddingParams { get; }
 
         public LlamaModelProvider(IConfiguration config)
         {
-            var chatModelPath = config["LlamaSharp:ChatModelPath"]
-                ?? throw new InvalidOperationException("LlamaSharp:ChatModelPath is not configured.");
-            var embeddingModelPath = config["LlamaSharp:EmbeddingModelPath"]
-                ?? throw new InvalidOperationException("LlamaSharp:EmbeddingModelPath is not configured.");
+            var chatPath = config["LlamaModels:ChatModelPath"]
+                ?? throw new InvalidOperationException("LlamaModels:ChatModelPath not configured.");
 
-            var contextSize = uint.TryParse(config["LlamaSharp:ContextSize"], out var cs) ? cs : 4096u;
-            var gpuLayerCount = int.TryParse(config["LlamaSharp:GpuLayerCount"], out var gl) ? gl : 0;
+            var embedPath = config["LlamaModels:EmbeddingModelPath"]
+                ?? throw new InvalidOperationException("LlamaModels:EmbeddingModelPath not configured.");
 
-            _chatParams = new ModelParams(chatModelPath)
+            var contextSize = uint.TryParse(config["LlamaModels:ContextSize"], out var cs) ? cs : 4096u;
+            var gpuLayers = int.TryParse(config["LlamaModels:GpuLayerCount"], out var gl) ? gl : 0;
+
+            ChatParams = new ModelParams(chatPath)
             {
                 ContextSize = contextSize,
-                GpuLayerCount = gpuLayerCount
+                GpuLayerCount = gpuLayers
             };
 
-            _embeddingParams = new ModelParams(embeddingModelPath)
+            EmbeddingParams = new ModelParams(embedPath)
             {
-                ContextSize = contextSize,
-                GpuLayerCount = gpuLayerCount,
+                ContextSize = 512,
+                GpuLayerCount = gpuLayers,
                 Embeddings = true
             };
 
-            _chatModel = LLamaWeights.LoadFromFile(_chatParams);
-            _embeddingModel = LLamaWeights.LoadFromFile(_embeddingParams);
+            ChatModel = LLamaWeights.LoadFromFile(ChatParams);
+            EmbeddingModel = LLamaWeights.LoadFromFile(EmbeddingParams);
         }
-
-        public LLamaContext CreateChatContext() => _chatModel.CreateContext(_chatParams);
-
-        public LLamaContext CreateEmbeddingContext() => _embeddingModel.CreateContext(_embeddingParams);
 
         public void Dispose()
         {
-            _chatModel.Dispose();
-            _embeddingModel.Dispose();
-            ChatLock.Dispose();
-            EmbeddingLock.Dispose();
-            GC.SuppressFinalize(this);
+            if (_disposed) return;
+            _disposed = true;
+            ChatModel.Dispose();
+            EmbeddingModel.Dispose();
         }
     }
 }

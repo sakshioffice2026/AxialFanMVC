@@ -2,7 +2,7 @@
 {
     public interface ILlamaSharpEmbeddingService
     {
-        Task<float[]> GenerateEmbeddingAsync(string text);
-        Task<IReadOnlyList<float[]>> GenerateEmbeddingsAsync(IEnumerable<string> texts);
+        Task<float[]> EmbedAsync(string text);
+        Task<float[][]> EmbedBatchAsync(string[] texts);
     }
 }
