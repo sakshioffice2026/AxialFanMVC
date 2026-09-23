@@ -356,7 +356,10 @@ def figure():
 warnings_counter = collections.defaultdict(int)
 def print_warning(msg, method_name=None, class_name=None, iteration=None,
                    verbose=None, maxwarns=None, **kwargs_for_warn):
-    """Poor man's maxwarns: msg must match exactly"""
+    """Deprecated but still in use, see `warnings_and_exceptions.deliver_warning` as alternative.
+
+    Poor man's maxwarns: msg must match exactly.
+    """
     if verbose is None:
         verbose = global_verbosity
     if maxwarns is not None:  # we could do the counting irrespectively?
@@ -373,7 +376,9 @@ def print_warning(msg, method_name=None, class_name=None, iteration=None,
               ')', **kwargs_for_warn)
 def format_warning(msg, method_name=None, class_name=None, iteration=None,
                    maxwarns=None):
-    """Poor man's maxwarns: msg must match exactly.
+    """Deprecated but still in use, see `warnings_and_exceptions.deliver_warning` as alternative.
+
+    Poor man's maxwarns: msg must match exactly.
 
     Copy-paste of `print_warning` to get better location information than
     `print_warning`. Calling `warnings.warn` here makes the warning

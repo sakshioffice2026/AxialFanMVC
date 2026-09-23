@@ -35,11 +35,46 @@ namespace AxialFanMVC.Services
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
+            // Any job still marked "Running" at process start was orphaned by
+            // a previous app stop/crash/recycle mid-solve — the BackgroundService
+            // task that owned it is gone, so it will never reach Completed/Failed
+            // on its own. Requeue them once, here, before the normal sweep loop
+            // (which only ever looks at "Queued") starts.
+            await RequeueOrphanedRunningJobsAsync(stoppingToken);
+
             using var sweepTimer = new PeriodicTimer(TimeSpan.FromSeconds(30));
             _ = SweepLoopAsync(sweepTimer, stoppingToken);
 
             await foreach (var jobId in _channel.Reader.ReadAllAsync(stoppingToken))
                 await ProcessJobAsync(jobId, stoppingToken);
+        }
+
+        private async Task RequeueOrphanedRunningJobsAsync(CancellationToken stoppingToken)
+        {
+            try
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<AxialFanDbContext>();
+
+                var orphaned = await db.cfd_jobs
+                    .Where(j => j.Status == "Running")
+                    .ToListAsync(stoppingToken);
+
+                foreach (var job in orphaned)
+                {
+                    job.Status = "Queued";
+                    job.StartedAt = null;
+                    job.ErrorMessage = "Requeued after app restart (previous run never completed).";
+                    _logger.LogWarning("CFD job {JobId} was orphaned in Running state; requeued.", job.Id);
+                }
+
+                if (orphaned.Count > 0)
+                    await db.SaveChangesAsync(stoppingToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to requeue orphaned CFD jobs on startup.");
+            }
         }
 
         private async Task SweepLoopAsync(PeriodicTimer timer, CancellationToken stoppingToken)

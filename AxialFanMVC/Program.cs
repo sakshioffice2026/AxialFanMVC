@@ -31,6 +31,12 @@ AxialFanMVC.Services.CfdVtkRenderer.TaskName = builder.Configuration["CfdRender:
 AxialFanMVC.Services.CfdVtkRenderer.IpcDirectory = builder.Configuration["CfdRender:IpcDirectory"] ?? AxialFanMVC.Services.CfdVtkRenderer.IpcDirectory;
 if (int.TryParse(builder.Configuration["CfdRender:TimeoutSeconds"], out var cfdRenderTimeoutSeconds))
     AxialFanMVC.Services.CfdVtkRenderer.TimeoutSeconds = cfdRenderTimeoutSeconds;
+// Local dev only (dotnet run / Visual Studio) — the process already owns
+// an interactive desktop, so skip the Scheduled Task/IPC workaround that
+// exists only for IIS's non-interactive worker process. Never set this
+// true in an IIS-hosted appsettings.
+if (bool.TryParse(builder.Configuration["CfdRender:UseDirectRenderOnWindows"], out var cfdUseDirectRender))
+    AxialFanMVC.Services.CfdVtkRenderer.UseDirectRenderOnWindows = cfdUseDirectRender;
 builder.Services.AddScoped<IHandbookChunkRepository, HandbookChunkRepository>();
 
 // Ollama chat client ? base URL configurable via appsettings ("Ollama:BaseUrl")
@@ -88,6 +94,7 @@ builder.Services.AddSingleton<ICfdJobSignal>(sp => sp.GetRequiredService<CfdJobC
 builder.Services.AddHostedService<CfdBackgroundService>();
 
 var app = builder.Build();
+
 
 CurveCorrectionService.Initialize(Path.Combine(builder.Environment.ContentRootPath, "MLModels", "efficiency_correction.onnx"),
     app.Logger);

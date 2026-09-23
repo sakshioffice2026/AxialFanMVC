@@ -59,8 +59,6 @@ namespace AxialFanMVC.Business.Cfd
                         $"Case path: {casePath}");
                 }
                 await RunWslCommandAsync("snappyHexMesh -overwrite", casePath, ct).ConfigureAwait(false);
-                await RunWslCommandAsync("topoSet", casePath, ct).ConfigureAwait(false);
-                await RunWslCommandAsync("foamRun -solver incompressibleFluid", casePath, ct).ConfigureAwait(false);
 
                 // Carves the rotorZone cellZone (system/topoSetDict) that
                 // constant/MRFProperties' MRF1 cellZone needs ? must run

@@ -186,6 +186,13 @@ def various_doctests():
         >>> es = cma.CMAEvolutionStrategy(4 * [1], 1, options) #doctest: +ELLIPSIS
         (3_w,7)-aCMA-ES (mu_w=2.3,w_1=58%) in dimension 3 (seed=...
 
+    Test minstd
+
+        >>> fun = cma.ff.ellirot
+        >>> x, es = cma.fmin2(fun, 5 * [1], 1, {
+        ...            'minstd': 1e-4, 'maxiter': 400, 'verbose': -9,})
+        >>> assert fun(es.mean) < 2e-3, (fun(es.mean), es.mean)
+
     Test of elitism:
 
         >>> import cma

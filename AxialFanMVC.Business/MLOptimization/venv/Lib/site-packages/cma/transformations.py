@@ -615,10 +615,12 @@ class DiagonalDecoding(AdaptiveDecoding):
             return C
         return (self.scaling * C).T * self.scaling
 
-    def __array__(self):
+    def __array__(self, dtype=None, copy=None):
         """``sigma * self`` tries to call ``self.__array__()`` if
         ``isinstance(sigma, np.float64)``.
         """
+        if dtype is not None or copy:
+            return np.array(self.scaling, dtype=dtype, copy=copy)
         return self.scaling
 
     def equals(self, x):

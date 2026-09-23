@@ -8,32 +8,30 @@ namespace AxialFanMVC.Services
     // Renders the pressure-slice PNG/.vtp for a completed CFD case.
     //
     // render_result.py's VTK/PyVista stack ultimately goes through
-    // OpenGL/WGL to create its rendering context (even the Mesa
-    // software-rendering fallback, libgallium_wgl.dll, is still WGL
-    // underneath) — that requires an interactive desktop session.
-    // Launching python.exe directly from IIS's app pool worker process
-    // (or from a Windows Service, or a "run whether user is logged on or
-    // not" Scheduled Task) runs it in a non-interactive session, so
-    // context creation fails and takes the whole process down with a
-    // native 0xC0000005 access violation instead of a catchable
-    // exception — that crash reproduced identically outside IIS too,
-    // which ruled out App Pool identity/permissions/env vars as the
-    // cause.
+    // OpenGL/WGL to create its rendering context — that requires an
+    // interactive desktop session. Launching python.exe directly from
+    // IIS's app pool worker process (or a Windows Service, or a "run
+    // whether user is logged on or not" Scheduled Task) runs it in a
+    // non-interactive session, so context creation fails.
     //
-    // Fix (Windows): this no longer shells out to python.exe itself.
-    // Instead it drops a request file into CfdRender:IpcDirectory and
-    // triggers a Scheduled Task (CfdRender:TaskName) configured to
-    // "Run only when user is logged on", so the actual rendering happens
-    // on an interactive desktop. That task's action is render_dispatch.py
-    // (Cfd/Render/render_dispatch.py), which calls render_result.py's
-    // render() and writes a matching response file back to the same
-    // IPC directory for this class to pick up.
+    // Fix (Windows, IIS-hosted): drop a request file into
+    // CfdRender:IpcDirectory and trigger a Scheduled Task
+    // (CfdRender:TaskName) configured to "Run only when user is logged
+    // on", so rendering happens on an interactive desktop.
     //
-    // Fix (Linux): Linux has no interactive-desktop restriction the way
-    // IIS/Windows did — Xvfb provides a standard virtual framebuffer for
-    // headless OpenGL, so on Linux we just run render_result.py directly
-    // and synchronously instead of going through the Scheduled
-    // Task/IPC workaround Windows needed.
+    // Fix (Windows, local dev via `dotnet run`/Visual Studio): the
+    // ASP.NET Core process itself is already running inside the
+    // developer's own interactive desktop session — there is no
+    // non-interactive boundary to work around, so routing through the
+    // Scheduled Task/IPC machinery just adds a fragile dependency on
+    // the Task Scheduler engine for no benefit. When
+    // CfdRender:UseDirectRenderOnWindows is true, this calls the
+    // render script directly and synchronously, the same way the
+    // Linux path does.
+    //
+    // Fix (Linux): Xvfb provides a standard virtual framebuffer for
+    // headless OpenGL, so we just run render_result.py directly and
+    // synchronously.
     //
     // Public API is unchanged — RenderOffscreen(casePath, outputDir) —
     // so CfdBackgroundService and anything else calling this needs no
@@ -42,10 +40,11 @@ namespace AxialFanMVC.Services
     // Configure via appsettings.json -> CfdRender:* (wired in Program.cs).
     public static class CfdVtkRenderer
     {
-        // Windows: not used directly (the Scheduled Task's action already
-        // has its own fixed python.exe + script path), kept only as a
-        // reference for whoever sets that task up.
-        // Linux: used directly below to invoke render_result.py via Xvfb.
+        // Windows IPC path: not used directly (the Scheduled Task's action
+        // already has its own fixed python.exe + script path), kept only
+        // as a reference for whoever sets that task up.
+        // Linux + Windows direct-render path: used to invoke
+        // render_result.py directly.
         public static string PythonExe { get; set; } = "python3";
         public static string ScriptPath { get; set; } = "";
         public static string TaskName { get; set; } = "AxialFanCfdRender";
@@ -54,10 +53,22 @@ namespace AxialFanMVC.Services
 
         public static int TimeoutSeconds { get; set; } = 300;
 
+        // When true on Windows, skip the Scheduled Task/IPC handoff entirely
+        // and call the render script directly and synchronously — valid
+        // only when the ASP.NET Core process itself has an interactive
+        // desktop session (local `dotnet run` / Visual Studio debugging),
+        // never for an IIS-hosted deployment.
+        public static bool UseDirectRenderOnWindows { get; set; } = false;
+
         public static (string PngPath, string VtpPath, string? StreamlinesVtpPath) RenderOffscreen(string casePath, string outputDir)
         {
-            if (!System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
-                return RenderOffscreenLinux(casePath, outputDir);
+            bool isWindows = System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows);
+
+            if (!isWindows)
+                return RenderOffscreenDirect(casePath, outputDir);
+
+            if (UseDirectRenderOnWindows)
+                return RenderOffscreenDirect(casePath, outputDir);
 
             Directory.CreateDirectory(IpcDirectory);
 
@@ -75,9 +86,7 @@ namespace AxialFanMVC.Services
             // while still succeeding (e.g. a field missing on the slice).
             // Persist the log next to the output unconditionally, not
             // just on failure, so a "succeeded but looks wrong" run is
-            // still debuggable afterward — same reasoning as before this
-            // rewrite, just sourced from the IPC response now instead of
-            // a direct stderr capture.
+            // still debuggable afterward.
             try
             {
                 Directory.CreateDirectory(outputDir);
@@ -88,27 +97,51 @@ namespace AxialFanMVC.Services
             return (pngPath, vtpPath, streamlinesVtpPath);
         }
 
-        // Linux has no interactive-desktop restriction the way IIS/Windows
-        // did — Xvfb provides a standard virtual framebuffer for headless
-        // OpenGL, so we just run the render script directly and
-        // synchronously instead of going through the Scheduled
-        // Task/IPC workaround Windows needed. Requires the `xvfb` package
-        // installed (provides xvfb-run) and PythonExe pointed at a venv
-        // with render_result.py's dependencies (pyvista, vtk, numpy)
-        // installed.
-        private static (string PngPath, string VtpPath, string? StreamlinesVtpPath) RenderOffscreenLinux(string casePath, string outputDir)
+        // Shared by Linux (always) and Windows-direct-render (when
+        // UseDirectRenderOnWindows is true) — runs PythonExe/ScriptPath
+        // against casePath/outputDir directly and synchronously, no
+        // Scheduled Task or IPC files involved. On Linux this wraps
+        // PythonExe with xvfb-run; on Windows-direct it runs the venv
+        // python straight, since the calling process already owns an
+        // interactive desktop context.
+        private static (string PngPath, string VtpPath, string? StreamlinesVtpPath) RenderOffscreenDirect(string casePath, string outputDir)
         {
             Directory.CreateDirectory(outputDir);
 
-            var psi = new ProcessStartInfo
+            bool isWindows = System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows);
+
+            var psi = isWindows
+                ? new ProcessStartInfo
+                {
+                    FileName = PythonExe,
+                    Arguments = $"\"{ScriptPath}\" \"{casePath}\" \"{outputDir}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                }
+                : new ProcessStartInfo
+                {
+                    FileName = "xvfb-run",
+                    Arguments = $"-a \"{PythonExe}\" \"{ScriptPath}\" \"{casePath}\" \"{outputDir}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                };
+
+            if (isWindows)
             {
-                FileName = "xvfb-run",
-                Arguments = $"-a \"{PythonExe}\" \"{ScriptPath}\" \"{casePath}\" \"{outputDir}\"",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            };
+                // Must match run_render.bat exactly — VTK_DEFAULT_OPENGL_WINDOW
+                // forces VTK's Win32 OpenGL backend instead of letting it
+                // auto-detect, and a writable TEMP/TMP avoids permission
+                // issues on whatever profile the process is running under.
+                // Omitting these is what caused the 0xC0000005 access
+                // violation when this path was first added without them.
+                psi.EnvironmentVariables["TEMP"] = @"C:\Windows\Temp";
+                psi.EnvironmentVariables["TMP"] = @"C:\Windows\Temp";
+                psi.EnvironmentVariables["VTK_DEFAULT_OPENGL_WINDOW"] = "vtkWin32OpenGLRenderWindow";
+            }
 
             var stdout = new StringBuilder();
             var stderr = new StringBuilder();

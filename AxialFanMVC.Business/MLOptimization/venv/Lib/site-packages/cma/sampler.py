@@ -397,7 +397,6 @@ class GaussFullSampler(GaussSampler):
 
         Know bugs: if update is not called before decompose, the
         state variables can get into an inconsistent state.
-
         """
         self.C = (self.C + self.C.T) / 2
         D_old = self.D
@@ -430,11 +429,11 @@ class GaussFullSampler(GaussSampler):
                 if not self.constant_trace:
                     s = 1
                 elif self.constant_trace in (1, True) or self.constant_trace.startswith(('ar', 'mean')):
-                    s = 1 / np.mean(self.variances)
+                    s = 1 / np.mean(self.variances)  # same as 1 / np.mean(self.D)
                 elif self.constant_trace.startswith(('geo')):
                     s = np.exp(-np.mean(np.log(self.variances)))
                 elif self.constant_trace.startswith('aeig'):
-                    s = 1 / np.mean(self.D)  # same as arith
+                    s = 1 / np.mean(self.D)  # D "is" D**2 here, i.e. eigenvalues
                 elif self.constant_trace.startswith('geig'):
                     s = np.exp(-np.mean(np.log(self.D)))
                 else:

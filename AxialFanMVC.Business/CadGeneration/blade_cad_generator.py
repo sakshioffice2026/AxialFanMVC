@@ -730,30 +730,34 @@ class BladeCADGenerator:
         doc.saveas(output_path)
         print(f"Exported DXF: {output_path}")
 
-    def _add_view_dimensions(self, dxf_path: str, view_name: str) -> None:
+    def _add_view_dimensions(self, dxf_path: str, view_name: str) -> list[dict]:
         """Post-process one TechDraw-projected DXF (plain geometry only)
         by adding real DIMENSION entities via ezdxf - matches the
         reference style (cyclone_2d.dxf): each individual view file
         carries its own DIMENSION blocks on a DIM_NATIVE layer, not just
         labelled TEXT next to the geometry.
 
+        Returns dimension metadata as dicts so callers can inspect
+        values without re-parsing the DXF file.
+
         Since the projected geometry now comes out at real mm scale
         (the unit fix applies to the solid itself, which TechDraw
         projects as-is), these *1000 conversions from station_radii
         (metres) now correctly line up with that geometry."""
         if not dxf_path or not os.path.isfile(dxf_path):
-            return
+            return []
         try:
             import ezdxf
         except ImportError:
             print(f"WARNING: ezdxf not available - skipping dimensions for {view_name}")
-            return
+            return []
 
         try:
             doc = ezdxf.readfile(dxf_path)
         except Exception as e:
             print(f"WARNING: could not open {dxf_path} for dimensioning: {e}")
-            return
+            return []
+
         msp = doc.modelspace()
 
         for lname in ("DIM_NATIVE", "DIM_TEXT"):
@@ -761,50 +765,76 @@ class BladeCADGenerator:
                 doc.layers.add(lname, color=1)
 
         if not self.station_radii:
-            return
+            return []
         tip_r_mm = self.station_radii[-1] * 1000
         hub_r_mm = self.station_radii[0] * 1000
 
+        dims: list[dict] = []
+
         try:
             if view_name == "front":
-                dim = msp.add_diameter_dim(
+                d1 = msp.add_diameter_dim(
                     center=(0, 0), radius=tip_r_mm, angle=45,
                     dxfattribs={"layer": "DIM_NATIVE"}
                 )
-                dim.render()
-                dim = msp.add_diameter_dim(
+                d1.render()
+                dims.append(self._dim_dict(d1, "tip_radius"))
+                d2 = msp.add_diameter_dim(
                     center=(0, 0), radius=hub_r_mm, angle=135,
                     dxfattribs={"layer": "DIM_NATIVE"}
                 )
-                dim.render()
+                d2.render()
+                dims.append(self._dim_dict(d2, "hub_radius"))
                 if self.casing_solid is not None:
                     casing_bore_mm = (self.station_radii[-1] + self._casing_clearance_m) * 1000
                     casing_od_mm = casing_bore_mm + self._casing_wall_m * 1000
-                    dim = msp.add_diameter_dim(
+                    d3 = msp.add_diameter_dim(
                         center=(0, 0), radius=casing_od_mm, angle=225,
                         dxfattribs={"layer": "DIM_NATIVE"}
                     )
-                    dim.render()
+                    d3.render()
+                    dims.append(self._dim_dict(d3, "casing_od"))
 
             elif view_name in ("side", "top"):
                 half_h = self.hub_height_m * 1000 / 2.0
-                dim = msp.add_linear_dim(
+                d4 = msp.add_linear_dim(
                     base=(tip_r_mm + 40, 0), p1=(0, -half_h), p2=(0, half_h),
                     angle=90, dxfattribs={"layer": "DIM_NATIVE"}
                 )
-                dim.render()
+                d4.render()
+                dims.append(self._dim_dict(d4, "hub_width"))
                 if self.casing_solid is not None and self._casing_length_m:
                     half_l = self._casing_length_m * 1000 / 2.0
-                    dim = msp.add_linear_dim(
+                    d5 = msp.add_linear_dim(
                         base=(tip_r_mm + 90, 0), p1=(0, -half_l), p2=(0, half_l),
                         angle=90, dxfattribs={"layer": "DIM_NATIVE"}
                     )
-                    dim.render()
+                    d5.render()
+                    dims.append(self._dim_dict(d5, "casing_length"))
 
             doc.saveas(dxf_path)
             print(f"Added dimensions to {view_name} view: {dxf_path}")
         except Exception as e:
             print(f"WARNING: dimensioning failed for {view_name} ({e}) - view kept without dims")
+
+        return dims
+
+    def _dim_dict(self, dim, kind: str) -> dict:
+        """Extract readable metadata from an ezdxf dimension object."""
+        try:
+            text = dim.text or ""
+        except Exception:
+            text = ""
+        try:
+            value = dim.measurement
+        except Exception:
+            value = None
+        return {
+            "kind": kind,
+            "value": value,
+            "text": text,
+            "layer": dim.dxf.layer,
+        }
 
     def _merge_2d_views(self, view_paths: dict, output_dir: str, base_name: str):
         """Merge the individual front/top/side TechDraw DXFs into ONE
@@ -947,8 +977,8 @@ class BladeCADGenerator:
                 except Exception:
                     pass
 
-            self._add_view_dimensions(dxf_path, name)
-            result[name] = dxf_path
+            dims = self._add_view_dimensions(dxf_path, name)
+            result[name] = {"dxf_path": dxf_path, "dimensions": dims}
 
         try:
             self.doc.removeObject(tmp_obj.Name)
@@ -959,7 +989,7 @@ class BladeCADGenerator:
 
         merged_path = self._merge_2d_views(result, output_dir, base_name)
         if merged_path:
-            result["merged"] = merged_path
+            result["merged"] = {"dxf_path": merged_path, "dimensions": []}
 
         return result
 

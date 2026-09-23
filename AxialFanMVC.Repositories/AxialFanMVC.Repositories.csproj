@@ -8,7 +8,11 @@
 
   <ItemGroup>
     <PackageReference Include="Activiz.NET.x64" Version="5.8.0" />
+    <PackageReference Include="LLamaSharp" Version="0.27.0" />
+    <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.27.0" />
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.27.0" />
+    <PackageReference Include="Microsoft.SemanticKernel" Version="1.80.1" />
+    <PackageReference Include="Microsoft.SemanticKernel.Connectors.Qdrant" Version="1.74.0-preview" />
     <PackageReference Include="netDxf" Version="2023.11.10" />
     <PackageReference Include="QuestPDF" Version="2026.6.1" />
   </ItemGroup>
