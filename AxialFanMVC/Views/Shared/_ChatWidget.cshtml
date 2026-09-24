@@ -1,7 +1,12 @@
 @* Persistent AI agent widget - included site-wide from _LayoutV2.cshtml for signed-in users.
    Sends the current page context (controller/action/ids) with every question, keeps the
    conversation across page navigations, and shows Confirm/Cancel cards for any action the
-   agent stages (CFD run, optimization, new design). *@
+   agent stages (CFD run, optimization, new design).
+
+   AeroAI guided design flow: after a project is created the server offers to set up a design,
+   asks for flow rate and pressure (unit conversion done in C#), confirms, runs the physics
+   engine and returns a diagnostics card. While the flow is active every message is sent to
+   /AeroAi/Flow/Reply first; anything it does not handle falls through to /Agent/Ask. *@
 @{
     var rv = ViewContext.RouteData.Values;
     var query = Context.Request.Query;
@@ -69,9 +74,9 @@
         position: fixed;
         bottom: 92px;
         right: 24px;
-        width: 380px;
+        width: 400px;
         max-width: calc(100vw - 32px);
-        height: 520px;
+        height: 560px;
         max-height: calc(100vh - 120px);
         background: #fff;
         border-radius: 12px;
@@ -166,6 +171,135 @@
         padding: 10px;
         border-top: 1px solid #dee2e6;
     }
+
+    /* ---- AeroAI guided flow: quick replies ---- */
+    .aeroai-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: 0 0 8px;
+    }
+
+    /* ---- AeroAI guided flow: diagnostics card ---- */
+    .aeroai-card {
+        background: #fff;
+        border: 1px solid #dee2e6;
+        border-radius: 10px;
+        padding: 10px 12px;
+        margin-bottom: 8px;
+        font-size: 0.8rem;
+        color: #212529;
+    }
+
+    .aeroai-card-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+    }
+
+    .aeroai-card-title {
+        font-weight: 600;
+        font-size: 0.85rem;
+    }
+
+    .aeroai-badge {
+        font-size: 0.7rem;
+        font-weight: 600;
+        padding: 2px 8px;
+        border-radius: 999px;
+        white-space: nowrap;
+    }
+
+    .aeroai-badge-ok {
+        background: #d1e7dd;
+        color: #0f5132;
+    }
+
+    .aeroai-badge-warn {
+        background: #fff3cd;
+        color: #664d03;
+    }
+
+    .aeroai-tiles {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+        margin-bottom: 8px;
+    }
+
+    .aeroai-tile {
+        background: #f8f9fa;
+        border: 1px solid #e9ecef;
+        border-left: 3px solid #adb5bd;
+        border-radius: 6px;
+        padding: 6px 8px;
+    }
+
+    .aeroai-tile-label {
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        color: #6c757d;
+    }
+
+    .aeroai-tile-value {
+        font-size: 0.95rem;
+        font-weight: 700;
+    }
+
+    .aeroai-lvl-good {
+        border-left-color: #198754;
+    }
+
+    .aeroai-lvl-warn {
+        border-left-color: #ffc107;
+    }
+
+    .aeroai-lvl-bad {
+        border-left-color: #dc3545;
+    }
+
+    .aeroai-callout {
+        border-left: 3px solid #adb5bd;
+        background: #f8f9fa;
+        border-radius: 6px;
+        padding: 6px 8px;
+        margin-bottom: 8px;
+    }
+
+    .aeroai-rows {
+        border-top: 1px solid #e9ecef;
+    }
+
+    .aeroai-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 4px 0;
+        border-bottom: 1px solid #f1f3f5;
+    }
+
+    .aeroai-row-label {
+        color: #6c757d;
+        flex: 0 0 auto;
+    }
+
+    .aeroai-row-value {
+        text-align: right;
+        word-break: break-word;
+    }
+
+    .aeroai-warnings {
+        margin: 8px 0 0;
+        padding-left: 18px;
+        color: #664d03;
+    }
+
+    .aeroai-open {
+        margin-top: 10px;
+    }
 </style>
 
 <script>
@@ -181,8 +315,13 @@
 
         const HISTORY_KEY = 'aeroai.history.v1';
         const OPEN_KEY = 'aeroai.open.v1';
+        const FLOW_KEY = 'aeroai.flow.v1';
         const MAX_HISTORY = 40;
         const REQUEST_TIMEOUT_MS = 180000;
+
+        const GREETING =
+            "Hi! I'm AeroAi. Ask me about fan design, or about your projects, results, BOM, CFD and optimization jobs. " +
+            "If you ask me to run CFD, optimize or create a design, I'll ask you to confirm first.";
 
         const root = document.getElementById('agentWidget');
         const toggle = document.getElementById('agentToggle');
@@ -195,6 +334,7 @@
 
         let history = loadHistory();
         let busy = false;
+        let flowActive = storageGet(FLOW_KEY) === '1';
 
         function storageGet(key) {
             try { return window.sessionStorage.getItem(key); } catch (e) { return null; }
@@ -222,6 +362,12 @@
             storageSet(HISTORY_KEY, JSON.stringify(history));
         }
 
+        function setFlowActive(value) {
+            flowActive = !!value;
+            if (flowActive) storageSet(FLOW_KEY, '1');
+            else storageRemove(FLOW_KEY);
+        }
+
         function token() {
             const el = root.querySelector('input[name="__RequestVerificationToken"]');
             return el ? el.value : '';
@@ -231,15 +377,25 @@
             messages.scrollTop = messages.scrollHeight;
         }
 
-        function addMessage(text, sender, persist) {
-            const div = document.createElement('div');
-            div.className = 'chat-msg chat-msg-' + sender;
-            div.textContent = text;
+        function el(tag, cls, text) {
+            const node = document.createElement(tag);
+            if (cls) node.className = cls;
+            if (text !== undefined && text !== null) node.textContent = text;
+            return node;
+        }
+
+        function addMessage(text, sender, persist, card) {
+            const div = el('div', 'chat-msg chat-msg-' + sender, text);
             messages.appendChild(div);
+
+            if (card) messages.appendChild(buildCard(card));
+
             scrollToBottom();
 
             if (persist && (sender === 'user' || sender === 'assistant')) {
-                history.push({ role: sender, text: text });
+                const item = { role: sender, text: text };
+                if (card) item.card = card;
+                history.push(item);
                 saveHistory();
             }
 
@@ -279,6 +435,82 @@
                 clearTimeout(timer);
             }
         }
+
+        // ---- quick replies -------------------------------------------------
+
+        function clearChips() {
+            messages.querySelectorAll('.aeroai-chips').forEach(function (node) { node.remove(); });
+        }
+
+        function showChips(list) {
+            clearChips();
+            if (!list || !list.length) return;
+
+            const wrap = el('div', 'aeroai-chips');
+
+            list.forEach(function (label) {
+                const button = el('button', 'btn btn-outline-primary btn-sm', label);
+                button.type = 'button';
+                button.addEventListener('click', function () { sendMessage(label); });
+                wrap.appendChild(button);
+            });
+
+            messages.appendChild(wrap);
+            scrollToBottom();
+        }
+
+        // ---- diagnostics card ----------------------------------------------
+
+        function buildCard(card) {
+            const wrap = el('div', 'aeroai-card');
+
+            const head = el('div', 'aeroai-card-head');
+            head.appendChild(el('span', 'aeroai-card-title', card.title || 'Design diagnostics'));
+            const ok = card.status === 'ok';
+            head.appendChild(el(
+                'span',
+                'aeroai-badge ' + (ok ? 'aeroai-badge-ok' : 'aeroai-badge-warn'),
+                ok ? 'No warnings' : 'Review warnings'));
+            wrap.appendChild(head);
+
+            const tiles = el('div', 'aeroai-tiles');
+            (card.headline || []).forEach(function (m) {
+                const tile = el('div', 'aeroai-tile' + (m.level ? ' aeroai-lvl-' + m.level : ''));
+                tile.appendChild(el('div', 'aeroai-tile-label', m.label));
+                tile.appendChild(el('div', 'aeroai-tile-value', m.value));
+                tiles.appendChild(tile);
+            });
+            wrap.appendChild(tiles);
+
+            if (card.stall && card.stall.text) {
+                wrap.appendChild(el('div', 'aeroai-callout aeroai-lvl-' + (card.stall.level || 'good'), card.stall.text));
+            }
+
+            const rows = el('div', 'aeroai-rows');
+            (card.details || []).forEach(function (m) {
+                const row = el('div', 'aeroai-row');
+                row.appendChild(el('span', 'aeroai-row-label', m.label));
+                row.appendChild(el('span', 'aeroai-row-value', m.value));
+                rows.appendChild(row);
+            });
+            wrap.appendChild(rows);
+
+            if (card.warnings && card.warnings.length) {
+                const list = el('ul', 'aeroai-warnings');
+                card.warnings.forEach(function (w) { list.appendChild(el('li', null, w)); });
+                wrap.appendChild(list);
+            }
+
+            if (card.resultUrl && card.resultUrl.charAt(0) === '/') {
+                const link = el('a', 'btn btn-primary btn-sm aeroai-open', 'Open full result');
+                link.href = card.resultUrl;
+                wrap.appendChild(link);
+            }
+
+            return wrap;
+        }
+
+        // ---- pending actions (unchanged) -----------------------------------
 
         function renderPendingAction(action) {
             if (!action || !action.id) return;
@@ -366,18 +598,40 @@
             } catch (e) { }
         }
 
-        async function sendMessage() {
-            const text = input.value.trim();
+        // ---- sending -------------------------------------------------------
+
+        async function sendMessage(overrideText) {
+            const text = (typeof overrideText === 'string' ? overrideText : input.value).trim();
             if (!text || busy) return;
 
             busy = true;
             sendBtn.disabled = true;
             input.value = '';
+            clearChips();
             addMessage(text, 'user', true);
 
             const thinking = addMessage('Thinking...', 'assistant', false);
+            let resume = null;
 
             try {
+                // 1) Guided design flow gets the first look while it is active.
+                if (flowActive) {
+                    const flow = await postJson('/AeroAi/Flow/Reply', { message: text });
+                    const data = flow.data || {};
+
+                    if (flow.ok) setFlowActive(data.flowActive);
+
+                    if (flow.ok && data.handled) {
+                        thinking.remove();
+                        addMessage(data.message || '', 'assistant', true, data.card);
+                        showChips(data.quickReplies);
+                        return;
+                    }
+
+                    if (flow.ok && data.flowActive && data.resume) resume = data;
+                }
+
+                // 2) Everything else goes to the normal agent.
                 const result = await postJson('/Agent/Ask', {
                     message: text,
                     controller: ctx.controller,
@@ -395,6 +649,12 @@
                 } else {
                     addMessage(result.data.reply || 'No response.', 'assistant', true);
                     (result.data.pendingActions || []).forEach(renderPendingAction);
+
+                    // Answered a side question mid-flow: bring the user back to it.
+                    if (resume) {
+                        addMessage(resume.resume, 'assistant', true);
+                        showChips(resume.resumeQuickReplies);
+                    }
                 }
             } catch (e) {
                 thinking.remove();
@@ -415,15 +675,37 @@
             messages.innerHTML = '';
 
             if (history.length === 0) {
-                addMessage(
-                    "Hi! I'm AeroAi. Ask me about fan design, or about your projects, results, BOM, CFD and optimization jobs. " +
-                    "If you ask me to run CFD, optimize or create a design, I'll ask you to confirm first.",
-                    'assistant',
-                    false);
+                addMessage(GREETING, 'assistant', false);
                 return;
             }
 
-            history.forEach(function (m) { addMessage(m.text, m.role, false); });
+            history.forEach(function (m) { addMessage(m.text, m.role, false, m.card); });
+        }
+
+        // ---- proactive offer after a project is created --------------------
+
+        async function initFlow() {
+            try {
+                const stateResponse = await fetch('/AeroAi/Flow/State', { credentials: 'same-origin' });
+
+                if (stateResponse.ok) {
+                    const state = await stateResponse.json();
+                    setFlowActive(state.active);
+                    if (state.active) return;
+                }
+
+                const offer = await postJson('/AeroAi/Flow/Offer', {});
+
+                if (offer.ok && offer.data && offer.data.handled) {
+                    setFlowActive(offer.data.flowActive);
+
+                    if (history.length === 0) messages.innerHTML = '';
+
+                    setOpen(true);
+                    addMessage(offer.data.message || '', 'assistant', true);
+                    showChips(offer.data.quickReplies);
+                }
+            } catch (e) { }
         }
 
         toggle.addEventListener('click', function () {
@@ -432,14 +714,20 @@
 
         closeBtn.addEventListener('click', function () { setOpen(false); });
 
-        clearBtn.addEventListener('click', function () {
+        clearBtn.addEventListener('click', async function () {
             history = [];
             storageRemove(HISTORY_KEY);
+            setFlowActive(false);
+
+            try {
+                await postJson('/AeroAi/Flow/Cancel', {});
+            } catch (e) { }
+
             renderHistory();
             restorePendingActions();
         });
 
-        sendBtn.addEventListener('click', sendMessage);
+        sendBtn.addEventListener('click', function () { sendMessage(); });
 
         input.addEventListener('keydown', function (e) {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -450,6 +738,7 @@
 
         renderHistory();
         restorePendingActions();
+        initFlow();
 
         if (storageGet(OPEN_KEY) === '1') setOpen(true);
     })();
