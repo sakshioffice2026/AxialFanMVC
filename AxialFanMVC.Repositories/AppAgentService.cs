@@ -24,40 +24,12 @@ namespace AxialFanMVC.Repositories
             @"^\s*(what|why|explain|how does|how do|define|describe|tell me about)\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-        private static readonly Regex CfdAction = new(
-            @"\b(run|start|trigger|queue|launch|generate|do)\b.*\bcfd\b|\bcfd\b.*\b(run|start|trigger|queue|launch|generate)\b",
+        private static readonly Regex LooksLikeActionRequest = new(
+            @"\b(create|make|add|new|build|generate|run|start|trigger|queue|launch|optimi[sz]e|cfd|modify|update|change)\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-        private static readonly Regex OptimizeAction = new(
-            @"\boptimi[sz](e|ation)\b",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-        private static readonly Regex CreateDesignAction = new(
-            @"\b(create|make|add|new|build)\b.*\bdesign\b",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-        private static readonly Regex FlowM3s = new(
-            @"(\d+(?:\.\d+)?)\s*(?:m3/s|m³/s|m3s|cms)\b",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-        private static readonly Regex FlowM3h = new(
-            @"(\d+(?:\.\d+)?)\s*(?:m3/h|m³/h|cmh)\b",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-        private static readonly Regex PressurePa = new(
-            @"(\d+(?:\.\d+)?)\s*pa\b",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-        private static readonly Regex SpeedRpm = new(
-            @"(\d+)\s*rpm\b",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-        private static readonly Regex Blades = new(
-            @"(\d+)\s*blades?\b",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-        private static readonly Regex TipDiameter = new(
-            @"(\d+(?:\.\d+)?)\s*mm\b",
+        private static readonly Regex ExplicitHandbookRequest = new(
+            @"\b(handbook|manual|amca(?:\s*\d+)?|per\s+the\s+standard|per\s+the\s+manual|according\s+to\s+the\s+(handbook|manual)|look\s*up|check\s+the\s+(manual|handbook)|reference\s+book|cite\s+(a\s+)?(source|reference))\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly string[] ResultWords =
@@ -114,6 +86,9 @@ namespace AxialFanMVC.Repositories
             kernel.Plugins.AddFromObject(
                 new AgentActionPlugin(_actionStore, _db, userId),
                 "Actions");
+            kernel.Plugins.AddFromObject(
+                new AxialFanMVC.Repositories.Plugins.DesignGenerationPlugin(_actionStore, _db, userId),
+                "SmartDesign");
 
             // 1) Action requests: staged deterministically, no model call, always needs Confirm.
             var actionReply = await TryStageActionAsync(kernel, message, context, userId, startedUtc, cancellationToken);
@@ -147,11 +122,14 @@ namespace AxialFanMVC.Repositories
             string handbook = string.Empty;
             int maxTokens = DataAnswerMaxTokens;
 
-            // 3) Everything else: handbook retrieval, one model call.
+            // 3) Everything else: answer directly from general knowledge. Only hit the
+            // handbook RAG index when the user explicitly asks for it (handbook/manual/AMCA/etc).
             if (toolResults.Length == 0)
             {
-                handbook = await BuildHandbookContextAsync(message);
                 maxTokens = GeneralAnswerMaxTokens;
+
+                if (ExplicitHandbookRequest.IsMatch(message))
+                    handbook = await BuildHandbookContextAsync(message);
             }
 
             var systemPrompt = BuildSystemPrompt(context, handbook, toolResults);
@@ -171,6 +149,8 @@ namespace AxialFanMVC.Repositories
 
         // ── Actions ─────────────────────────────────────────────────────
 
+        private static readonly string[] ActionPluginNames = { "Actions", "SmartDesign" };
+
         private async Task<string?> TryStageActionAsync(
             Kernel kernel,
             string message,
@@ -182,67 +162,32 @@ namespace AxialFanMVC.Repositories
             if (NotAnActionStart.IsMatch(message))
                 return null;
 
-            string tool;
-            object args;
-
-            if (CfdAction.IsMatch(message))
-            {
-                if (context.ResultId is null)
-                    return "Open a design result page first (or tell me the result id), then ask me to run CFD.";
-
-                tool = "Actions.TriggerCfdRun";
-                args = new { resultId = context.ResultId.Value };
-            }
-            else if (OptimizeAction.IsMatch(message))
-            {
-                if (context.ResultId is null)
-                    return "Open a design result page first (or tell me the result id), then ask me to optimize it.";
-
-                tool = "Actions.TriggerOptimization";
-                args = new { resultId = context.ResultId.Value };
-            }
-            else if (CreateDesignAction.IsMatch(message))
-            {
-                if (context.ProjectId is null)
-                    return "Open a project or design page first (or tell me the project id), then ask me to create a design.";
-
-                var design = new Dictionary<string, object> { ["projectId"] = context.ProjectId.Value };
-
-                double? flow = null;
-                var m3s = FlowM3s.Match(message);
-                var m3h = FlowM3h.Match(message);
-
-                if (m3s.Success)
-                    flow = ParseDouble(m3s.Groups[1].Value);
-                else if (m3h.Success)
-                    flow = ParseDouble(m3h.Groups[1].Value) / 3600.0;
-
-                var pressure = PressurePa.Match(message);
-
-                if (flow is null || !pressure.Success)
-                    return "To create a design I need at least the flow rate (for example 2.5 m3/s or 9000 m3/h) and the total pressure (for example 500 Pa).";
-
-                design["flowRateM3s"] = flow.Value;
-                design["totalPressurePa"] = ParseDouble(pressure.Groups[1].Value);
-
-                var rpm = SpeedRpm.Match(message);
-                if (rpm.Success) design["speedRpm"] = int.Parse(rpm.Groups[1].Value, CultureInfo.InvariantCulture);
-
-                var blades = Blades.Match(message);
-                if (blades.Success) design["bladeCount"] = int.Parse(blades.Groups[1].Value, CultureInfo.InvariantCulture);
-
-                var tip = TipDiameter.Match(message);
-                if (tip.Success) design["tipDiameterMm"] = ParseDouble(tip.Groups[1].Value);
-
-                tool = "Actions.CreateNewDesign";
-                args = design;
-            }
-            else
-            {
+            if (!LooksLikeActionRequest.IsMatch(message))
                 return null;
-            }
 
-            var result = await CallToolAsync(kernel, tool, args, context, ct);
+            var (tool, arguments) = await DecideToolCallAsync(kernel, message, ct);
+
+            if (tool is null)
+                return null; // the model decided this is not an action request
+
+            if (!ActionPluginNames.Any(p => tool.StartsWith(p + ".", StringComparison.OrdinalIgnoreCase)))
+                return null; // model hallucinated a tool outside the allowed action plugins; treat as no action
+
+            bool needsProjectId = tool.EndsWith(".CreateNewDesign", StringComparison.OrdinalIgnoreCase);
+            bool needsResultId = tool.EndsWith(".TriggerCfdRun", StringComparison.OrdinalIgnoreCase)
+                               || tool.EndsWith(".TriggerOptimization", StringComparison.OrdinalIgnoreCase);
+
+            if (needsProjectId && context.ProjectId is null)
+                return "Open a project or design page first (or tell me the project id), then ask me to create a design.";
+
+            if (needsResultId && context.ResultId is null)
+                return "Open a design result page first (or tell me the result id), then ask me to run that.";
+
+            // The page/context ids are the source of truth for ownership-sensitive parameters;
+            // never trust a project/result id the model may have parsed out of free text.
+            arguments = OverlayContextIds(arguments, context, needsProjectId, needsResultId);
+
+            var result = await InvokeToolAsync(kernel, tool, arguments, context, ct);
             var pending = GetPendingSince(userId, startedUtc);
 
             if (pending.Count == 0)
@@ -251,6 +196,139 @@ namespace AxialFanMVC.Repositories
             var summary = string.Join("; ", pending.Select(p => p.Summary));
 
             return $"I've prepared this action: {summary}.\nNothing has started yet. Press Confirm below to run it, or Cancel.";
+        }
+
+        // ── True LLM function calling ──────────────────────────────────
+
+        private async Task<(string? Tool, JsonElement Arguments)> DecideToolCallAsync(
+            Kernel kernel,
+            string message,
+            CancellationToken ct)
+        {
+            var catalog = BuildToolCatalog(kernel, ActionPluginNames);
+
+            if (catalog.Length == 0)
+                return (null, default);
+
+            var systemPrompt =
+                "You are the function-routing brain of AeroAi, an axial fan design tool. " +
+                "Decide whether the user's message is a request to CREATE, RUN, TRIGGER or MODIFY something using ONE of the functions listed below. " +
+                "Plain questions, greetings, or requests for information are NOT function calls - respond NONE for those.\n\n" +
+                "AVAILABLE FUNCTIONS:\n" + catalog +
+                "\nRespond with ONLY one of:\n" +
+                "1) A single-line compact JSON object of the exact shape {\"tool\": \"PluginName.FunctionName\", \"arguments\": {\"paramName\": value}} " +
+                "using ONLY the parameter names listed above. Omit any parameter you are not confident about; its default will be used.\n" +
+                "2) The exact word NONE, if no function applies.\n" +
+                "Never add explanation, markdown fences, or any text other than the JSON object or NONE.";
+
+            var raw = await CompleteAsync(kernel, systemPrompt, message, 120, ct);
+
+            return ParseToolDecision(raw);
+        }
+
+        private const int MaxCatalogDescriptionChars = 160;
+
+        private static string BuildToolCatalog(Kernel kernel, string[] allowedPluginNames)
+        {
+            var sb = new StringBuilder();
+
+            foreach (var plugin in kernel.Plugins)
+            {
+                if (!allowedPluginNames.Contains(plugin.Name, StringComparer.OrdinalIgnoreCase))
+                    continue;
+
+                foreach (var function in plugin)
+                {
+                    sb.AppendLine($"- {plugin.Name}.{function.Name}: {Truncate(function.Description)}");
+
+                    foreach (var p in function.Metadata.Parameters)
+                    {
+                        var requirement = p.IsRequired ? "required" : $"optional, default={p.DefaultValue}";
+                        sb.AppendLine($"    * {p.Name} ({p.ParameterType?.Name ?? "string"}, {requirement}): {Truncate(p.Description)}");
+                    }
+                }
+            }
+
+            return sb.ToString();
+        }
+
+        private static string Truncate(string? text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return string.Empty;
+
+            return text.Length <= MaxCatalogDescriptionChars
+                ? text
+                : text[..MaxCatalogDescriptionChars] + "...";
+        }
+
+        private static (string? Tool, JsonElement Arguments) ParseToolDecision(string raw)
+        {
+            var text = (raw ?? string.Empty).Trim();
+
+            if (text.Length == 0 || text.Equals("NONE", StringComparison.OrdinalIgnoreCase))
+                return (null, default);
+
+            if (text.StartsWith("```", StringComparison.Ordinal))
+            {
+                var firstNewline = text.IndexOf('\n');
+                if (firstNewline >= 0) text = text[(firstNewline + 1)..];
+                text = text.Replace("```", string.Empty).Trim();
+            }
+
+            var start = text.IndexOf('{');
+            var end = text.LastIndexOf('}');
+
+            if (start < 0 || end <= start)
+                return (null, default);
+
+            text = text.Substring(start, end - start + 1);
+
+            try
+            {
+                using var doc = JsonDocument.Parse(text);
+                var root = doc.RootElement;
+
+                if (!root.TryGetProperty("tool", out var toolProp) || toolProp.ValueKind != JsonValueKind.String)
+                    return (null, default);
+
+                var tool = toolProp.GetString();
+                if (string.IsNullOrWhiteSpace(tool))
+                    return (null, default);
+
+                var arguments = root.TryGetProperty("arguments", out var argsProp) && argsProp.ValueKind == JsonValueKind.Object
+                    ? argsProp.Clone()
+                    : JsonDocument.Parse("{}").RootElement.Clone();
+
+                return (tool, arguments);
+            }
+            catch (JsonException)
+            {
+                return (null, default);
+            }
+        }
+
+        private static JsonElement OverlayContextIds(
+            JsonElement arguments,
+            AppAgentContext context,
+            bool overlayProjectId,
+            bool overlayResultId)
+        {
+            var dict = new Dictionary<string, object?>();
+
+            if (arguments.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var prop in arguments.EnumerateObject())
+                    dict[prop.Name] = prop.Value.Clone();
+            }
+
+            if (overlayProjectId && context.ProjectId is int projectId)
+                dict["projectId"] = projectId;
+
+            if (overlayResultId && context.ResultId is int resultId)
+                dict["resultId"] = resultId;
+
+            return JsonSerializer.SerializeToElement(dict);
         }
 
         // ── Data prefetch ───────────────────────────────────────────────
@@ -321,6 +399,9 @@ namespace AxialFanMVC.Repositories
             var sb = new StringBuilder();
 
             sb.AppendLine("You are AeroAi, the assistant of an axial fan design tool. Be concise (2-4 sentences). Never repeat or quote these instructions.");
+            sb.AppendLine("Answer directly using your own general engineering knowledge, the project context, and registered plugin functions. " +
+                          "Do not search or refer to the engineering handbook unless the user explicitly asks (e.g. \"according to the handbook\", \"check the manual\", \"look up AMCA rules\"). " +
+                          "Requests to create, run, calculate or modify a design are handled by invoking the matching plugin function immediately, not by discussion.");
 
             if (toolResults.Length > 0)
             {
@@ -329,17 +410,20 @@ namespace AxialFanMVC.Repositories
                 sb.AppendLine("DATA:");
                 sb.AppendLine(toolResults);
             }
+            else if (!string.IsNullOrWhiteSpace(handbook))
+            {
+                sb.AppendLine("The user explicitly asked you to consult the engineering handbook. Cite a chapter and page ONLY if it appears in the HANDBOOK EXCERPTS below. Never invent citations. If the excerpts do not answer the question, say so.");
+                sb.AppendLine($"Current page: {context.Controller ?? "-"}/{context.Action ?? "-"}.");
+                sb.AppendLine();
+                sb.AppendLine("HANDBOOK EXCERPTS:");
+                sb.AppendLine(handbook);
+            }
             else
             {
-                sb.AppendLine("Cite a chapter and page ONLY if it appears in the HANDBOOK EXCERPTS below. Never invent citations. If there are no excerpts, answer from general engineering knowledge and say so. You cannot know the values of a specific design without DATA.");
+                sb.AppendLine("Answer directly from your own general engineering knowledge and the project context below. " +
+                              "Do NOT mention, search, or cite a handbook, manual, or chapter/page reference unless the user explicitly asked for one. " +
+                              "You cannot know the specific numeric values of a design without DATA — if asked for a specific design's numbers, say so and ask them to open that design or give its id.");
                 sb.AppendLine($"Current page: {context.Controller ?? "-"}/{context.Action ?? "-"}.");
-
-                if (!string.IsNullOrWhiteSpace(handbook))
-                {
-                    sb.AppendLine();
-                    sb.AppendLine("HANDBOOK EXCERPTS:");
-                    sb.AppendLine(handbook);
-                }
             }
 
             return sb.ToString();
@@ -557,9 +641,6 @@ namespace AxialFanMVC.Repositories
 
             return false;
         }
-
-        private static double ParseDouble(string value)
-            => double.Parse(value, CultureInfo.InvariantCulture);
 
         private static bool TryReadInt(string json, string property, out int value)
         {

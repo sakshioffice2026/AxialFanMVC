@@ -1,4 +1,4 @@
-using AxialFanMVC.Database;
+﻿using AxialFanMVC.Database;
 using AxialFanMVC.Repositories;
 using AxialFanMVC.Repositories.Inteface;
 using AxialFanMVC.Services;
@@ -28,15 +28,15 @@ AxialFanMVC.Services.CfdVtkRenderer.IpcDirectory = builder.Configuration["CfdRen
 if (int.TryParse(builder.Configuration["CfdRender:TimeoutSeconds"], out var cfdRenderTimeoutSeconds))
     AxialFanMVC.Services.CfdVtkRenderer.TimeoutSeconds = cfdRenderTimeoutSeconds;
 
-// LLamaSharp in-process local LLM � singleton model provider loads both
+// LLamaSharp in-process local LLM — singleton model provider loads both
 // .gguf weights once; per-request services hold SemaphoreSlim-guarded
 // contexts. No Ollama HttpClient is registered or needed.
 builder.Services.AddSingleton<ILlamaModelProvider, LlamaModelProvider>();
 builder.Services.AddScoped<ILlamaSharpChatService, LlamaSharpChatService>();
 builder.Services.AddScoped<ILlamaSharpEmbeddingService, LlamaSharpEmbeddingService>();
 
-// HandbookChunkRepository: FULLTEXT fallback only � no Ollama HttpClient.
-// Semantic search goes through IRetrievalService ? Qdrant.
+// HandbookChunkRepository: FULLTEXT fallback only — no Ollama HttpClient.
+// Semantic search goes through IRetrievalService → Qdrant.
 builder.Services.AddScoped<IHandbookChunkRepository, HandbookChunkRepository>();
 
 // Qdrant vector store for handbook semantic search.

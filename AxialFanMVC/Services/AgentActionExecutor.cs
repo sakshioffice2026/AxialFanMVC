@@ -190,6 +190,18 @@ namespace AxialFanMVC.Services
                 TipDiameterMm = p.TipDiameterMm
             };
 
+            if (p.HubRatio is > 0)
+                input.HubRatio = p.HubRatio.Value;
+
+            if (p.BladeAngleDeg is > 0)
+                input.BladeAngleDeg = p.BladeAngleDeg.Value;
+
+            if (p.TargetEfficiencyPct is > 0)
+                input.TargetEfficiencyPct = p.TargetEfficiencyPct.Value;
+
+            if (p.MotorPowerKw is > 0)
+                input.MotorPowerKw = p.MotorPowerKw.Value;
+
             await using var transaction = await _db.Database.BeginTransactionAsync();
             DesignResult result;
 
@@ -342,6 +354,12 @@ namespace AxialFanMVC.Services
             public int BladeCount { get; set; } = 6;
             public double TipDiameterMm { get; set; } = 1000;
             public double TemperatureCelsius { get; set; } = 25;
+            public double? HubRatio { get; set; }
+            public double? BladeAngleDeg { get; set; }
+            public double? TargetEfficiencyPct { get; set; }
+            public double? MotorPowerKw { get; set; }
+            public string? ApplicationDescription { get; set; }
+            public string? PressureClass { get; set; }
         }
     }
 }
