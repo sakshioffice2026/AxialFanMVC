@@ -1,7 +1,9 @@
-﻿namespace AxialFanMVC.Repositories.Inteface
+﻿namespace AxialFanMVC.Repositories.Inteface;
+
+public interface ILlamaSharpChatService
 {
-    public interface ILlamaSharpChatService
-    {
-        Task<string> ChatAsync(string systemPrompt, string userMessage, int maxTokens = 300);
-    }
+    Task<string> ChatAsync(
+        string systemPrompt,
+        string userMessage,
+        int maxTokens = 300);
 }

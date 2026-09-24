@@ -1,8 +1,8 @@
-﻿namespace AxialFanMVC.Repositories.Inteface
+﻿namespace AxialFanMVC.Repositories.Inteface;
+
+public interface ILlamaSharpEmbeddingService
 {
-    public interface ILlamaSharpEmbeddingService
-    {
-        Task<float[]> EmbedAsync(string text);
-        Task<float[][]> EmbedBatchAsync(string[] texts);
-    }
+    Task<float[]> EmbedAsync(string text);
+
+    Task<float[][]> EmbedBatchAsync(string[] texts);
 }

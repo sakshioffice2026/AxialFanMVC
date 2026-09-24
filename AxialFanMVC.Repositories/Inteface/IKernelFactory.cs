@@ -1,9 +1,8 @@
 ﻿using Microsoft.SemanticKernel;
 
-namespace AxialFanMVC.Repositories.Inteface
+namespace AxialFanMVC.Repositories.Inteface;
+
+public interface IKernelFactory
 {
-    public interface IKernelFactory
-    {
-        Kernel CreateKernel();
-    }
+    Kernel CreateKernel();
 }
