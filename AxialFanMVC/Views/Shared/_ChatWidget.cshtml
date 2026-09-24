@@ -1,25 +1,48 @@
-﻿@* Floating handbook assistant widget — included site-wide from _Layout.cshtml
+@* Persistent AI agent widget - included site-wide from _LayoutV2.cshtml for signed-in users.
+   Sends the current page context (controller/action/ids) with every question, keeps the
+   conversation across page navigations, and shows Confirm/Cancel cards for any action the
+   agent stages (CFD run, optimization, new design). *@
+@{
+    var rv = ViewContext.RouteData.Values;
+    var query = Context.Request.Query;
 
-<div id="chatWidgetToggle" class="chat-widget-toggle" title="Ask to AeroAi">
-    <i class="bi bi-chat-dots-fill"></i>
-</div>
+    int? ToInt(object? v) =>
+        int.TryParse(Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture), out var n) ? n : (int?)null;
 
-<div id="chatWidgetPanel" class="chat-widget-panel shadow-lg d-none">
-    <div class="chat-widget-header d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-book me-1"></i> AeroAi</span>
-        <button type="button" id="chatWidgetClose" class="btn-close btn-close-white"></button>
+    var pageController = rv["controller"]?.ToString();
+    var pageAction = rv["action"]?.ToString();
+    var pageId = ToInt(rv["id"]);
+    var pageProjectId = ToInt(rv["projectId"]) ?? ToInt(query["projectId"].ToString());
+    var pageResultId = ToInt(rv["resultId"]) ?? ToInt(query["resultId"].ToString());
+}
+
+<div id="agentWidget">
+    @Html.AntiForgeryToken()
+
+    <div id="agentToggle" class="chat-widget-toggle" title="Ask AeroAi">
+        <i class="bi bi-chat-dots-fill"></i>
     </div>
-    <div id="chatWidgetMessages" class="chat-widget-messages">
-        <div class="chat-msg chat-msg-assistant">
-            Hi! Ask me anything  
+
+    <div id="agentPanel" class="chat-widget-panel agent-panel shadow-lg d-none">
+        <div class="chat-widget-header d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-robot me-1"></i> AeroAi</span>
+            <span class="d-flex align-items-center gap-2">
+                <button type="button" id="agentClear" class="agent-icon-btn" title="Clear conversation">
+                    <i class="bi bi-trash3"></i>
+                </button>
+                <button type="button" id="agentClose" class="btn-close btn-close-white" title="Close"></button>
+            </span>
         </div>
-    </div>
-    <div class="chat-widget-input d-flex gap-2">
-        <input type="text" id="chatWidgetInput" class="form-control form-control-sm"
-               placeholder="Ask a question..." />
-        <button type="button" id="chatWidgetSend" class="btn btn-primary btn-sm">
-            <i class="bi bi-send-fill"></i>
-        </button>
+
+        <div id="agentMessages" class="chat-widget-messages"></div>
+
+        <div class="chat-widget-input d-flex gap-2">
+            <input type="text" id="agentInput" class="form-control form-control-sm"
+                   maxlength="2000" placeholder="Ask a question or request an action..." autocomplete="off" />
+            <button type="button" id="agentSend" class="btn btn-primary btn-sm" title="Send">
+                <i class="bi bi-send-fill"></i>
+            </button>
+        </div>
     </div>
 </div>
 
@@ -38,7 +61,7 @@
         justify-content: center;
         font-size: 1.4rem;
         cursor: pointer;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
         z-index: 1050;
     }
 
@@ -46,8 +69,10 @@
         position: fixed;
         bottom: 92px;
         right: 24px;
-        width: 340px;
-        max-height: 480px;
+        width: 380px;
+        max-width: calc(100vw - 32px);
+        height: 520px;
+        max-height: calc(100vh - 120px);
         background: #fff;
         border-radius: 12px;
         display: flex;
@@ -64,6 +89,20 @@
         font-size: 0.9rem;
     }
 
+    .agent-icon-btn {
+        background: transparent;
+        border: 0;
+        color: #fff;
+        opacity: 0.85;
+        padding: 0;
+        line-height: 1;
+        cursor: pointer;
+    }
+
+        .agent-icon-btn:hover {
+            opacity: 1;
+        }
+
     .chat-widget-messages {
         flex: 1;
         overflow-y: auto;
@@ -76,8 +115,9 @@
         border-radius: 10px;
         margin-bottom: 8px;
         font-size: 0.85rem;
-        max-width: 85%;
+        max-width: 88%;
         white-space: pre-wrap;
+        word-wrap: break-word;
     }
 
     .chat-msg-user {
@@ -91,6 +131,37 @@
         color: #212529;
     }
 
+    .chat-msg-error {
+        background: #f8d7da;
+        color: #842029;
+    }
+
+    .chat-msg a {
+        display: inline-block;
+        margin-top: 6px;
+        font-weight: 600;
+    }
+
+    .agent-action-card {
+        border: 1px solid #ffc107;
+        background: #fff8e1;
+        border-radius: 10px;
+        padding: 10px 12px;
+        margin-bottom: 8px;
+        font-size: 0.82rem;
+    }
+
+    .agent-action-title {
+        font-weight: 600;
+        margin-bottom: 4px;
+    }
+
+    .agent-action-buttons {
+        display: flex;
+        gap: 8px;
+        margin-top: 8px;
+    }
+
     .chat-widget-input {
         padding: 10px;
         border-top: 1px solid #dee2e6;
@@ -99,57 +170,287 @@
 
 <script>
     (function () {
-        const toggle = document.getElementById('chatWidgetToggle');
-        const panel = document.getElementById('chatWidgetPanel');
-        const closeBtn = document.getElementById('chatWidgetClose');
-        const input = document.getElementById('chatWidgetInput');
-        const sendBtn = document.getElementById('chatWidgetSend');
-        const messages = document.getElementById('chatWidgetMessages');
+        const ctx = @Json.Serialize(new
+        {
+            controller = pageController,
+            action = pageAction,
+            id = pageId,
+            projectId = pageProjectId,
+            resultId = pageResultId
+        });
 
-        toggle.addEventListener('click', () => panel.classList.toggle('d-none'));
-        closeBtn.addEventListener('click', () => panel.classList.add('d-none'));
+        const HISTORY_KEY = 'aeroai.history.v1';
+        const OPEN_KEY = 'aeroai.open.v1';
+        const MAX_HISTORY = 40;
+        const REQUEST_TIMEOUT_MS = 180000;
 
-        function addMessage(text, sender) {
+        const root = document.getElementById('agentWidget');
+        const toggle = document.getElementById('agentToggle');
+        const panel = document.getElementById('agentPanel');
+        const closeBtn = document.getElementById('agentClose');
+        const clearBtn = document.getElementById('agentClear');
+        const messages = document.getElementById('agentMessages');
+        const input = document.getElementById('agentInput');
+        const sendBtn = document.getElementById('agentSend');
+
+        let history = loadHistory();
+        let busy = false;
+
+        function storageGet(key) {
+            try { return window.sessionStorage.getItem(key); } catch (e) { return null; }
+        }
+
+        function storageSet(key, value) {
+            try { window.sessionStorage.setItem(key, value); } catch (e) { }
+        }
+
+        function storageRemove(key) {
+            try { window.sessionStorage.removeItem(key); } catch (e) { }
+        }
+
+        function loadHistory() {
+            try {
+                const parsed = JSON.parse(storageGet(HISTORY_KEY) || '[]');
+                return Array.isArray(parsed) ? parsed : [];
+            } catch (e) {
+                return [];
+            }
+        }
+
+        function saveHistory() {
+            if (history.length > MAX_HISTORY) history = history.slice(history.length - MAX_HISTORY);
+            storageSet(HISTORY_KEY, JSON.stringify(history));
+        }
+
+        function token() {
+            const el = root.querySelector('input[name="__RequestVerificationToken"]');
+            return el ? el.value : '';
+        }
+
+        function scrollToBottom() {
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        function addMessage(text, sender, persist) {
             const div = document.createElement('div');
             div.className = 'chat-msg chat-msg-' + sender;
             div.textContent = text;
             messages.appendChild(div);
-            messages.scrollTop = messages.scrollHeight;
+            scrollToBottom();
+
+            if (persist && (sender === 'user' || sender === 'assistant')) {
+                history.push({ role: sender, text: text });
+                saveHistory();
+            }
+
+            return div;
+        }
+
+        function setOpen(open) {
+            panel.classList.toggle('d-none', !open);
+            storageSet(OPEN_KEY, open ? '1' : '0');
+            if (open) {
+                scrollToBottom();
+                input.focus();
+            }
+        }
+
+        async function postJson(url, body) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'RequestVerificationToken': token()
+                    },
+                    body: JSON.stringify(body),
+                    signal: controller.signal,
+                    credentials: 'same-origin'
+                });
+
+                let data = null;
+                try { data = await response.json(); } catch (e) { }
+
+                return { ok: response.ok, status: response.status, data: data };
+            } finally {
+                clearTimeout(timer);
+            }
+        }
+
+        function renderPendingAction(action) {
+            if (!action || !action.id) return;
+            if (messages.querySelector('[data-action-id="' + action.id + '"]')) return;
+
+            const card = document.createElement('div');
+            card.className = 'agent-action-card';
+            card.setAttribute('data-action-id', action.id);
+
+            const title = document.createElement('div');
+            title.className = 'agent-action-title';
+            title.textContent = 'Confirmation required';
+
+            const summary = document.createElement('div');
+            summary.textContent = action.summary || action.actionType || 'Pending action';
+
+            const buttons = document.createElement('div');
+            buttons.className = 'agent-action-buttons';
+
+            const confirmBtn = document.createElement('button');
+            confirmBtn.type = 'button';
+            confirmBtn.className = 'btn btn-success btn-sm';
+            confirmBtn.textContent = 'Confirm';
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.type = 'button';
+            cancelBtn.className = 'btn btn-outline-secondary btn-sm';
+            cancelBtn.textContent = 'Cancel';
+
+            buttons.appendChild(confirmBtn);
+            buttons.appendChild(cancelBtn);
+            card.appendChild(title);
+            card.appendChild(summary);
+            card.appendChild(buttons);
+            messages.appendChild(card);
+            scrollToBottom();
+
+            confirmBtn.addEventListener('click', async function () {
+                confirmBtn.disabled = true;
+                cancelBtn.disabled = true;
+                confirmBtn.textContent = 'Running...';
+
+                try {
+                    const result = await postJson('/Agent/ConfirmAction', { actionId: action.id });
+                    const data = result.data || {};
+                    card.remove();
+
+                    const msg = addMessage(
+                        data.message || (result.ok ? 'Done.' : 'The action could not be completed.'),
+                        data.success ? 'assistant' : 'error',
+                        data.success);
+
+                    if (data.success && data.redirectUrl) {
+                        const link = document.createElement('a');
+                        link.href = data.redirectUrl;
+                        link.textContent = 'Open result';
+                        msg.appendChild(document.createElement('br'));
+                        msg.appendChild(link);
+                    }
+                } catch (e) {
+                    card.remove();
+                    addMessage('The action could not be completed. Please try again.', 'error', false);
+                }
+            });
+
+            cancelBtn.addEventListener('click', async function () {
+                confirmBtn.disabled = true;
+                cancelBtn.disabled = true;
+
+                try {
+                    await postJson('/Agent/CancelAction', { actionId: action.id });
+                } catch (e) { }
+
+                card.remove();
+                addMessage('Action cancelled.', 'assistant', true);
+            });
+        }
+
+        async function restorePendingActions() {
+            try {
+                const response = await fetch('/Agent/Pending', { credentials: 'same-origin' });
+                if (!response.ok) return;
+                const data = await response.json();
+                (data.pendingActions || []).forEach(renderPendingAction);
+            } catch (e) { }
         }
 
         async function sendMessage() {
             const text = input.value.trim();
-            if (!text) return;
+            if (!text || busy) return;
 
-            addMessage(text, 'user');
-            input.value = '';
+            busy = true;
             sendBtn.disabled = true;
+            input.value = '';
+            addMessage(text, 'user', true);
 
-            const thinkingDiv = document.createElement('div');
-            thinkingDiv.className = 'chat-msg chat-msg-assistant';
-            thinkingDiv.textContent = 'Thinking...';
-
-            messages.appendChild(thinkingDiv);
-            messages.scrollTop = messages.scrollHeight;
+            const thinking = addMessage('Thinking...', 'assistant', false);
 
             try {
-                const response = await fetch('/Chat/Ask', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: text })
+                const result = await postJson('/Agent/Ask', {
+                    message: text,
+                    controller: ctx.controller,
+                    action: ctx.action,
+                    id: ctx.id,
+                    projectId: ctx.projectId,
+                    resultId: ctx.resultId
                 });
-                const data = await response.json();
-                thinkingDiv.textContent = data.reply;
-            } catch (err) {
-                thinkingDiv.textContent = 'Something went wrong. Please try again.';
+
+                thinking.remove();
+
+                if (!result.ok) {
+                    const err = (result.data && result.data.error) || 'Something went wrong. Please try again.';
+                    addMessage(err, 'error', false);
+                } else {
+                    addMessage(result.data.reply || 'No response.', 'assistant', true);
+                    (result.data.pendingActions || []).forEach(renderPendingAction);
+                }
+            } catch (e) {
+                thinking.remove();
+                addMessage(
+                    e && e.name === 'AbortError'
+                        ? 'The assistant took too long to respond. Please try again.'
+                        : 'Could not reach the assistant. Please try again.',
+                    'error',
+                    false);
             } finally {
+                busy = false;
                 sendBtn.disabled = false;
+                input.focus();
             }
         }
 
-        sendBtn.addEventListener('click', sendMessage);
-        input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') sendMessage();
+        function renderHistory() {
+            messages.innerHTML = '';
+
+            if (history.length === 0) {
+                addMessage(
+                    "Hi! I'm AeroAi. Ask me about fan design, or about your projects, results, BOM, CFD and optimization jobs. " +
+                    "If you ask me to run CFD, optimize or create a design, I'll ask you to confirm first.",
+                    'assistant',
+                    false);
+                return;
+            }
+
+            history.forEach(function (m) { addMessage(m.text, m.role, false); });
+        }
+
+        toggle.addEventListener('click', function () {
+            setOpen(panel.classList.contains('d-none'));
         });
+
+        closeBtn.addEventListener('click', function () { setOpen(false); });
+
+        clearBtn.addEventListener('click', function () {
+            history = [];
+            storageRemove(HISTORY_KEY);
+            renderHistory();
+            restorePendingActions();
+        });
+
+        sendBtn.addEventListener('click', sendMessage);
+
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        renderHistory();
+        restorePendingActions();
+
+        if (storageGet(OPEN_KEY) === '1') setOpen(true);
     })();
-</script> *@
+</script>
