@@ -39,9 +39,9 @@ namespace AxialFanMVC.Repositories
             for (var i = 0; i < chunks.Count; i += batchSize)
             {
                 var batch = chunks.Skip(i).Take(batchSize).ToList();
-                var texts = batch.Select(c => c.Text).ToList();
+                var texts = batch.Select(c => c.Text).ToArray();
 
-                var embeddings = await _embeddingService.GenerateEmbeddingsAsync(texts);
+                var embeddings = await _embeddingService.EmbedBatchAsync(texts);
 
                 var records = batch.Zip(embeddings, (chunk, vector) => new HandbookChunkVectorRecord
                 {

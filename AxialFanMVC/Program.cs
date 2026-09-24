@@ -25,7 +25,7 @@ builder.Services.AddScoped<ICalibrationCaseRepository, CalibrationCaseRepository
 AxialFanMVC.Services.CfdVtkRenderer.PythonExe = builder.Configuration["CfdRender:PythonExe"] ?? AxialFanMVC.Services.CfdVtkRenderer.PythonExe;
 AxialFanMVC.Services.CfdVtkRenderer.ScriptPath = builder.Configuration["CfdRender:ScriptPath"] ?? AxialFanMVC.Services.CfdVtkRenderer.ScriptPath;
 // Scheduled Task + IPC settings for the interactive-desktop render
-// workaround â€” see CfdVtkRenderer.cs for why this can no longer just
+// workaround — see CfdVtkRenderer.cs for why this can no longer just
 // shell out to python.exe directly from the app pool.
 AxialFanMVC.Services.CfdVtkRenderer.TaskName = builder.Configuration["CfdRender:TaskName"] ?? AxialFanMVC.Services.CfdVtkRenderer.TaskName;
 AxialFanMVC.Services.CfdVtkRenderer.IpcDirectory = builder.Configuration["CfdRender:IpcDirectory"] ?? AxialFanMVC.Services.CfdVtkRenderer.IpcDirectory;
@@ -53,7 +53,7 @@ builder.Services.AddHttpClient<IHandbookChunkRepository, HandbookChunkRepository
     client.Timeout = TimeSpan.FromSeconds(180);
 });
 
-// LLamaSharp in-process local LLM â€” single shared model provider (loads .gguf
+// LLamaSharp in-process local LLM — single shared model provider (loads .gguf
 // weights once), with per-native-context SemaphoreSlim locks (see
 // LlamaModelProvider) to keep concurrent HTTP requests from corrupting the
 // underlying llama.cpp native context.
@@ -62,6 +62,17 @@ builder.Services.AddScoped<ILlamaSharpChatService, LlamaSharpChatService>();
 builder.Services.AddScoped<ILlamaSharpEmbeddingService, LlamaSharpEmbeddingService>();
 builder.Services.AddSingleton<IQdrantHandbookVectorService, QdrantHandbookVectorService>();
 builder.Services.AddScoped<IHandbookVectorSyncService, HandbookVectorSyncService>();
+
+// Semantic Kernel orchestration layer — Kernel per-request (via factory),
+// app-data function-calling plugin, semantic retrieval over Qdrant, and the
+// top-level RAG chat orchestrator that ChatController/DesignAssistantController
+// depend on. These were previously missing from DI, which would have failed
+// at first request with "Unable to resolve service for type IRagChatOrchestrator".
+builder.Services.AddScoped<IAppDataQueryService, AppDataQueryService>();
+builder.Services.AddScoped<IKernelFactory, KernelFactory>();
+builder.Services.AddScoped<IRetrievalService, RetrievalService>();
+builder.Services.AddScoped<IRetrievalPlugin, RetrievalPlugin>();
+builder.Services.AddScoped<IRagChatOrchestrator, RagChatOrchestrator>();
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
@@ -79,7 +90,7 @@ builder.Services.AddAuthorization();
 // THIS LINE IS REQUIRED ? registers ExportService
 builder.Services.AddScoped<ExportService>();
 
-// "Optimize for me" â€” DB-backed job queue processed by a background
+// "Optimize for me" — DB-backed job queue processed by a background
 // worker that calls out to the Python optimizer service (FastAPI).
 // OptimizationJobChannel is registered as its own singleton (not just
 // via the interface) because OptimizationBackgroundService needs the
@@ -90,7 +101,7 @@ builder.Services.AddSingleton<IOptimizationJobSignal>(sp => sp.GetRequiredServic
 builder.Services.AddHttpClient(nameof(OptimizationBackgroundService));
 builder.Services.AddHostedService<OptimizationBackgroundService>();
 
-// CFD pressure slice â€” same DB-backed job queue shape as "Optimize for
+// CFD pressure slice — same DB-backed job queue shape as "Optimize for
 // me" above, but the worker calls the local OpenFOAM pipeline
 // (LocalCfdOrchestrator) directly rather than an HTTP service.
 builder.Services.AddSingleton<CfdJobChannel>();
@@ -110,7 +121,7 @@ if (!app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 // .vtp isn't in ASP.NET Core's default recognized file-extension list, so
-// plain UseStaticFiles() 404s on it even when the file exists on disk â€”
+// plain UseStaticFiles() 404s on it even when the file exists on disk —
 // that's what was causing "Couldn't download - No file" on the CFD
 // results page despite pressure_slice.vtp being right there in wwwroot.
 var cfdContentTypes = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();

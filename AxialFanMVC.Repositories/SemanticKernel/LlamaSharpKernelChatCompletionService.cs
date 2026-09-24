@@ -31,7 +31,7 @@ namespace AxialFanMVC.Repositories.SemanticKernel
 
             var userMessage = chatHistory.LastOrDefault(m => m.Role == AuthorRole.User)?.Content ?? string.Empty;
 
-            var reply = await _chatService.CompleteAsync(systemPrompt, userMessage);
+            var reply = await _chatService.ChatAsync(systemPrompt, userMessage);
 
             return new List<ChatMessageContent>
             {

@@ -24,6 +24,11 @@ namespace AxialFanMVC.Repositories
 
             var contextSize = uint.TryParse(config["LlamaModels:ContextSize"], out var cs) ? cs : 4096u;
             var gpuLayers = int.TryParse(config["LlamaModels:GpuLayerCount"], out var gl) ? gl : 0;
+            // Handbook chunks can exceed 512 tokens; nomic-embed-text-v1.5
+            // was trained with a long context window, so this is safe to
+            // raise. Configurable rather than re-hardcoded so it can be
+            // tuned per embedding model without a code change.
+            var embedContextSize = uint.TryParse(config["LlamaModels:EmbeddingContextSize"], out var ecs) ? ecs : 2048u;
 
             ChatParams = new ModelParams(chatPath)
             {
@@ -33,7 +38,7 @@ namespace AxialFanMVC.Repositories
 
             EmbeddingParams = new ModelParams(embedPath)
             {
-                ContextSize = 512,
+                ContextSize = embedContextSize,
                 GpuLayerCount = gpuLayers,
                 Embeddings = true
             };

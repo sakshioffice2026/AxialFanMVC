@@ -82,7 +82,7 @@ namespace AxialFanMVC.Repositories
         // fallback that HandbookChunkRepository used previously.
         private async Task<string> BuildHandbookContextAsync(string query)
         {
-            var queryVector = await _embeddingService.GenerateEmbeddingAsync(query);
+            var queryVector = await _embeddingService.EmbedAsync(query);
             var matches = await _vectorService.SearchAsync(queryVector, MaxChunks);
 
             var sb = new StringBuilder();
