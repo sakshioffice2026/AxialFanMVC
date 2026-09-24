@@ -3,10 +3,11 @@
    conversation across page navigations, and shows Confirm/Cancel cards for any action the
    agent stages (CFD run, optimization, new design).
 
-   AeroAI guided design flow: after a project is created the server offers to set up a design,
-   asks for flow rate and pressure (unit conversion done in C#), confirms, runs the physics
-   engine and returns a diagnostics card. While the flow is active every message is sent to
-   /AeroAi/Flow/Reply first; anything it does not handle falls through to /Agent/Ask. *@
+   AeroAI guided design flow: the user types "Design for projectId=7"; the server loads the
+   project, asks for flow rate and total pressure in one message (unit conversion done in C#),
+   confirms with Yes / No, runs the physics engine and returns a diagnostics card. The start
+   command and every message while the flow is active are sent to /AeroAi/Flow/Reply first;
+   anything it does not handle falls through to /Agent/Ask. *@
 @{
     var rv = ViewContext.RouteData.Values;
     var query = Context.Request.Query;
@@ -318,6 +319,7 @@
         const FLOW_KEY = 'aeroai.flow.v1';
         const MAX_HISTORY = 40;
         const REQUEST_TIMEOUT_MS = 180000;
+        const FLOW_START_RX = /\bdesign\s+for\s+project\s*(?:id)?\s*[=:#]?\s*\d+/i;
 
         const GREETING =
             "Hi! I'm AeroAi. Ask me about fan design, or about your projects, results, BOM, CFD and optimization jobs. " +
@@ -614,8 +616,8 @@
             let resume = null;
 
             try {
-                // 1) Guided design flow gets the first look while it is active.
-                if (flowActive) {
+                // 1) Guided design flow gets the first look: the start command, or any message while active.
+                if (flowActive || FLOW_START_RX.test(text)) {
                     const flow = await postJson('/AeroAi/Flow/Reply', { message: text });
                     const data = flow.data || {};
 
@@ -682,7 +684,7 @@
             history.forEach(function (m) { addMessage(m.text, m.role, false, m.card); });
         }
 
-        // ---- proactive offer after a project is created --------------------
+        // ---- keep the browser flag in sync with the server session ----------
 
         async function initFlow() {
             try {
@@ -691,19 +693,6 @@
                 if (stateResponse.ok) {
                     const state = await stateResponse.json();
                     setFlowActive(state.active);
-                    if (state.active) return;
-                }
-
-                const offer = await postJson('/AeroAi/Flow/Offer', {});
-
-                if (offer.ok && offer.data && offer.data.handled) {
-                    setFlowActive(offer.data.flowActive);
-
-                    if (history.length === 0) messages.innerHTML = '';
-
-                    setOpen(true);
-                    addMessage(offer.data.message || '', 'assistant', true);
-                    showChips(offer.data.quickReplies);
                 }
             } catch (e) { }
         }

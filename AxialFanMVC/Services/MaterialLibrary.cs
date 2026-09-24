@@ -55,6 +55,33 @@
                 EnduranceLimitPaApprox = 240e6,
                 Source = "ASM Handbook typical 304 SS"
             },
+            ["Stainless Steel 316"] = new MaterialProperties
+            {
+                Name = "Stainless Steel 316",
+                DensityKgM3 = 8000,
+                YieldStrengthPa = 205e6,
+                UltimateStrengthPa = 515e6,
+                EnduranceLimitPaApprox = 240e6,
+                Source = "ASM Handbook typical 316 SS"
+            },
+            ["FRP / Composite"] = new MaterialProperties
+            {
+                Name = "FRP / Composite",
+                DensityKgM3 = 1800,
+                YieldStrengthPa = 120e6, // no true yield: design tensile strength of glass-fibre / polyester laminate
+                UltimateStrengthPa = 200e6,
+                EnduranceLimitPaApprox = 40e6,
+                Source = "Typical GRP laminate values; confirm with the blade supplier datasheet"
+            },
+            ["PAG"] = new MaterialProperties
+            {
+                Name = "PAG",
+                DensityKgM3 = 1360,
+                YieldStrengthPa = 110e6, // glass-filled polyamide (PA6-GF30), conditioned
+                UltimateStrengthPa = 150e6,
+                EnduranceLimitPaApprox = 40e6,
+                Source = "Typical PA6-GF30 conditioned values; confirm with the blade supplier datasheet"
+            },
         };
 
         public static MaterialProperties Get(string? materialName)

@@ -32,26 +32,6 @@ namespace AxialFanMVC.Controllers
             return Json(new { active = _flow.IsActive(CurrentUserId) });
         }
 
-        // POST /AeroAi/Flow/Offer
-        [HttpPost("Offer"), ValidateAntiForgeryToken]
-        public async Task<IActionResult> Offer()
-        {
-            try
-            {
-                var reply = await _flow.OfferAsync(CurrentUserId, HttpContext.RequestAborted);
-                return Json(reply);
-            }
-            catch (OperationCanceledException)
-            {
-                return StatusCode(499, new { error = "Request cancelled." });
-            }
-            catch (Exception ex)
-            {
-                LogSafe(nameof(Offer), ex);
-                return Json(FlowReply.Idle);
-            }
-        }
-
         // POST /AeroAi/Flow/Reply
         [HttpPost("Reply"), ValidateAntiForgeryToken]
         public async Task<IActionResult> Reply([FromBody] AeroAiFlowReplyRequest request)

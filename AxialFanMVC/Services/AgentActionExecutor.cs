@@ -3,6 +3,7 @@ using AxialFanMVC.Database;
 using AxialFanMVC.Models;
 using AxialFanMVC.Repositories.Inteface;
 using AxialFanMVC.Repositories.Models;
+using AxialFanMVC.Services.AeroAi;
 using Microsoft.EntityFrameworkCore;
 
 namespace AxialFanMVC.Services
@@ -165,7 +166,7 @@ namespace AxialFanMVC.Services
 
         private async Task<AgentActionExecutionResult> CreateDesignAsync(AgentPendingAction action, int userId)
         {
-            var p = JsonSerializer.Deserialize<NewDesignParams>(action.ParametersJson, JsonOptions);
+            var p = JsonSerializer.Deserialize<DesignRunParameters>(action.ParametersJson, JsonOptions);
 
             if (p is null || p.ProjectId <= 0 || p.FlowRateM3s <= 0 || p.TotalPressurePa <= 0)
                 return Fail(action.ActionType, "Invalid action parameters.");
@@ -178,29 +179,7 @@ namespace AxialFanMVC.Services
 
             project.UpdatedAt = DateTime.UtcNow;
 
-            var input = new DesignInput
-            {
-                ProjectId = p.ProjectId,
-                TemperatureCelsius = p.TemperatureCelsius,
-                FlowRateM3s = p.FlowRateM3s,
-                StaticPressurePa = p.StaticPressurePa > 0 ? p.StaticPressurePa : p.TotalPressurePa,
-                TotalPressurePa = p.TotalPressurePa,
-                SpeedRpm = p.SpeedRpm,
-                BladeCount = p.BladeCount,
-                TipDiameterMm = p.TipDiameterMm
-            };
-
-            if (p.HubRatio is > 0)
-                input.HubRatio = p.HubRatio.Value;
-
-            if (p.BladeAngleDeg is > 0)
-                input.BladeAngleDeg = p.BladeAngleDeg.Value;
-
-            if (p.TargetEfficiencyPct is > 0)
-                input.TargetEfficiencyPct = p.TargetEfficiencyPct.Value;
-
-            if (p.MotorPowerKw is > 0)
-                input.MotorPowerKw = p.MotorPowerKw.Value;
+            var input = p.ToDesignInput();
 
             await using var transaction = await _db.Database.BeginTransactionAsync();
             DesignResult result;
@@ -342,24 +321,6 @@ namespace AxialFanMVC.Services
         {
             public int ResultId { get; set; }
             public int ProjectId { get; set; }
-        }
-
-        private sealed class NewDesignParams
-        {
-            public int ProjectId { get; set; }
-            public double FlowRateM3s { get; set; }
-            public double TotalPressurePa { get; set; }
-            public double StaticPressurePa { get; set; }
-            public int SpeedRpm { get; set; } = 1450;
-            public int BladeCount { get; set; } = 6;
-            public double TipDiameterMm { get; set; } = 1000;
-            public double TemperatureCelsius { get; set; } = 25;
-            public double? HubRatio { get; set; }
-            public double? BladeAngleDeg { get; set; }
-            public double? TargetEfficiencyPct { get; set; }
-            public double? MotorPowerKw { get; set; }
-            public string? ApplicationDescription { get; set; }
-            public string? PressureClass { get; set; }
         }
     }
 }

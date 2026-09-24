@@ -22,6 +22,9 @@
 
         public string Status { get; init; } = "ok";
 
+        // True while the design is only calculated in memory (nothing written to the database).
+        public bool IsDraft { get; init; }
+
         public int ResultId { get; init; }
 
         public string ResultUrl { get; init; } = string.Empty;
@@ -62,6 +65,7 @@
                 QuickReplies = quickReplies
             };
 
+        // Final card, flow finished.
         public static FlowReply SayWithCard(string message, FlowCard card)
             => new()
             {
@@ -69,6 +73,17 @@
                 FlowActive = false,
                 Message = message,
                 Card = card
+            };
+
+        // Card shown while the flow continues (for example the unsaved draft awaiting Yes / No).
+        public static FlowReply SayWithCard(string message, FlowCard card, bool flowActive, params string[] quickReplies)
+            => new()
+            {
+                Handled = true,
+                FlowActive = flowActive,
+                Message = message,
+                Card = card,
+                QuickReplies = quickReplies
             };
 
         public static FlowReply Pass(string resume, params string[] resumeQuickReplies)

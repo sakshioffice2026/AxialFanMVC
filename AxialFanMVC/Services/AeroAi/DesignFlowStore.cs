@@ -1,13 +1,32 @@
-﻿using System.Collections.Concurrent;
+﻿using Google.Protobuf.Reflection;
+using System.Collections.Concurrent;
 
 namespace AxialFanMVC.Services.AeroAi
 {
     public enum DesignFlowStep
     {
-        AwaitingStart,
-        AwaitingFlow,
-        AwaitingPressure,
-        AwaitingRunConfirm
+        AwaitingValues,
+        AwaitingPathChoice,
+        AwaitingCustomOptions,
+        AwaitingSaveConfirm,
+        AwaitingRevisionOrDiscard
+    }
+
+    // Calculated but not yet written to MySQL. Only "Yes" at the save step persists it.
+    public sealed class DesignDraft
+    {
+        public bool IsCustom { get; init; }
+
+        public DesignSizing Sizing { get; init; } = new();
+
+        public CustomOptions Options { get; init; } = new();
+
+        // Exact parameters handed to the executor if the user approves the save.
+        public string ParametersJson { get; init; } = string.Empty;
+
+        public string Summary { get; init; } = string.Empty;
+
+        public FlowCard? Card { get; init; }
     }
 
     public sealed class DesignFlowSession
@@ -18,11 +37,15 @@ namespace AxialFanMVC.Services.AeroAi
 
         public string ProjectLabel { get; init; } = string.Empty;
 
-        public DesignFlowStep Step { get; set; } = DesignFlowStep.AwaitingStart;
+        public DesignFlowStep Step { get; set; } = DesignFlowStep.AwaitingValues;
 
         public ParsedQuantity? Flow { get; set; }
 
         public ParsedQuantity? Pressure { get; set; }
+
+        public CustomOptions Options { get; set; } = new();
+
+        public DesignDraft? Draft { get; set; }
 
         public DateTime LastTouchedUtc { get; set; } = DateTime.UtcNow;
 
@@ -34,7 +57,6 @@ namespace AxialFanMVC.Services.AeroAi
         private static readonly TimeSpan IdleTimeout = TimeSpan.FromMinutes(45);
 
         private readonly ConcurrentDictionary<int, DesignFlowSession> _sessions = new();
-        private readonly ConcurrentDictionary<string, byte> _offered = new();
 
         public DesignFlowSession? Get(int userId)
         {
@@ -66,11 +88,6 @@ namespace AxialFanMVC.Services.AeroAi
         public void End(int userId)
         {
             _sessions.TryRemove(userId, out _);
-        }
-
-        public bool MarkOffered(int userId, int projectId)
-        {
-            return _offered.TryAdd(userId + ":" + projectId, 0);
         }
     }
 }
