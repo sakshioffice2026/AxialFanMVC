@@ -147,12 +147,13 @@ namespace AxialFanMVC.Services.AeroAi
         {
             (new Regex(@"\b5052\b", Opt), MatAluminum5052),
             (new Regex(@"\b6061\b", Opt), MatAluminum6061),
-            (new Regex(@"\ba\s*-?\s*36\b|mild\s*steel|carbon\s*steel", Opt), MatMildSteel),
+            (new Regex(@"\ba\s*-?\s*36\b|mild\s*steel|carbon\s*steel|\bmild\b", Opt), MatMildSteel),
             (new Regex(@"\b(?:ss|stainless(?:\s*steel)?)\s*-?\s*304\b|\b304\b(?!\s*mm)", Opt), MatStainless304),
             (new Regex(@"\b(?:ss|stainless(?:\s*steel)?)\s*-?\s*316\b|\b316\b(?!\s*mm)|stainless", Opt), MatStainless316),
             (new Regex(@"\bfrp\b|\bgrp\b|composite|fib(?:re|er)\s*glass|fiberglass", Opt), MatFrp),
             (new Regex(@"\bpag\b|polyamide|nylon", Opt), MatPag),
-            (new Regex(@"alumin(?:i)?um|\bal\b", Opt), MatAluminum6061)
+            (new Regex(@"alumin(?:i)?um|\bal\b", Opt), MatAluminum6061),
+            (new Regex(@"\bsteel\b", Opt), MatMildSteel)
         };
 
         private static readonly Regex VfdRx = new(@"\bvfd\b|inverter|variable\s*(?:frequency|speed)", Opt);

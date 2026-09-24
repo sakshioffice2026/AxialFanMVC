@@ -14,11 +14,11 @@ namespace AxialFanMVC.Services.AeroAi
         private const double PsiToPa = 6894.757;
 
         private static readonly Regex FlowRx = new(
-            @"(?<num>\d+(?:\.\d+)?|\.\d+)\s*(?<unit>cfm|m3/s|m3/h|m3/min|m3s|m3h|cmh|cmm|cms|l/s|lps)(?![a-z0-9])",
+            @"(?<num>\d+(?:\.\d+)?|\.\d+)\s*(?<unit>cfm|m3/s|m3/h|m3/min|m3s|m3h|cmh|cmm|cms|l/s|lps)(?![a-z0-9/])",
             RegexOptions.Compiled);
 
         private static readonly Regex PressureRx = new(
-            @"(?<num>\d+(?:\.\d+)?|\.\d+)\s*(?<unit>inwg|mmwg|kpa|pascals?|pa|mbar|psi)(?![a-z0-9])",
+            @"(?<num>\d+(?:\.\d+)?|\.\d+)\s*(?<unit>inwg|mmwg|kpa|pascals?|pa|mbar|psi)(?![a-z0-9/])",
             RegexOptions.Compiled);
 
         private static readonly Regex BareRx = new(
@@ -137,7 +137,19 @@ namespace AxialFanMVC.Services.AeroAi
             var s = (text ?? string.Empty).ToLowerInvariant();
 
             s = s.Replace('³', '3').Replace("m^3", "m3");
+
+            // Strip thousands-separator commas that are NOT field separators
+            // e.g. "12,000 cfm" → "12000 cfm"  but "flow=10,pressure=600" is left alone
             s = Regex.Replace(s, @"(?<=\d),(?=\d{3}(?!\d))", string.Empty);
+
+            // Normalise keyword=value separators: "flow rate =10", "pressure: 600", "pressure-1200"
+            // so the number is adjacent to its unit for FlowRx / PressureRx to match.
+            s = Regex.Replace(s,
+                @"(?:flow\s*rate?|volume\s*flow(?:\s*rate)?|q)\s*[-=:]\s*",
+                string.Empty);
+            s = Regex.Replace(s,
+                @"(?:total\s*pressure|static\s*pressure|pressure|p)\s*[-=:]\s*",
+                string.Empty);
 
             s = Regex.Replace(s, @"cubic\s*feet\s*(?:per|/)\s*min(?:ute)?s?", "cfm");
             s = Regex.Replace(s, @"cubic\s*(?:meters?|metres?)", "m3");
