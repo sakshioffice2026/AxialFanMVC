@@ -1,133 +1,343 @@
-﻿using System.Collections.Generic;
+﻿using System.Globalization;
+using System.Text.RegularExpressions;
+using AxialFanMVC.Database;
 
 namespace AxialFanMVC.Services.AeroAi
 {
-    public class OptimizeCommandRequest
+    public sealed class OptimizationChange
     {
-        public string Message { get; set; } = "";
-        public int? ResultId { get; set; }
+        public string Parameter { get; init; } = string.Empty;
+
+        public string Before { get; init; } = string.Empty;
+
+        public string After { get; init; } = string.Empty;
+
+        public string Reason { get; init; } = string.Empty;
     }
 
-    public class DesignFlowSnapshot
+    public sealed class OptimizationOutcome
     {
-        public int ResultId { get; set; }
-        public int DesignInputId { get; set; }
-        public int ProjectId { get; set; }
-        public int UserId { get; set; }
-        public string ProjectName { get; set; } = "";
+        public bool Success { get; init; }
 
-        public double FlowRateM3s { get; set; }
-        public double TotalPressurePa { get; set; }
-        public int SpeedRpm { get; set; }
-        public int BladeCount { get; set; }
-        public double TipDiameterMm { get; set; }
-        public double HubRatio { get; set; }
-        public double BladeAngleDeg { get; set; }
-        public string BladeMaterial { get; set; } = "";
-        public int? BladeProfileId { get; set; }
+        public string Error { get; init; } = string.Empty;
 
-        public double? MaxTipDiameterMm { get; set; }
-        public double? MinEfficiencyPct { get; set; }
-        public double? MaxNoiseDbA { get; set; }
-        public double? MaxMotorPowerKw { get; set; }
-        public int? MaxSpeedRpm { get; set; }
+        public DesignRunParameters BaseParameters { get; init; } = new();
 
-        public double OverallEfficiencyPct { get; set; }
-        public double ShaftPowerKw { get; set; }
-        public double SafetyFactor { get; set; }
-        public double BladeStressMpa { get; set; }
-        public double? OverallNoiseDbA { get; set; }
+        public DesignPreviewResult BasePreview { get; init; } = new();
 
-        public List<string> WarningMessages { get; set; } = new();
+        public DesignRunParameters Parameters { get; init; } = new();
 
-        public string Source { get; set; } = "EFCore"; // "SessionMemory" | "EFCore"
+        public DesignPreviewResult Preview { get; init; } = new();
+
+        public List<OptimizationChange> Changes { get; init; } = new();
+
+        // Warnings present before and gone after.
+        public List<string> Resolved { get; init; } = new();
+
+        // Warnings still present after.
+        public List<string> Remaining { get; init; } = new();
+
+        // Warnings that only appear after the changes.
+        public List<string> Introduced { get; init; } = new();
     }
 
-    public class SizingCandidate
+    // Deterministic optimizer: every change is verified against the same physics engines
+    // (in memory, nothing written to MySQL). Rules run in a fixed order:
+    // 1) even blade count -> odd, 2) stall (flow coefficient), 3) runout, 4) motor sizing.
+    public sealed class DesignOptimizerEngine
     {
-        public double BladeAngleDeg { get; set; }
-        public int SpeedRpm { get; set; }
-        public double TipDiameterMm { get; set; }
-        public int BladeCount { get; set; }
+        private const double StallLimit = 0.15;
+        private const double StallTarget = 0.16;
+        private const double MotorMargin = 1.15;
+        private const int MaxStallTrials = 4;
+        private const int MaxRunoutSteps = 6;
+        private const double MaxBladeAngleStepDeg = 1.0;
 
-        public double OverallEfficiencyPct { get; set; }
-        public double ShaftPowerKw { get; set; }
-        public double SafetyFactor { get; set; }
-        public double BladeStressMpa { get; set; }
-        public double NoiseDbA { get; set; }
+        private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
-        public double ChordLengthMm { get; set; }
-        public double HubDiameterMm { get; set; }
-        public double BladeSpanMm { get; set; }
-        public double SpecificSpeed { get; set; }
-        public double TipSpeedMs { get; set; }
-        public double FlowCoefficient { get; set; }
-        public double PressureCoefficient { get; set; }
-        public string MaterialUsed { get; set; } = "";
-        public double YieldStrengthMpa { get; set; }
-        public double SoundPowerLevelDb { get; set; }
-        public double BladePassingFrequencyHz { get; set; }
-        public double TipMachNumber { get; set; }
-        public double? NoiseRatingValue { get; set; }
-        public string? NoiseRating { get; set; }
-        public string OctaveBandLwJson { get; set; } = "[]";
+        private static readonly double[] StandardDiametersMm =
+        {
+            300, 350, 400, 450, 500, 560, 630, 710, 800, 850, 900, 950,
+            1000, 1060, 1120, 1250, 1400, 1600, 1800, 2000, 2240, 2500, 2800, 3150
+        };
 
-        public List<string> Warnings { get; set; } = new();
-        public bool FeasibleAgainstConstraints { get; set; }
-        public bool BetterThanBaseline { get; set; }
-    }
+        private static readonly double[] StandardMotorsKw =
+        {
+            0.75, 1.1, 1.5, 2.2, 3.0, 4.0, 5.5, 7.5, 11, 15, 18.5, 22, 30, 37, 45, 55, 75, 90, 110, 132, 160, 200, 250
+        };
 
-    public class DesignDeltaRow
-    {
-        public string Metric { get; set; } = "";
-        public string BaselineValue { get; set; } = "";
-        public string OptimizedValue { get; set; } = "";
-        public string DeltaValue { get; set; } = "";
-        public string Direction { get; set; } = "neutral"; // "improved" | "worse" | "neutral"
-    }
+        private readonly DesignPreviewService _preview;
 
-    public class WarningAuditEntry
-    {
-        public string Message { get; set; } = "";
-        public string Status { get; set; } = ""; // "resolved" | "persisting" | "new"
-    }
+        public DesignOptimizerEngine(DesignPreviewService preview)
+        {
+            _preview = preview;
+        }
 
-    public class DesignComparativeDiagnostics
-    {
-        public List<DesignDeltaRow> DeltaTable { get; set; } = new();
-        public List<WarningAuditEntry> WarningAudit { get; set; } = new();
-        public int ResolvedWarningCount { get; set; }
-        public int PersistingWarningCount { get; set; }
-        public int NewWarningCount { get; set; }
-    }
+        public static DesignRunParameters FromDesignInput(DesignInput d)
+        {
+            return new DesignRunParameters
+            {
+                ProjectId = d.ProjectId,
+                FlowRateM3s = d.FlowRateM3s,
+                TotalPressurePa = d.TotalPressurePa,
+                StaticPressurePa = d.StaticPressurePa,
+                SpeedRpm = d.SpeedRpm,
+                BladeCount = d.BladeCount,
+                TipDiameterMm = d.TipDiameterMm,
+                TemperatureCelsius = d.TemperatureCelsius,
+                HubRatio = d.HubRatio,
+                BladeAngleDeg = d.BladeAngleDeg,
+                TargetEfficiencyPct = d.TargetEfficiencyPct,
+                MotorPowerKw = d.MotorPowerKw,
+                BladeMaterial = d.BladeMaterial,
+                DensityKgM3 = d.DensityKgM3,
+                AltitudeM = d.AltitudeM,
+                AtmosphericPressureKPa = d.AtmosphericPressureKPa,
+                MaxTipDiameterMm = d.MaxTipDiameterMm,
+                PreferredBladeCount = d.PreferredBladeCount,
+                DriveType = d.DriveType
+            };
+        }
 
-    public class OptimizeFlowResponse
-    {
-        public bool Success { get; set; }
-        public string? ErrorMessage { get; set; }
+        public async Task<OptimizationOutcome> OptimizeAsync(DesignRunParameters baseParameters, CancellationToken ct)
+        {
+            var baseline = await _preview.PreviewAsync(baseParameters, ct);
+            if (!baseline.Success)
+                return new OptimizationOutcome { Success = false, Error = baseline.Error };
 
-        public int SourceResultId { get; set; }
-        public string ProjectName { get; set; } = "";
-        public string FlowStoreSource { get; set; } = "";
+            var current = Copy(baseParameters);
+            var currentPreview = baseline;
+            var changes = new List<OptimizationChange>();
 
-        public SizingCandidate? Optimized { get; set; }
-        public DesignComparativeDiagnostics? Diagnostics { get; set; }
+            // 1) Blade count: even -> odd (fixes blade-passing-frequency noise).
+            if (current.BladeCount % 2 == 0)
+            {
+                var candidate = Copy(current);
+                candidate.BladeCount = current.BladeCount > 5 ? current.BladeCount - 1 : current.BladeCount + 1;
 
-        public string DraftToken { get; set; } = "";
-        public string ProposedResultLabel { get; set; } = "";
-        public string PromptMessage { get; set; } = "";
-    }
+                var result = await _preview.PreviewAsync(candidate, ct);
+                if (result.Success)
+                {
+                    changes.Add(new OptimizationChange
+                    {
+                        Parameter = "Blades",
+                        Before = current.BladeCount.ToString(Inv) + " (even)",
+                        After = candidate.BladeCount.ToString(Inv) + " (odd)",
+                        Reason = "Odd blade count avoids coincident blade-passing harmonics and lowers tonal noise."
+                    });
 
-    public class SaveDraftRequest
-    {
-        public string DraftToken { get; set; } = "";
-        public bool Confirm { get; set; }
-    }
+                    current = candidate;
+                    currentPreview = result;
+                }
+            }
 
-    public class SaveDraftResponse
-    {
-        public bool Saved { get; set; }
-        public int? NewResultId { get; set; }
-        public string Message { get; set; } = "";
+            // 2) Stall: lift the flow coefficient above the limit by trying neighbouring standard diameters.
+            if (NeedsStallFix(currentPreview))
+            {
+                var startPhi = currentPreview.FlowCoefficient ?? 0.0;
+                DesignRunParameters? best = null;
+                DesignPreviewResult? bestPreview = null;
+                var bestPhi = startPhi;
+                var trials = 0;
+
+                foreach (var diameter in NeighbourDiameters(current))
+                {
+                    if (trials++ >= MaxStallTrials)
+                        break;
+
+                    var candidate = Copy(current);
+                    candidate.TipDiameterMm = diameter;
+
+                    var result = await _preview.PreviewAsync(candidate, ct);
+                    if (!result.Success || !result.FlowCoefficient.HasValue)
+                        continue;
+
+                    var phi = result.FlowCoefficient.Value;
+
+                    if (phi > bestPhi && !HasRunout(result))
+                    {
+                        best = candidate;
+                        bestPreview = result;
+                        bestPhi = phi;
+                    }
+
+                    if (phi >= StallTarget && !HasRunout(result))
+                        break;
+                }
+
+                if (best is not null && bestPreview is not null && bestPhi > startPhi * 1.02)
+                {
+                    changes.Add(new OptimizationChange
+                    {
+                        Parameter = "Tip diameter",
+                        Before = current.TipDiameterMm.ToString("0", Inv) + " mm",
+                        After = best.TipDiameterMm.ToString("0", Inv) + " mm",
+                        Reason = "Flow coefficient " + startPhi.ToString("0.000", Inv) + " to " +
+                                 bestPhi.ToString("0.000", Inv) +
+                                 (bestPhi >= StallLimit ? ", clear of the stall limit." : ", still below the stall limit.")
+                    });
+
+                    current = best;
+                    currentPreview = bestPreview;
+                }
+            }
+
+            // 3) Runout: raise blade angle in small steps until the shortfall warning clears.
+            if (HasRunout(currentPreview))
+            {
+                var startAngle = current.BladeAngleDeg ?? 0.0;
+                var candidate = Copy(current);
+                var candidatePreview = currentPreview;
+
+                for (var step = 0; step < MaxRunoutSteps && HasRunout(candidatePreview); step++)
+                {
+                    candidate.BladeAngleDeg = Math.Round((candidate.BladeAngleDeg ?? startAngle) + MaxBladeAngleStepDeg, 1);
+
+                    var result = await _preview.PreviewAsync(candidate, ct);
+                    if (!result.Success)
+                        break;
+
+                    candidatePreview = result;
+                }
+
+                if ((candidate.BladeAngleDeg ?? startAngle) > startAngle && !HasRunout(candidatePreview))
+                {
+                    changes.Add(new OptimizationChange
+                    {
+                        Parameter = "Blade angle",
+                        Before = startAngle.ToString("0.#", Inv) + "°",
+                        After = (candidate.BladeAngleDeg ?? startAngle).ToString("0.#", Inv) + "°",
+                        Reason = "Higher blade angle restores the requested pressure at this flow (runout cleared)."
+                    });
+
+                    current = candidate;
+                    currentPreview = candidatePreview;
+                }
+            }
+
+            // 4) Motor: size to shaft power plus margin, next standard frame.
+            var shaftKw = currentPreview.ShaftPowerKw ?? 0.0;
+            var requiredKw = shaftKw * MotorMargin;
+            var motorKw = current.MotorPowerKw ?? 0.0;
+
+            if (shaftKw > 0 && motorKw < requiredKw)
+            {
+                var candidate = Copy(current);
+                candidate.MotorPowerKw = NextStandardMotor(requiredKw);
+
+                var result = await _preview.PreviewAsync(candidate, ct);
+                if (result.Success)
+                {
+                    changes.Add(new OptimizationChange
+                    {
+                        Parameter = "Motor",
+                        Before = motorKw.ToString("0.##", Inv) + " kW",
+                        After = (candidate.MotorPowerKw ?? 0).ToString("0.##", Inv) + " kW",
+                        Reason = "Sized for " + shaftKw.ToString("0.00", Inv) + " kW shaft power plus 15% margin."
+                    });
+
+                    current = candidate;
+                    currentPreview = result;
+                }
+            }
+
+            var before = WarningMap(baseline.Warnings);
+            var after = WarningMap(currentPreview.Warnings);
+
+            return new OptimizationOutcome
+            {
+                Success = true,
+                BaseParameters = baseParameters,
+                BasePreview = baseline,
+                Parameters = current,
+                Preview = currentPreview,
+                Changes = changes,
+                Resolved = before.Where(kv => !after.ContainsKey(kv.Key)).Select(kv => kv.Value).ToList(),
+                Remaining = after.Where(kv => before.ContainsKey(kv.Key)).Select(kv => kv.Value).ToList(),
+                Introduced = after.Where(kv => !before.ContainsKey(kv.Key)).Select(kv => kv.Value).ToList()
+            };
+        }
+
+        private static bool NeedsStallFix(DesignPreviewResult r)
+        {
+            return (r.FlowCoefficient.HasValue && r.FlowCoefficient.Value < StallLimit) ||
+                   r.Warnings.Any(w => w.Contains("stall", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool HasRunout(DesignPreviewResult r)
+        {
+            return r.Warnings.Any(w => w.Contains("runout", StringComparison.OrdinalIgnoreCase));
+        }
+
+        // Standard diameters near the current size, closest first, honouring the casing limit.
+        private static IEnumerable<double> NeighbourDiameters(DesignRunParameters p)
+        {
+            var current = p.TipDiameterMm;
+            var limit = p.MaxTipDiameterMm is > 0 ? p.MaxTipDiameterMm.Value : double.MaxValue;
+
+            return StandardDiametersMm
+                .Where(d => Math.Abs(d - current) > 0.5 && d >= current * 0.7 && d <= current * 1.3 && d <= limit)
+                .OrderBy(d => Math.Abs(d - current))
+                .ThenBy(d => d);
+        }
+
+        private static double NextStandardMotor(double requiredKw)
+        {
+            foreach (var size in StandardMotorsKw)
+            {
+                if (size >= requiredKw)
+                    return size;
+            }
+
+            return Math.Ceiling(requiredKw / 10.0) * 10.0;
+        }
+
+        // Keyed without digits so the same warning with different numbers still matches.
+        private static Dictionary<string, string> WarningMap(IEnumerable<string> warnings)
+        {
+            var map = new Dictionary<string, string>();
+
+            foreach (var w in warnings)
+            {
+                if (string.IsNullOrWhiteSpace(w) || w.StartsWith("Info", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var key = Regex.Replace(w.ToLowerInvariant(), @"[\d.]+", "#");
+                if (key.Length > 70)
+                    key = key.Substring(0, 70);
+
+                map.TryAdd(key, w);
+            }
+
+            return map;
+        }
+
+        private static DesignRunParameters Copy(DesignRunParameters p)
+        {
+            return new DesignRunParameters
+            {
+                ProjectId = p.ProjectId,
+                FlowRateM3s = p.FlowRateM3s,
+                TotalPressurePa = p.TotalPressurePa,
+                StaticPressurePa = p.StaticPressurePa,
+                SpeedRpm = p.SpeedRpm,
+                BladeCount = p.BladeCount,
+                TipDiameterMm = p.TipDiameterMm,
+                TemperatureCelsius = p.TemperatureCelsius,
+                HubRatio = p.HubRatio,
+                BladeAngleDeg = p.BladeAngleDeg,
+                TargetEfficiencyPct = p.TargetEfficiencyPct,
+                MotorPowerKw = p.MotorPowerKw,
+                ApplicationDescription = p.ApplicationDescription,
+                PressureClass = p.PressureClass,
+                BladeMaterial = p.BladeMaterial,
+                DensityKgM3 = p.DensityKgM3,
+                AltitudeM = p.AltitudeM,
+                AtmosphericPressureKPa = p.AtmosphericPressureKPa,
+                MaxTipDiameterMm = p.MaxTipDiameterMm,
+                PreferredBladeCount = p.PreferredBladeCount,
+                DriveType = p.DriveType
+            };
+        }
     }
 }

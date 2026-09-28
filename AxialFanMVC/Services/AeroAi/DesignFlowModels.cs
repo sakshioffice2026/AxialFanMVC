@@ -9,6 +9,21 @@
         public string? Level { get; init; }
     }
 
+    // One row of the Before / After / Delta table shown for an optimization.
+    public sealed class FlowCompareRow
+    {
+        public string Label { get; init; } = string.Empty;
+
+        public string Before { get; init; } = string.Empty;
+
+        public string After { get; init; } = string.Empty;
+
+        public string Delta { get; init; } = string.Empty;
+
+        // "good" (improved), "bad" (worse) or null (unchanged / neutral).
+        public string? Level { get; init; }
+    }
+
     public sealed class FlowCallout
     {
         public string Level { get; init; } = "good";
@@ -36,6 +51,11 @@
         public FlowCallout? Stall { get; init; }
 
         public List<string> Warnings { get; init; } = new();
+
+        // Optimization only: Before / After / Delta rows and the warnings the changes fixed.
+        public List<FlowCompareRow> Comparison { get; init; } = new();
+
+        public List<string> Resolved { get; init; } = new();
     }
 
     public sealed class FlowReply

@@ -27,6 +27,7 @@ namespace AxialFanMVC.Services.AeroAi
         private const string ModifyChip = "Modify parameters";
         private const string RecalcChip = "Recalculate with Default";
         private const string DiscardChip = "Discard and exit";
+        private const string ReoptChip = "Re-run optimization";
 
         private const string AskValuesShort =
             "Please enter your required Volume Flow Rate (e.g., 10 m³/s or 12,000 CFM) and Total Pressure (e.g., 600 Pa).";
@@ -64,6 +65,14 @@ namespace AxialFanMVC.Services.AeroAi
 
         private static readonly Regex StartRx = new(
             @"\bdesign\s+for\s+project\s*(?:id)?\s*[=:#]?\s*(?<id>\d+)",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex OptimizeRx = new(
+            @"\boptimi[sz]e\s+(?:the\s+)?(?:design|result)\s*(?:id)?\s*[=:#]?\s*(?<id>\d+)",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex ReoptRx = new(
+            @"^\s*(?:\[?2\]?|re-?run|re-?optimi[sz]e|optimi[sz]e|again|recalculate|recalc|reset)\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Regex YesRx = new(
@@ -106,6 +115,7 @@ namespace AxialFanMVC.Services.AeroAi
         private readonly IAgentPendingActionStore _actionStore;
         private readonly IAgentActionExecutor _executor;
         private readonly DesignPreviewService _preview;
+        private readonly DesignOptimizerEngine _optimizer;
         private readonly DesignFlowStore _store;
         private readonly IExceptionHandlerRepository _exceptions;
 
@@ -114,6 +124,7 @@ namespace AxialFanMVC.Services.AeroAi
             IAgentPendingActionStore actionStore,
             IAgentActionExecutor executor,
             DesignPreviewService preview,
+            DesignOptimizerEngine optimizer,
             DesignFlowStore store,
             IExceptionHandlerRepository exceptions)
         {
@@ -121,6 +132,7 @@ namespace AxialFanMVC.Services.AeroAi
             _actionStore = actionStore;
             _executor = executor;
             _preview = preview;
+            _optimizer = optimizer;
             _store = store;
             _exceptions = exceptions;
         }
@@ -141,6 +153,16 @@ namespace AxialFanMVC.Services.AeroAi
                     return FlowReply.Say("That project id doesn't look valid. Please try again, e.g. \"Design for projectId=7\".", false);
 
                 return await StartAsync(userId, projectId, ct);
+            }
+
+            // "Optimize design 104" starts an optimization of a saved result.
+            var optimize = OptimizeRx.Match(text);
+            if (optimize.Success)
+            {
+                if (!int.TryParse(optimize.Groups["id"].Value, NumberStyles.None, Inv, out var resultId) || resultId <= 0)
+                    return FlowReply.Say("That result id doesn't look valid. Please try again, e.g. \"Optimize design 104\".", false);
+
+                return await StartOptimizeAsync(userId, resultId, ct);
             }
 
             var session = _store.Get(userId);
@@ -166,6 +188,9 @@ namespace AxialFanMVC.Services.AeroAi
                             : "No problem, I've stopped the design setup for Project " + session.ProjectLabel + ".",
                         false);
                 }
+
+                if (session.Kind == DesignFlowKind.Optimize)
+                    return await HandleOptimizeAsync(session, text, userId, ct);
 
                 switch (session.Step)
                 {
@@ -570,9 +595,11 @@ namespace AxialFanMVC.Services.AeroAi
                 var resultId = exec.ResultId.Value;
                 var source = draft.Card;
 
+                var isOptimize = session.Kind == DesignFlowKind.Optimize;
+
                 var saved = new FlowCard
                 {
-                    Title = "Design diagnostics - result #" + resultId.ToString(Inv),
+                    Title = (isOptimize ? "Optimized design - result #" : "Design diagnostics - result #") + resultId.ToString(Inv),
                     Status = source?.Status ?? "ok",
                     IsDraft = false,
                     ResultId = resultId,
@@ -580,13 +607,17 @@ namespace AxialFanMVC.Services.AeroAi
                     Headline = source?.Headline ?? new List<FlowMetric>(),
                     Details = source?.Details ?? new List<FlowMetric>(),
                     Stall = source?.Stall,
-                    Warnings = source?.Warnings ?? new List<string>()
+                    Warnings = source?.Warnings ?? new List<string>(),
+                    Comparison = source?.Comparison ?? new List<FlowCompareRow>(),
+                    Resolved = source?.Resolved ?? new List<string>()
                 };
 
                 _store.End(userId);
 
                 return FlowReply.SayWithCard(
-                    "Design saved to Project " + session.ProjectLabel + " as Result #" + resultId.ToString(Inv) + ".",
+                    (isOptimize ? "Optimized design saved to Project " : "Design saved to Project ") + session.ProjectLabel +
+                    " as Result #" + resultId.ToString(Inv) +
+                    (isOptimize ? " (optimized from Result #" + session.BaseResultId.ToString(Inv) + ")." : "."),
                     saved);
             }
             catch (OperationCanceledException)
@@ -624,6 +655,7 @@ namespace AxialFanMVC.Services.AeroAi
                 TargetEfficiencyPct = sizing.TargetEfficiencyPct,
                 MotorPowerKw = sizing.MotorPowerKw,
                 BladeMaterial = sizing.Material,
+                DriveType = DesignRunParameters.AppDriveType(sizing.DriveType),
                 DensityKgM3 = sizing.DensityKgM3,
                 AltitudeM = sizing.AltitudeM,
                 AtmosphericPressureKPa = sizing.AtmosphericPressureKPa,
@@ -648,7 +680,9 @@ namespace AxialFanMVC.Services.AeroAi
             DesignSizing z,
             DesignRunParameters p,
             bool isDraft,
-            int resultId)
+            int resultId,
+            List<FlowCompareRow>? comparison = null,
+            List<string>? resolved = null)
         {
             var allMessages = r.Warnings ?? new List<string>();
 
@@ -734,7 +768,8 @@ namespace AxialFanMVC.Services.AeroAi
                 new()
                 {
                     Label = "Sizing basis",
-                    Value = z.DutyClass + " duty class; air density " + z.DensityKgM3.ToString("0.000", Inv) + " kg/m³"
+                    Value = (z.DutyClass == "Optimized" ? "Optimized from a saved result" : z.DutyClass + " duty class") +
+                            "; air density " + z.DensityKgM3.ToString("0.000", Inv) + " kg/m³"
                 },
                 new() { Label = "Motor size", Value = N2(z.MotorPowerKw) + " kW (includes 15% margin)" },
                 new()
@@ -769,9 +804,11 @@ namespace AxialFanMVC.Services.AeroAi
 
             return new FlowCard
             {
-                Title = isDraft
-                    ? "Design draft - not saved"
-                    : "Design diagnostics - result #" + resultId.ToString(Inv),
+                Title = comparison is not null
+                    ? (isDraft ? "Optimized design draft - not saved" : "Optimized design - result #" + resultId.ToString(Inv))
+                    : (isDraft
+                        ? "Design draft - not saved"
+                        : "Design diagnostics - result #" + resultId.ToString(Inv)),
                 Status = audit.Count == 0 ? "ok" : "warning",
                 IsDraft = isDraft,
                 ResultId = resultId,
@@ -779,7 +816,9 @@ namespace AxialFanMVC.Services.AeroAi
                 Headline = headline,
                 Details = details,
                 Stall = stall,
-                Warnings = audit
+                Warnings = audit,
+                Comparison = comparison ?? new List<FlowCompareRow>(),
+                Resolved = resolved ?? new List<string>()
             };
         }
 
@@ -873,6 +912,562 @@ namespace AxialFanMVC.Services.AeroAi
                 "• [1] Modify parameters (Switch to Custom / tweak values)\n" +
                 "• [2] Recalculate with Default settings\n" +
                 "• [3] Discard and exit";
+        }
+
+        // ============================================================== optimize
+
+        private async Task<FlowReply> StartOptimizeAsync(int userId, int resultId, CancellationToken ct)
+        {
+            var row = await _db.design_results
+                .AsNoTracking()
+                .Where(r => r.Id == resultId && r.DesignInput.Project.UserId == userId)
+                .Select(r => new
+                {
+                    r.Id,
+                    Input = r.DesignInput,
+                    ProjectName = r.DesignInput.Project.Name
+                })
+                .FirstOrDefaultAsync(ct);
+
+            if (row is null)
+            {
+                _store.End(userId);
+                return FlowReply.Say(
+                    "I couldn't find design result #" + resultId.ToString(Inv) + " in your account. Please check the result id and try again.",
+                    false);
+            }
+
+            var input = row.Input;
+
+            if (input.FlowRateM3s <= 0 || input.TotalPressurePa <= 0)
+            {
+                _store.End(userId);
+                return FlowReply.Say(
+                    "Result #" + resultId.ToString(Inv) + " has no valid flow rate and pressure duty point, so there is nothing to optimize against.",
+                    false);
+            }
+
+            var label = "#" + input.ProjectId.ToString(Inv) + " (" + row.ProjectName + ")";
+            var baseParameters = DesignOptimizerEngine.FromDesignInput(input);
+            var session = _store.StartOptimize(userId, input.ProjectId, label, row.Id, baseParameters);
+
+            await session.Lock.WaitAsync(ct);
+            try
+            {
+                return await RunOptimizeAsync(session, ct);
+            }
+            finally
+            {
+                session.Lock.Release();
+            }
+        }
+
+        // Runs the deterministic optimizer in memory. Nothing is written to the database.
+        private async Task<FlowReply> RunOptimizeAsync(DesignFlowSession session, CancellationToken ct)
+        {
+            var resultId = session.BaseResultId.ToString(Inv);
+
+            try
+            {
+                var outcome = await _optimizer.OptimizeAsync(session.BaseParameters!, ct);
+
+                if (!outcome.Success)
+                {
+                    _store.End(session.UserId);
+                    return FlowReply.Say("I couldn't optimize Result #" + resultId + ": " + outcome.Error, false);
+                }
+
+                if (outcome.Changes.Count == 0)
+                {
+                    _store.End(session.UserId);
+                    return FlowReply.Say(
+                        "Result #" + resultId + " already meets the optimization rules (odd blade count, stall margin, runout and motor sizing). No changes are needed.",
+                        false);
+                }
+
+                session.WorkingParameters = outcome.Parameters;
+
+                return OptimizeDraftReply(
+                    session,
+                    outcome,
+                    "Optimization complete for Result #" + resultId + " (Project " + session.ProjectLabel + ").");
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                LogSafe(nameof(RunOptimizeAsync), ex, session.UserId);
+                _store.End(session.UserId);
+
+                return FlowReply.Say("Something went wrong while optimizing, and it has been logged. Please try again.", false);
+            }
+        }
+
+        private FlowReply OptimizeDraftReply(DesignFlowSession session, OptimizationOutcome outcome, string lead)
+        {
+            var comparison = BuildComparison(outcome);
+            var sizing = SizingFromParameters(outcome.Parameters, outcome.Preview);
+            var card = BuildCard(outcome.Preview, sizing, outcome.Parameters, true, 0, comparison, outcome.Resolved);
+
+            var p = outcome.Parameters;
+
+            session.Draft = new DesignDraft
+            {
+                Kind = DesignFlowKind.Optimize,
+                Outcome = outcome,
+                ParametersJson = JsonSerializer.Serialize(p),
+                Summary =
+                    "Save optimized design (from result #" + session.BaseResultId.ToString(Inv) + ") in project #" +
+                    session.ProjectId.ToString(Inv) + ": " +
+                    p.TipDiameterMm.ToString("0", Inv) + " mm tip dia, " +
+                    p.SpeedRpm.ToString(Inv) + " rpm, " +
+                    p.BladeCount.ToString(Inv) + " blades, " +
+                    (p.MotorPowerKw ?? 0).ToString("0.##", Inv) + " kW motor",
+                Card = card
+            };
+
+            session.Step = DesignFlowStep.AwaitingSaveConfirm;
+
+            var sb = new StringBuilder();
+            sb.Append(lead).Append(" Changes applied:\n");
+
+            foreach (var c in outcome.Changes)
+            {
+                sb.Append("• ").Append(c.Parameter).Append(": ")
+                  .Append(c.Before).Append(" → ").Append(c.After)
+                  .Append(" (").Append(c.Reason).Append(")\n");
+            }
+
+            sb.Append('\n');
+            sb.Append("Resolved warnings: ").Append(outcome.Resolved.Count.ToString(Inv));
+
+            if (outcome.Introduced.Count > 0)
+                sb.Append(" | New warnings: ").Append(outcome.Introduced.Count.ToString(Inv));
+
+            sb.Append("\nStatus: draft, not saved.\n\n");
+            sb.Append("Save as a new result to Project #").Append(session.ProjectId.ToString(Inv))
+              .Append(" (optimized from Result #").Append(session.BaseResultId.ToString(Inv)).Append(")?");
+
+            return FlowReply.SayWithCard(sb.ToString(), card, true, Yes, No);
+        }
+
+        private async Task<FlowReply> HandleOptimizeAsync(DesignFlowSession session, string text, int userId, CancellationToken ct)
+        {
+            switch (session.Step)
+            {
+                case DesignFlowStep.AwaitingSaveConfirm:
+                    return await HandleOptimizeSaveAsync(session, text, userId, ct);
+
+                case DesignFlowStep.AwaitingRevisionOrDiscard:
+                    return await HandleOptimizeRevisionAsync(session, text, ct);
+
+                case DesignFlowStep.AwaitingOptimizeModify:
+                    return await HandleOptimizeModifyAsync(session, text, ct);
+
+                default:
+                    return FlowReply.Idle;
+            }
+        }
+
+        private async Task<FlowReply> HandleOptimizeSaveAsync(DesignFlowSession session, string text, int userId, CancellationToken ct)
+        {
+            if (YesRx.IsMatch(text))
+                return await SaveAsync(session, userId, ct);
+
+            if (NoRx.IsMatch(text))
+            {
+                session.Step = DesignFlowStep.AwaitingRevisionOrDiscard;
+                return FlowReply.Say(OptimizeRevisionMenu(session), true, ModifyChip, ReoptChip, DiscardChip);
+            }
+
+            if (IsQuestion(text))
+                return FlowReply.Pass("Back to your optimized design: shall I save it as a new result?", Yes, No);
+
+            var parsed = CustomOptionsParser.Parse(text);
+
+            if (parsed.Error is not null)
+                return FlowReply.Say(parsed.Error + " Please try again.", true, Yes, No);
+
+            if (parsed.Options.HasAny)
+                return await ApplyOptimizeOverridesAsync(session, parsed.Options, ct);
+
+            return FlowReply.Say(
+                "Shall I save this optimized design to Project #" + session.ProjectId.ToString(Inv) +
+                "? Reply Yes or No, or send changes (for example \"9 blades\" or \"Material FRP\").",
+                true,
+                Yes,
+                No);
+        }
+
+        private async Task<FlowReply> HandleOptimizeRevisionAsync(DesignFlowSession session, string text, CancellationToken ct)
+        {
+            var parsed = CustomOptionsParser.Parse(text);
+
+            if (parsed.Error is not null)
+                return FlowReply.Say(parsed.Error + " Please try again.", true, ModifyChip, ReoptChip, DiscardChip);
+
+            if (parsed.Options.HasAny)
+                return await ApplyOptimizeOverridesAsync(session, parsed.Options, ct);
+
+            if (DiscardRx.IsMatch(text) || CancelRx.IsMatch(text))
+            {
+                _store.End(session.UserId);
+                return FlowReply.Say(
+                    "Draft discarded. Nothing was saved to Project " + session.ProjectLabel + ". Say \"Optimize design " +
+                    session.BaseResultId.ToString(Inv) + "\" whenever you want to start again.",
+                    false);
+            }
+
+            if (ModifyRx.IsMatch(text))
+            {
+                session.Step = DesignFlowStep.AwaitingOptimizeModify;
+                return FlowReply.Say(OptimizeModifyPrompt(session), true, SkipChip);
+            }
+
+            if (ReoptRx.IsMatch(text))
+                return await RunOptimizeAsync(session, ct);
+
+            if (IsQuestion(text))
+                return FlowReply.Pass(
+                    "Back to your optimized design: would you like to modify parameters, re-run the optimization, or discard it?",
+                    ModifyChip,
+                    ReoptChip,
+                    DiscardChip);
+
+            return FlowReply.Say(
+                "Please choose: [1] Modify parameters, [2] Re-run optimization, or [3] Discard and exit.",
+                true,
+                ModifyChip,
+                ReoptChip,
+                DiscardChip);
+        }
+
+        private async Task<FlowReply> HandleOptimizeModifyAsync(DesignFlowSession session, string text, CancellationToken ct)
+        {
+            var parsed = CustomOptionsParser.Parse(text);
+
+            if (parsed.IsSkip)
+            {
+                session.Step = DesignFlowStep.AwaitingSaveConfirm;
+
+                return FlowReply.Say(
+                    "Keeping the optimized design as it is. Shall I save it to Project #" + session.ProjectId.ToString(Inv) + "?",
+                    true,
+                    Yes,
+                    No);
+            }
+
+            if (parsed.Error is not null)
+                return FlowReply.Say(parsed.Error + " Please try again, or type 'Skip'.", true, SkipChip);
+
+            if (parsed.Options.HasAny)
+                return await ApplyOptimizeOverridesAsync(session, parsed.Options, ct);
+
+            if (IsQuestion(text))
+                return FlowReply.Pass(OptimizeModifyShort(), SkipChip);
+
+            return FlowReply.Say("I couldn't read any changes from that. " + OptimizeModifyShort(), true, SkipChip);
+        }
+
+        // Applies the user's overrides to the optimized parameters and recalculates in memory.
+        private async Task<FlowReply> ApplyOptimizeOverridesAsync(DesignFlowSession session, CustomOptions options, CancellationToken ct)
+        {
+            try
+            {
+                var baseParameters = session.BaseParameters!;
+                var current = session.WorkingParameters ?? session.Draft?.Outcome?.Parameters ?? baseParameters;
+                var updated = ApplyOverrides(current, options);
+
+                var result = await _preview.PreviewAsync(updated, ct);
+
+                if (!result.Success)
+                {
+                    session.Step = DesignFlowStep.AwaitingOptimizeModify;
+                    return FlowReply.Say(
+                        "I couldn't recalculate with those changes: " + result.Error + " Please try different values, or type 'Skip'.",
+                        true,
+                        SkipChip);
+                }
+
+                var previous = session.Draft?.Outcome;
+                var basePreview = previous?.BasePreview ?? await _preview.PreviewAsync(baseParameters, ct);
+
+                var before = WarningMap(basePreview.Warnings);
+                var after = WarningMap(result.Warnings);
+
+                var outcome = new OptimizationOutcome
+                {
+                    Success = true,
+                    BaseParameters = baseParameters,
+                    BasePreview = basePreview,
+                    Parameters = updated,
+                    Preview = result,
+                    Changes = DiffChanges(baseParameters, updated, previous?.Changes),
+                    Resolved = before.Where(kv => !after.ContainsKey(kv.Key)).Select(kv => kv.Value).ToList(),
+                    Remaining = after.Where(kv => before.ContainsKey(kv.Key)).Select(kv => kv.Value).ToList(),
+                    Introduced = after.Where(kv => !before.ContainsKey(kv.Key)).Select(kv => kv.Value).ToList()
+                };
+
+                session.WorkingParameters = updated;
+
+                return OptimizeDraftReply(
+                    session,
+                    outcome,
+                    "Changes applied. Recalculated draft for Result #" + session.BaseResultId.ToString(Inv) + ".");
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                LogSafe(nameof(ApplyOptimizeOverridesAsync), ex, session.UserId);
+                session.Step = DesignFlowStep.AwaitingOptimizeModify;
+
+                return FlowReply.Say(
+                    "Something went wrong while recalculating, and it has been logged. Please try again, or type 'Skip'.",
+                    true,
+                    SkipChip);
+            }
+        }
+
+        private static DesignRunParameters ApplyOverrides(DesignRunParameters current, CustomOptions o)
+        {
+            var n = JsonSerializer.Deserialize<DesignRunParameters>(JsonSerializer.Serialize(current))!;
+
+            if (o.BladeCount.HasValue)
+                n.BladeCount = o.BladeCount.Value;
+
+            if (!string.IsNullOrEmpty(o.Material))
+                n.BladeMaterial = o.Material;
+
+            if (o.MaxTipDiameterMm.HasValue)
+            {
+                n.MaxTipDiameterMm = o.MaxTipDiameterMm.Value;
+
+                if (n.TipDiameterMm > o.MaxTipDiameterMm.Value)
+                    n.TipDiameterMm = o.MaxTipDiameterMm.Value;
+            }
+
+            if (o.SpeedRpm.HasValue)
+                n.SpeedRpm = o.SpeedRpm.Value;
+
+            if (!string.IsNullOrEmpty(o.DriveType))
+                n.DriveType = DesignRunParameters.AppDriveType(o.DriveType);
+
+            if (o.AltitudeM.HasValue || o.TemperatureC.HasValue)
+            {
+                var altitude = o.AltitudeM ?? n.AltitudeM ?? 0.0;
+                var temperature = o.TemperatureC ?? n.TemperatureCelsius;
+                var atmosphericKPa = 101.325 * Math.Pow(1.0 - 2.25577e-5 * altitude, 5.25588);
+
+                n.AltitudeM = altitude;
+                n.TemperatureCelsius = temperature;
+                n.AtmosphericPressureKPa = Math.Round(atmosphericKPa, 3);
+                n.DensityKgM3 = Math.Round(atmosphericKPa * 1000.0 / (287.05 * (temperature + 273.15)), 4);
+            }
+
+            return n;
+        }
+
+        // Parameter differences against the saved base design. Reasons from the optimizer are kept.
+        private static List<OptimizationChange> DiffChanges(
+            DesignRunParameters b,
+            DesignRunParameters a,
+            IEnumerable<OptimizationChange>? prior)
+        {
+            var list = new List<OptimizationChange>();
+            var priorList = prior?.ToList() ?? new List<OptimizationChange>();
+
+            void Add(string name, string before, string after)
+            {
+                if (before == after)
+                    return;
+
+                var reason = priorList.FirstOrDefault(c => c.Parameter == name && c.After == after)?.Reason ?? "Set by you.";
+
+                list.Add(new OptimizationChange
+                {
+                    Parameter = name,
+                    Before = before,
+                    After = after,
+                    Reason = reason
+                });
+            }
+
+            static string Blades(int n) => n.ToString(Inv) + (n % 2 == 0 ? " (even)" : " (odd)");
+
+            Add("Blades", Blades(b.BladeCount), Blades(a.BladeCount));
+            Add("Tip diameter", b.TipDiameterMm.ToString("0", Inv) + " mm", a.TipDiameterMm.ToString("0", Inv) + " mm");
+            Add("Blade angle", (b.BladeAngleDeg ?? 0).ToString("0.#", Inv) + "°", (a.BladeAngleDeg ?? 0).ToString("0.#", Inv) + "°");
+            Add("Fan speed", b.SpeedRpm.ToString(Inv) + " RPM", a.SpeedRpm.ToString(Inv) + " RPM");
+            Add("Motor", (b.MotorPowerKw ?? 0).ToString("0.##", Inv) + " kW", (a.MotorPowerKw ?? 0).ToString("0.##", Inv) + " kW");
+            Add("Material", b.BladeMaterial ?? "n/a", a.BladeMaterial ?? "n/a");
+            Add("Drive", b.DriveType ?? "n/a", a.DriveType ?? "n/a");
+
+            return list;
+        }
+
+        private static DesignSizing SizingFromParameters(DesignRunParameters p, DesignPreviewResult r)
+        {
+            return new DesignSizing
+            {
+                DutyClass = "Optimized",
+                Material = string.IsNullOrWhiteSpace(p.BladeMaterial) ? CustomOptionsParser.MatAluminum6061 : p.BladeMaterial!,
+                DriveType = string.IsNullOrWhiteSpace(p.DriveType) ? "Direct Drive" : p.DriveType!,
+                MaxTipSpeedMs = 100.0,
+                TipSpeedMs = r.TipSpeedMs ?? 0.0,
+                TotalPressurePa = p.TotalPressurePa,
+                StaticPressurePa = p.StaticPressurePa,
+                UnconstrainedDiameterMm = p.TipDiameterMm,
+                TipDiameterMm = p.TipDiameterMm,
+                HubRatio = p.HubRatio ?? 0.0,
+                BladeCount = p.BladeCount,
+                BladeAngleDeg = p.BladeAngleDeg ?? 0.0,
+                SpeedRpm = p.SpeedRpm,
+                TargetEfficiencyPct = p.TargetEfficiencyPct ?? 0.0,
+                MotorPowerKw = p.MotorPowerKw ?? 0.0,
+                DensityKgM3 = p.DensityKgM3 ?? 1.2,
+                AltitudeM = p.AltitudeM ?? 0.0,
+                TemperatureC = p.TemperatureCelsius
+            };
+        }
+
+        // Side-by-side Before / After / Delta rows.
+        private static List<FlowCompareRow> BuildComparison(OptimizationOutcome o)
+        {
+            var b = o.BasePreview;
+            var a = o.Preview;
+            var bp = o.BaseParameters;
+            var ap = o.Parameters;
+
+            var rows = new List<FlowCompareRow>
+            {
+                NumRow("Tip diameter", bp.TipDiameterMm, ap.TipDiameterMm, "0", " mm", null),
+                BladesRow(bp.BladeCount, ap.BladeCount),
+                NumRow("Blade angle", bp.BladeAngleDeg, ap.BladeAngleDeg, "0.#", "°", null),
+                NumRow("Fan speed", bp.SpeedRpm, ap.SpeedRpm, "0", " RPM", null),
+                NumRow("Flow coefficient", b.FlowCoefficient, a.FlowCoefficient, "0.000", string.Empty,
+                    b.FlowCoefficient.HasValue && b.FlowCoefficient.Value < StallFlowCoefficientLimit ? true : null),
+                NumRow("Efficiency", b.OverallEfficiencyPct, a.OverallEfficiencyPct, "0.0", "%", true),
+                NumRow("Shaft power", b.ShaftPowerKw, a.ShaftPowerKw, "0.00", " kW", false),
+                NumRow("Motor", bp.MotorPowerKw, ap.MotorPowerKw, "0.##", " kW", null),
+                NumRow("Noise", b.OverallNoiseDbA, a.OverallNoiseDbA, "0.0", " dBA", false),
+                NumRow("Tip speed", b.TipSpeedMs, a.TipSpeedMs, "0.0", " m/s", false),
+                NumRow("Safety factor", b.SafetyFactor, a.SafetyFactor, "0.0", string.Empty, true),
+                NumRow("Warnings", CountWarnings(b), CountWarnings(a), "0", string.Empty, false)
+            };
+
+            return rows;
+        }
+
+        private static int CountWarnings(DesignPreviewResult r)
+            => r.Warnings.Count(w => !string.IsNullOrWhiteSpace(w) && !w.StartsWith("Info", StringComparison.OrdinalIgnoreCase));
+
+        private static FlowCompareRow BladesRow(int before, int after)
+        {
+            string? level = null;
+
+            if (before % 2 == 0 && after % 2 == 1)
+                level = "good";
+            else if (before % 2 == 1 && after % 2 == 0)
+                level = "bad";
+
+            var diff = after - before;
+
+            return new FlowCompareRow
+            {
+                Label = "Blades",
+                Before = before.ToString(Inv) + (before % 2 == 0 ? " (even)" : " (odd)"),
+                After = after.ToString(Inv) + (after % 2 == 0 ? " (even)" : " (odd)"),
+                Delta = diff == 0 ? "0" : (diff > 0 ? "+" : "-") + Math.Abs(diff).ToString(Inv),
+                Level = level
+            };
+        }
+
+        private static FlowCompareRow NumRow(
+            string label,
+            double? before,
+            double? after,
+            string format,
+            string suffix,
+            bool? higherIsBetter)
+        {
+            var delta = "n/a";
+            string? level = null;
+
+            if (before.HasValue && after.HasValue)
+            {
+                var d = after.Value - before.Value;
+
+                if (Math.Abs(d) < 1e-9)
+                {
+                    delta = "0";
+                }
+                else
+                {
+                    delta = (d > 0 ? "+" : "-") + Math.Abs(d).ToString(format, Inv) + suffix;
+
+                    if (higherIsBetter.HasValue)
+                        level = (d > 0) == higherIsBetter.Value ? "good" : "bad";
+                }
+            }
+
+            return new FlowCompareRow
+            {
+                Label = label,
+                Before = F(before, format, suffix),
+                After = F(after, format, suffix),
+                Delta = delta,
+                Level = level
+            };
+        }
+
+        private static Dictionary<string, string> WarningMap(IEnumerable<string> warnings)
+        {
+            var map = new Dictionary<string, string>();
+
+            foreach (var w in warnings)
+            {
+                if (string.IsNullOrWhiteSpace(w) || w.StartsWith("Info", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var key = Regex.Replace(w.ToLowerInvariant(), @"[\d.]+", "#");
+                if (key.Length > 70)
+                    key = key.Substring(0, 70);
+
+                map.TryAdd(key, w);
+            }
+
+            return map;
+        }
+
+        private static string OptimizeRevisionMenu(DesignFlowSession session)
+        {
+            return
+                "Optimized design not saved to Project #" + session.ProjectId.ToString(Inv) + ".\n\n" +
+                "What would you like to do next?\n" +
+                "• [1] Modify parameters\n" +
+                "• [2] Re-run optimization\n" +
+                "• [3] Discard and exit";
+        }
+
+        private static string OptimizeModifyPrompt(DesignFlowSession session)
+        {
+            var p = session.WorkingParameters ?? session.BaseParameters!;
+
+            return
+                "Current optimized design: " + p.TipDiameterMm.ToString("0", Inv) + " mm, " +
+                p.BladeCount.ToString(Inv) + " blades, " + p.SpeedRpm.ToString(Inv) + " RPM, " +
+                (p.MotorPowerKw ?? 0).ToString("0.##", Inv) + " kW motor.\n\n" + OptimizeModifyShort();
+        }
+
+        private static string OptimizeModifyShort()
+        {
+            return
+                "Send only what you want to change (e.g., \"9 blades\", \"Material FRP\", \"Max diameter 900 mm\", \"1750 RPM VFD\"), or type 'Skip'.";
         }
 
         // -------------------------------------------------------------- utilities

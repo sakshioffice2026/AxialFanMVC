@@ -1,29 +1,54 @@
-@* Floating handbook assistant widget — included site-wide from _Layout.cshtml *@
+@* Persistent AI agent widget - included site-wide from _LayoutV2.cshtml for signed-in users.
+   Sends the current page context (controller/action/ids) with every question, keeps the
+   conversation across page navigations, and shows Confirm/Cancel cards for any action the
+   agent stages (CFD run, optimization, new design).
 
-<div id="chatWidgetToggle" class="chat-widget-toggle" title="Ask to AeroAi">
-    <i class="bi bi-chat-dots-fill"></i>
-</div>
+   AeroAI guided design flow: the user types "Design for projectId=7"; the server loads the
+   project, asks for flow rate and total pressure in one message (unit conversion done in C#),
+   confirms with Yes / No, runs the physics engine and returns a diagnostics card. The start
+   command and every message while the flow is active are sent to /AeroAi/Flow/Reply first;
+   anything it does not handle falls through to /Agent/Ask. *@
+@{
+    var rv = ViewContext.RouteData.Values;
+    var query = Context.Request.Query;
 
-<div id="chatWidgetPanel" class="chat-widget-panel shadow-lg d-none">
-    <div class="chat-widget-header d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-book me-1"></i> AeroAi</span>
-        <button type="button" id="chatWidgetClose" class="btn-close btn-close-white"></button>
+    int? ToInt(object? v) =>
+        int.TryParse(Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture), out var n) ? n : (int?)null;
+
+    var pageController = rv["controller"]?.ToString();
+    var pageAction = rv["action"]?.ToString();
+    var pageId = ToInt(rv["id"]);
+    var pageProjectId = ToInt(rv["projectId"]) ?? ToInt(query["projectId"].ToString());
+    var pageResultId = ToInt(rv["resultId"]) ?? ToInt(query["resultId"].ToString());
+}
+
+<div id="agentWidget">
+    @Html.AntiForgeryToken()
+
+    <div id="agentToggle" class="chat-widget-toggle" title="Ask AeroAi">
+        <i class="bi bi-chat-dots-fill"></i>
     </div>
-    <div id="chatWidgetMessages" class="chat-widget-messages">
-        <div class="chat-msg chat-msg-assistant">
-            Hi! Ask me anything. Try: Optimize design #104
+
+    <div id="agentPanel" class="chat-widget-panel agent-panel shadow-lg d-none">
+        <div class="chat-widget-header d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-robot me-1"></i> AeroAi</span>
+            <span class="d-flex align-items-center gap-2">
+                <button type="button" id="agentClear" class="agent-icon-btn" title="Clear conversation">
+                    <i class="bi bi-trash3"></i>
+                </button>
+                <button type="button" id="agentClose" class="btn-close btn-close-white" title="Close"></button>
+            </span>
         </div>
-    </div>
-    <div id="chatWidgetConfirm" class="chat-widget-confirm d-none">
-        <button type="button" id="chatWidgetYes" class="btn btn-success btn-sm">Yes</button>
-        <button type="button" id="chatWidgetNo" class="btn btn-outline-secondary btn-sm">No</button>
-    </div>
-    <div class="chat-widget-input d-flex gap-2">
-        <input type="text" id="chatWidgetInput" class="form-control form-control-sm"
-               placeholder="Ask a question..." />
-        <button type="button" id="chatWidgetSend" class="btn btn-primary btn-sm">
-            <i class="bi bi-send-fill"></i>
-        </button>
+
+        <div id="agentMessages" class="chat-widget-messages"></div>
+
+        <div class="chat-widget-input d-flex gap-2">
+            <input type="text" id="agentInput" class="form-control form-control-sm"
+                   maxlength="2000" placeholder="Ask a question or request an action..." autocomplete="off" />
+            <button type="button" id="agentSend" class="btn btn-primary btn-sm" title="Send">
+                <i class="bi bi-send-fill"></i>
+            </button>
+        </div>
     </div>
 </div>
 
@@ -42,7 +67,7 @@
         justify-content: center;
         font-size: 1.4rem;
         cursor: pointer;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
         z-index: 1050;
     }
 
@@ -50,21 +75,16 @@
         position: fixed;
         bottom: 92px;
         right: 24px;
-        width: 340px;
+        width: 400px;
         max-width: calc(100vw - 32px);
-        max-height: 480px;
+        height: 560px;
+        max-height: calc(100vh - 120px);
         background: #fff;
         border-radius: 12px;
         display: flex;
         flex-direction: column;
         overflow: hidden;
         z-index: 1050;
-        transition: width 0.15s ease;
-    }
-
-    .chat-widget-panel.chat-widget-wide {
-        width: 560px;
-        max-height: 620px;
     }
 
     .chat-widget-header {
@@ -74,6 +94,20 @@
         font-weight: 600;
         font-size: 0.9rem;
     }
+
+    .agent-icon-btn {
+        background: transparent;
+        border: 0;
+        color: #fff;
+        opacity: 0.85;
+        padding: 0;
+        line-height: 1;
+        cursor: pointer;
+    }
+
+        .agent-icon-btn:hover {
+            opacity: 1;
+        }
 
     .chat-widget-messages {
         flex: 1;
@@ -87,8 +121,9 @@
         border-radius: 10px;
         margin-bottom: 8px;
         font-size: 0.85rem;
-        max-width: 85%;
+        max-width: 88%;
         white-space: pre-wrap;
+        word-wrap: break-word;
     }
 
     .chat-msg-user {
@@ -102,97 +137,690 @@
         color: #212529;
     }
 
-    .chat-msg-mono {
-        font-family: Consolas, "Courier New", monospace;
-        font-size: 0.72rem;
-        max-width: 100%;
-        overflow-x: auto;
-        white-space: pre;
+    .chat-msg-error {
+        background: #f8d7da;
+        color: #842029;
     }
 
-    .chat-widget-confirm {
-        padding: 8px 10px;
-        border-top: 1px solid #dee2e6;
+    .chat-msg a {
+        display: inline-block;
+        margin-top: 6px;
+        font-weight: 600;
+    }
+
+    .agent-action-card {
+        border: 1px solid #ffc107;
+        background: #fff8e1;
+        border-radius: 10px;
+        padding: 10px 12px;
+        margin-bottom: 8px;
+        font-size: 0.82rem;
+    }
+
+    .agent-action-title {
+        font-weight: 600;
+        margin-bottom: 4px;
+    }
+
+    .agent-action-buttons {
         display: flex;
         gap: 8px;
+        margin-top: 8px;
     }
 
     .chat-widget-input {
         padding: 10px;
         border-top: 1px solid #dee2e6;
     }
+
+    /* ---- AeroAI guided flow: quick replies ---- */
+    .aeroai-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: 0 0 8px;
+    }
+
+    /* ---- AeroAI guided flow: diagnostics card ---- */
+    .aeroai-card {
+        background: #fff;
+        border: 1px solid #dee2e6;
+        border-radius: 10px;
+        padding: 10px 12px;
+        margin-bottom: 8px;
+        font-size: 0.8rem;
+        color: #212529;
+    }
+
+    .aeroai-card-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+    }
+
+    .aeroai-card-title {
+        font-weight: 600;
+        font-size: 0.85rem;
+    }
+
+    .aeroai-badge {
+        font-size: 0.7rem;
+        font-weight: 600;
+        padding: 2px 8px;
+        border-radius: 999px;
+        white-space: nowrap;
+    }
+
+    .aeroai-badge-ok {
+        background: #d1e7dd;
+        color: #0f5132;
+    }
+
+    .aeroai-badge-warn {
+        background: #fff3cd;
+        color: #664d03;
+    }
+
+    .aeroai-tiles {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+        margin-bottom: 8px;
+    }
+
+    .aeroai-tile {
+        background: #f8f9fa;
+        border: 1px solid #e9ecef;
+        border-left: 3px solid #adb5bd;
+        border-radius: 6px;
+        padding: 6px 8px;
+    }
+
+    .aeroai-tile-label {
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        color: #6c757d;
+    }
+
+    .aeroai-tile-value {
+        font-size: 0.95rem;
+        font-weight: 700;
+    }
+
+    .aeroai-lvl-good {
+        border-left-color: #198754;
+    }
+
+    .aeroai-lvl-warn {
+        border-left-color: #ffc107;
+    }
+
+    .aeroai-lvl-bad {
+        border-left-color: #dc3545;
+    }
+
+    .aeroai-callout {
+        border-left: 3px solid #adb5bd;
+        background: #f8f9fa;
+        border-radius: 6px;
+        padding: 6px 8px;
+        margin-bottom: 8px;
+    }
+
+    .aeroai-rows {
+        border-top: 1px solid #e9ecef;
+    }
+
+    .aeroai-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 4px 0;
+        border-bottom: 1px solid #f1f3f5;
+    }
+
+    .aeroai-row-label {
+        color: #6c757d;
+        flex: 0 0 auto;
+    }
+
+    .aeroai-row-value {
+        text-align: right;
+        word-break: break-word;
+    }
+
+    .aeroai-warnings {
+        margin: 8px 0 0;
+        padding-left: 18px;
+        color: #664d03;
+    }
+
+    .aeroai-section-title {
+        margin: 8px 0 4px;
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        color: #6c757d;
+    }
+
+    .aeroai-compare-wrap {
+        overflow-x: auto;
+        margin-bottom: 8px;
+    }
+
+    .aeroai-compare {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.78rem;
+    }
+
+    .aeroai-compare th,
+    .aeroai-compare td {
+        padding: 3px 4px;
+        border-bottom: 1px solid #f1f3f5;
+        text-align: right;
+        white-space: nowrap;
+    }
+
+    .aeroai-compare th:first-child,
+    .aeroai-compare td:first-child {
+        text-align: left;
+        color: #6c757d;
+    }
+
+    .aeroai-compare th {
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        color: #6c757d;
+    }
+
+    .aeroai-delta-good {
+        color: #198754;
+        font-weight: 700;
+    }
+
+    .aeroai-delta-bad {
+        color: #dc3545;
+        font-weight: 700;
+    }
+
+    .aeroai-resolved {
+        margin: 0 0 8px;
+        padding-left: 18px;
+        color: #0f5132;
+    }
+
+    .aeroai-open {
+        margin-top: 10px;
+    }
 </style>
 
 <script>
     (function () {
-        const toggle = document.getElementById('chatWidgetToggle');
-        const panel = document.getElementById('chatWidgetPanel');
-        const closeBtn = document.getElementById('chatWidgetClose');
-        const input = document.getElementById('chatWidgetInput');
-        const sendBtn = document.getElementById('chatWidgetSend');
-        const messages = document.getElementById('chatWidgetMessages');
-        const confirmBar = document.getElementById('chatWidgetConfirm');
-        const yesBtn = document.getElementById('chatWidgetYes');
-        const noBtn = document.getElementById('chatWidgetNo');
+        const ctx = @Json.Serialize(new
+        {
+            controller = pageController,
+            action = pageAction,
+            id = pageId,
+            projectId = pageProjectId,
+            resultId = pageResultId
+        });
 
-        toggle.addEventListener('click', () => panel.classList.toggle('d-none'));
-        closeBtn.addEventListener('click', () => panel.classList.add('d-none'));
+        const HISTORY_KEY = 'aeroai.history.v1';
+        const OPEN_KEY = 'aeroai.open.v1';
+        const FLOW_KEY = 'aeroai.flow.v1';
+        const MAX_HISTORY = 40;
+        const REQUEST_TIMEOUT_MS = 180000;
+        const FLOW_START_RX = /\b(?:design\s+for\s+project\s*(?:id)?\s*[=:#]?\s*\d+|optimi[sz]e\s+(?:the\s+)?(?:design|result)\s*(?:id)?\s*[=:#]?\s*\d+)/i;
 
-        function isDeltaTable(text) {
-            return !!text && text.indexOf('Metric') !== -1 && text.indexOf('Delta') !== -1;
+        const GREETING =
+            "Hi! I'm AeroAi. Ask me about fan design, or about your projects, results, BOM, CFD and optimization jobs. " +
+            "If you ask me to run CFD, optimize or create a design, I'll ask you to confirm first.";
+
+        const root = document.getElementById('agentWidget');
+        const toggle = document.getElementById('agentToggle');
+        const panel = document.getElementById('agentPanel');
+        const closeBtn = document.getElementById('agentClose');
+        const clearBtn = document.getElementById('agentClear');
+        const messages = document.getElementById('agentMessages');
+        const input = document.getElementById('agentInput');
+        const sendBtn = document.getElementById('agentSend');
+
+        let history = loadHistory();
+        let busy = false;
+        let flowActive = storageGet(FLOW_KEY) === '1';
+
+        function storageGet(key) {
+            try { return window.sessionStorage.getItem(key); } catch (e) { return null; }
         }
 
-        function addMessage(text, sender) {
-            const div = document.createElement('div');
-            div.className = 'chat-msg chat-msg-' + sender;
-            div.textContent = text;
-            messages.appendChild(div);
-            messages.scrollTop = messages.scrollHeight;
-            return div;
+        function storageSet(key, value) {
+            try { window.sessionStorage.setItem(key, value); } catch (e) { }
         }
 
-        async function sendMessage(overrideText) {
-            const text = (typeof overrideText === 'string' ? overrideText : input.value).trim();
-            if (!text) return;
+        function storageRemove(key) {
+            try { window.sessionStorage.removeItem(key); } catch (e) { }
+        }
 
-            addMessage(text, 'user');
-            input.value = '';
-            sendBtn.disabled = true;
-            confirmBar.classList.add('d-none');
-
-            const thinkingDiv = addMessage('Thinking...', 'assistant');
-
+        function loadHistory() {
             try {
-                const response = await fetch('/AeroAi/Ask', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: text })
-                });
-                const data = await response.json();
-                thinkingDiv.textContent = data.reply;
-
-                if (isDeltaTable(data.reply)) {
-                    thinkingDiv.classList.add('chat-msg-mono');
-                    panel.classList.add('chat-widget-wide');
-                }
-                if (data.awaitingConfirmation) {
-                    confirmBar.classList.remove('d-none');
-                } else {
-                    panel.classList.remove('chat-widget-wide');
-                }
-            } catch (err) {
-                thinkingDiv.textContent = 'Something went wrong. Please try again.';
-            } finally {
-                sendBtn.disabled = false;
-                messages.scrollTop = messages.scrollHeight;
+                const parsed = JSON.parse(storageGet(HISTORY_KEY) || '[]');
+                return Array.isArray(parsed) ? parsed : [];
+            } catch (e) {
+                return [];
             }
         }
 
-        sendBtn.addEventListener('click', () => sendMessage());
-        input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') sendMessage();
+        function saveHistory() {
+            if (history.length > MAX_HISTORY) history = history.slice(history.length - MAX_HISTORY);
+            storageSet(HISTORY_KEY, JSON.stringify(history));
+        }
+
+        function setFlowActive(value) {
+            flowActive = !!value;
+            if (flowActive) storageSet(FLOW_KEY, '1');
+            else storageRemove(FLOW_KEY);
+        }
+
+        function token() {
+            const el = root.querySelector('input[name="__RequestVerificationToken"]');
+            return el ? el.value : '';
+        }
+
+        function scrollToBottom() {
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        function el(tag, cls, text) {
+            const node = document.createElement(tag);
+            if (cls) node.className = cls;
+            if (text !== undefined && text !== null) node.textContent = text;
+            return node;
+        }
+
+        function addMessage(text, sender, persist, card) {
+            const div = el('div', 'chat-msg chat-msg-' + sender, text);
+            messages.appendChild(div);
+
+            if (card) messages.appendChild(buildCard(card));
+
+            scrollToBottom();
+
+            if (persist && (sender === 'user' || sender === 'assistant')) {
+                const item = { role: sender, text: text };
+                if (card) item.card = card;
+                history.push(item);
+                saveHistory();
+            }
+
+            return div;
+        }
+
+        function setOpen(open) {
+            panel.classList.toggle('d-none', !open);
+            storageSet(OPEN_KEY, open ? '1' : '0');
+            if (open) {
+                scrollToBottom();
+                input.focus();
+            }
+        }
+
+        async function postJson(url, body) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'RequestVerificationToken': token()
+                    },
+                    body: JSON.stringify(body),
+                    signal: controller.signal,
+                    credentials: 'same-origin'
+                });
+
+                let data = null;
+                try { data = await response.json(); } catch (e) { }
+
+                return { ok: response.ok, status: response.status, data: data };
+            } finally {
+                clearTimeout(timer);
+            }
+        }
+
+        // ---- quick replies -------------------------------------------------
+
+        function clearChips() {
+            messages.querySelectorAll('.aeroai-chips').forEach(function (node) { node.remove(); });
+        }
+
+        function showChips(list) {
+            clearChips();
+            if (!list || !list.length) return;
+
+            const wrap = el('div', 'aeroai-chips');
+
+            list.forEach(function (label) {
+                const button = el('button', 'btn btn-outline-primary btn-sm', label);
+                button.type = 'button';
+                button.addEventListener('click', function () { sendMessage(label); });
+                wrap.appendChild(button);
+            });
+
+            messages.appendChild(wrap);
+            scrollToBottom();
+        }
+
+        // ---- diagnostics card ----------------------------------------------
+
+        function buildCard(card) {
+            const wrap = el('div', 'aeroai-card');
+
+            const head = el('div', 'aeroai-card-head');
+            head.appendChild(el('span', 'aeroai-card-title', card.title || 'Design diagnostics'));
+            const ok = card.status === 'ok';
+            head.appendChild(el(
+                'span',
+                'aeroai-badge ' + (ok ? 'aeroai-badge-ok' : 'aeroai-badge-warn'),
+                ok ? 'No warnings' : 'Review warnings'));
+            wrap.appendChild(head);
+
+            const tiles = el('div', 'aeroai-tiles');
+            (card.headline || []).forEach(function (m) {
+                const tile = el('div', 'aeroai-tile' + (m.level ? ' aeroai-lvl-' + m.level : ''));
+                tile.appendChild(el('div', 'aeroai-tile-label', m.label));
+                tile.appendChild(el('div', 'aeroai-tile-value', m.value));
+                tiles.appendChild(tile);
+            });
+            wrap.appendChild(tiles);
+
+            if (card.stall && card.stall.text) {
+                wrap.appendChild(el('div', 'aeroai-callout aeroai-lvl-' + (card.stall.level || 'good'), card.stall.text));
+            }
+
+            if (card.comparison && card.comparison.length) {
+                wrap.appendChild(el('div', 'aeroai-section-title', 'Before / After'));
+
+                const scroll = el('div', 'aeroai-compare-wrap');
+                const table = el('table', 'aeroai-compare');
+
+                const thead = el('thead');
+                const headRow = el('tr');
+                ['Parameter', 'Before', 'After', 'Delta'].forEach(function (h) {
+                    headRow.appendChild(el('th', null, h));
+                });
+                thead.appendChild(headRow);
+                table.appendChild(thead);
+
+                const tbody = el('tbody');
+                card.comparison.forEach(function (r) {
+                    const tr = el('tr');
+                    tr.appendChild(el('td', null, r.label));
+                    tr.appendChild(el('td', null, r.before));
+                    tr.appendChild(el('td', null, r.after));
+                    tr.appendChild(el('td', r.level ? 'aeroai-delta-' + r.level : null, r.delta));
+                    tbody.appendChild(tr);
+                });
+                table.appendChild(tbody);
+
+                scroll.appendChild(table);
+                wrap.appendChild(scroll);
+            }
+
+            if (card.resolved && card.resolved.length) {
+                wrap.appendChild(el('div', 'aeroai-section-title', 'Resolved warnings'));
+
+                const resolvedList = el('ul', 'aeroai-resolved');
+                card.resolved.forEach(function (w) { resolvedList.appendChild(el('li', null, w)); });
+                wrap.appendChild(resolvedList);
+            }
+
+            const rows = el('div', 'aeroai-rows');
+            (card.details || []).forEach(function (m) {
+                const row = el('div', 'aeroai-row');
+                row.appendChild(el('span', 'aeroai-row-label', m.label));
+                row.appendChild(el('span', 'aeroai-row-value', m.value));
+                rows.appendChild(row);
+            });
+            wrap.appendChild(rows);
+
+            if (card.warnings && card.warnings.length) {
+                const list = el('ul', 'aeroai-warnings');
+                card.warnings.forEach(function (w) { list.appendChild(el('li', null, w)); });
+                wrap.appendChild(list);
+            }
+
+            if (card.resultUrl && card.resultUrl.charAt(0) === '/') {
+                const link = el('a', 'btn btn-primary btn-sm aeroai-open', 'Open full result');
+                link.href = card.resultUrl;
+                wrap.appendChild(link);
+            }
+
+            return wrap;
+        }
+
+        // ---- pending actions (unchanged) -----------------------------------
+
+        function renderPendingAction(action) {
+            if (!action || !action.id) return;
+            if (messages.querySelector('[data-action-id="' + action.id + '"]')) return;
+
+            const card = document.createElement('div');
+            card.className = 'agent-action-card';
+            card.setAttribute('data-action-id', action.id);
+
+            const title = document.createElement('div');
+            title.className = 'agent-action-title';
+            title.textContent = 'Confirmation required';
+
+            const summary = document.createElement('div');
+            summary.textContent = action.summary || action.actionType || 'Pending action';
+
+            const buttons = document.createElement('div');
+            buttons.className = 'agent-action-buttons';
+
+            const confirmBtn = document.createElement('button');
+            confirmBtn.type = 'button';
+            confirmBtn.className = 'btn btn-success btn-sm';
+            confirmBtn.textContent = 'Confirm';
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.type = 'button';
+            cancelBtn.className = 'btn btn-outline-secondary btn-sm';
+            cancelBtn.textContent = 'Cancel';
+
+            buttons.appendChild(confirmBtn);
+            buttons.appendChild(cancelBtn);
+            card.appendChild(title);
+            card.appendChild(summary);
+            card.appendChild(buttons);
+            messages.appendChild(card);
+            scrollToBottom();
+
+            confirmBtn.addEventListener('click', async function () {
+                confirmBtn.disabled = true;
+                cancelBtn.disabled = true;
+                confirmBtn.textContent = 'Running...';
+
+                try {
+                    const result = await postJson('/Agent/ConfirmAction', { actionId: action.id });
+                    const data = result.data || {};
+                    card.remove();
+
+                    const msg = addMessage(
+                        data.message || (result.ok ? 'Done.' : 'The action could not be completed.'),
+                        data.success ? 'assistant' : 'error',
+                        data.success);
+
+                    if (data.success && data.redirectUrl) {
+                        const link = document.createElement('a');
+                        link.href = data.redirectUrl;
+                        link.textContent = 'Open result';
+                        msg.appendChild(document.createElement('br'));
+                        msg.appendChild(link);
+                    }
+                } catch (e) {
+                    card.remove();
+                    addMessage('The action could not be completed. Please try again.', 'error', false);
+                }
+            });
+
+            cancelBtn.addEventListener('click', async function () {
+                confirmBtn.disabled = true;
+                cancelBtn.disabled = true;
+
+                try {
+                    await postJson('/Agent/CancelAction', { actionId: action.id });
+                } catch (e) { }
+
+                card.remove();
+                addMessage('Action cancelled.', 'assistant', true);
+            });
+        }
+
+        async function restorePendingActions() {
+            try {
+                const response = await fetch('/Agent/Pending', { credentials: 'same-origin' });
+                if (!response.ok) return;
+                const data = await response.json();
+                (data.pendingActions || []).forEach(renderPendingAction);
+            } catch (e) { }
+        }
+
+        // ---- sending -------------------------------------------------------
+
+        async function sendMessage(overrideText) {
+            const text = (typeof overrideText === 'string' ? overrideText : input.value).trim();
+            if (!text || busy) return;
+
+            busy = true;
+            sendBtn.disabled = true;
+            input.value = '';
+            clearChips();
+            addMessage(text, 'user', true);
+
+            const thinking = addMessage('Thinking...', 'assistant', false);
+            let resume = null;
+
+            try {
+                // 1) Guided design flow gets the first look: the start command, or any message while active.
+                if (flowActive || FLOW_START_RX.test(text)) {
+                    const flow = await postJson('/AeroAi/Flow/Reply', { message: text });
+                    const data = flow.data || {};
+
+                    if (flow.ok) setFlowActive(data.flowActive);
+
+                    if (flow.ok && data.handled) {
+                        thinking.remove();
+                        addMessage(data.message || '', 'assistant', true, data.card);
+                        showChips(data.quickReplies);
+                        return;
+                    }
+
+                    if (flow.ok && data.flowActive && data.resume) resume = data;
+                }
+
+                // 2) Everything else goes to the normal agent.
+                const result = await postJson('/Agent/Ask', {
+                    message: text,
+                    controller: ctx.controller,
+                    action: ctx.action,
+                    id: ctx.id,
+                    projectId: ctx.projectId,
+                    resultId: ctx.resultId
+                });
+
+                thinking.remove();
+
+                if (!result.ok) {
+                    const err = (result.data && result.data.error) || 'Something went wrong. Please try again.';
+                    addMessage(err, 'error', false);
+                } else {
+                    addMessage(result.data.reply || 'No response.', 'assistant', true);
+                    (result.data.pendingActions || []).forEach(renderPendingAction);
+
+                    // Answered a side question mid-flow: bring the user back to it.
+                    if (resume) {
+                        addMessage(resume.resume, 'assistant', true);
+                        showChips(resume.resumeQuickReplies);
+                    }
+                }
+            } catch (e) {
+                thinking.remove();
+                addMessage(
+                    e && e.name === 'AbortError'
+                        ? 'The assistant took too long to respond. Please try again.'
+                        : 'Could not reach the assistant. Please try again.',
+                    'error',
+                    false);
+            } finally {
+                busy = false;
+                sendBtn.disabled = false;
+                input.focus();
+            }
+        }
+
+        function renderHistory() {
+            messages.innerHTML = '';
+
+            if (history.length === 0) {
+                addMessage(GREETING, 'assistant', false);
+                return;
+            }
+
+            history.forEach(function (m) { addMessage(m.text, m.role, false, m.card); });
+        }
+
+        // ---- keep the browser flag in sync with the server session ----------
+
+        async function initFlow() {
+            try {
+                const stateResponse = await fetch('/AeroAi/Flow/State', { credentials: 'same-origin' });
+
+                if (stateResponse.ok) {
+                    const state = await stateResponse.json();
+                    setFlowActive(state.active);
+                }
+            } catch (e) { }
+        }
+
+        toggle.addEventListener('click', function () {
+            setOpen(panel.classList.contains('d-none'));
         });
-        yesBtn.addEventListener('click', () => sendMessage('Yes'));
-        noBtn.addEventListener('click', () => sendMessage('No'));
+
+        closeBtn.addEventListener('click', function () { setOpen(false); });
+
+        clearBtn.addEventListener('click', async function () {
+            history = [];
+            storageRemove(HISTORY_KEY);
+            setFlowActive(false);
+
+            try {
+                await postJson('/AeroAi/Flow/Cancel', {});
+            } catch (e) { }
+
+            renderHistory();
+            restorePendingActions();
+        });
+
+        sendBtn.addEventListener('click', function () { sendMessage(); });
+
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        renderHistory();
+        restorePendingActions();
+        initFlow();
+
+        if (storageGet(OPEN_KEY) === '1') setOpen(true);
     })();
 </script>
