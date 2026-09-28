@@ -28,6 +28,14 @@ namespace AxialFanMVC.Repositories
             @"\b(create|make|add|new|build|generate|run|start|trigger|queue|launch|optimi[sz]e|cfd|modify|update|change)\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+        private static readonly Regex OptimizationRequest = new(
+            @"\b(optimi[sz]e|optimisation|optimization|fix\s+(?:the\s+)?warnings?|improve)\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex ExplicitResultId = new(
+            @"\b(?:design|result)\s*#?\s*(\d+)\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
         private static readonly Regex ExplicitHandbookRequest = new(
             @"\b(handbook|manual|amca(?:\s*\d+)?|per\s+the\s+standard|per\s+the\s+manual|according\s+to\s+the\s+(handbook|manual)|look\s*up|check\s+the\s+(manual|handbook)|reference\s+book|cite\s+(a\s+)?(source|reference))\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -52,19 +60,22 @@ namespace AxialFanMVC.Repositories
         private readonly AxialFanDbContext _db;
         private readonly ILlamaSharpEmbeddingService _embeddingService;
         private readonly IQdrantHandbookVectorService _vectorService;
+        
 
         public AppAgentService(
             IKernelFactory kernelFactory,
             IAgentPendingActionStore actionStore,
             AxialFanDbContext db,
             ILlamaSharpEmbeddingService embeddingService,
-            IQdrantHandbookVectorService vectorService)
+            IQdrantHandbookVectorService vectorService
+            )
         {
             _kernelFactory = kernelFactory;
             _actionStore = actionStore;
             _db = db;
             _embeddingService = embeddingService;
             _vectorService = vectorService;
+            
         }
 
         public async Task<AppAgentResponse> AskAsync(
@@ -89,6 +100,40 @@ namespace AxialFanMVC.Repositories
             kernel.Plugins.AddFromObject(
                 new AxialFanMVC.Repositories.Plugins.DesignGenerationPlugin(_actionStore, _db, userId),
                 "SmartDesign");
+
+            // Optimization is handled directly by the local sizing engine.
+            // It intentionally bypasses the generic TriggerOptimization action plugin.
+            var optimizationReply = await TryOptimizeDesignAsync(
+                message,
+                context,
+                userId,
+                cancellationToken);
+
+            if (optimizationReply is not null)
+            {
+                return new AppAgentResponse
+                {
+                    Reply = optimizationReply,
+                    PendingActions = GetPendingSince(userId, startedUtc)
+                };
+            }
+
+            // A confirmation for the current optimization draft is handled before
+            // normal action routing so "yes" cannot accidentally invoke another tool.
+            var saveReply = await TryHandleOptimizationConfirmationAsync(
+                message,
+                context,
+                userId,
+                cancellationToken);
+
+            if (saveReply is not null)
+            {
+                return new AppAgentResponse
+                {
+                    Reply = saveReply,
+                    PendingActions = GetPendingSince(userId, startedUtc)
+                };
+            }
 
             // 1) Action requests: staged deterministically, no model call, always needs Confirm.
             var actionReply = await TryStageActionAsync(kernel, message, context, userId, startedUtc, cancellationToken);
@@ -147,6 +192,309 @@ namespace AxialFanMVC.Repositories
             };
         }
 
+        // ── Optimization flow ──────────────────────────────────────────
+
+        private async Task<string?> TryOptimizeDesignAsync(
+            string message,
+            AppAgentContext context,
+            int userId,
+            CancellationToken ct)
+        {
+            if (!OptimizationRequest.IsMatch(message))
+                return null;
+
+            var resultId = ExtractResultId(message) ?? context.ResultId;
+
+            if (resultId is null && ReferencesCurrentDesign(message.ToLowerInvariant()))
+            {
+                var resolved = await ResolveDesignContextAsync(message, context, userId, ct);
+                resultId = resolved.ResultId;
+            }
+
+            if (resultId is null)
+                return "Open a design result page first (or tell me the result id), then ask me to optimize it.";
+
+            var current = await _db.design_results
+                .Include(r => r.DesignInput)
+                    .ThenInclude(i => i.Project)
+                .SingleOrDefaultAsync(
+                    r => r.Id == resultId.Value
+                         && r.DesignInput.Project.UserId == userId,
+                    ct);
+
+            if (current is null)
+                return $"I couldn't find design result #{resultId.Value} for your account.";
+
+            DesignOptimization optimized;
+
+            try
+            {
+                optimized = DesignSizingEngine.Optimize(current);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentException)
+            {
+                return $"I couldn't optimize result #{current.Id}: {ex.Message}";
+            }
+
+            var snapshot = BuildDesignFlowSnapshot(current, userId);
+            var candidate = ToSizingCandidate(optimized);
+            var diagnostics = BuildComparativeDiagnostics(current, candidate);
+            var draftToken = Guid.NewGuid().ToString("N");
+
+            _designFlowStore.BeginOptimization(
+                userId,
+                snapshot,
+                candidate,
+                diagnostics,
+                draftToken);
+
+            return BuildOptimizationReply(
+                current,
+                candidate,
+                diagnostics,
+                draftToken);
+        }
+
+        private async Task<string?> TryHandleOptimizationConfirmationAsync(
+            string message,
+            AppAgentContext context,
+            int userId,
+            CancellationToken ct)
+        {
+            var state = _designFlowStore.Get(userId);
+
+            if (state is null || state.Step != FlowStep.ReviewingOptimizationDraft)
+                return null;
+
+            var lower = message.Trim().ToLowerInvariant();
+
+            if (lower is "no" or "cancel" or "cancel optimization" or "discard")
+            {
+                _designFlowStore.Clear(userId);
+                return "Optimization draft discarded. The original design was not changed.";
+            }
+
+            if (lower is "yes" or "save" or "save it" or "confirm")
+            {
+                return "The optimized draft is ready to be persisted as the next Result, but the save operation is not wired yet. The original design remains unchanged.";
+            }
+
+            if (lower.Contains("yes") && lower.Contains("save"))
+            {
+                return "The optimized draft is ready to be persisted as the next Result, but the save operation is not wired yet. The original design remains unchanged.";
+            }
+
+            return null;
+        }
+
+        private static int? ExtractResultId(string message)
+        {
+            var match = ExplicitResultId.Match(message);
+            return match.Success && int.TryParse(match.Groups[1].Value, out var id) && id > 0
+                ? id
+                : null;
+        }
+
+        private static DesignFlowSnapshot BuildDesignFlowSnapshot(
+            DesignResult result,
+            int userId)
+        {
+            var input = result.DesignInput;
+
+            return new DesignFlowSnapshot
+            {
+                ResultId = result.Id,
+                DesignInputId = input.Id,
+                ProjectId = input.ProjectId,
+                UserId = userId,
+                ProjectName = input.Project?.Name ?? string.Empty,
+                FlowRateM3s = Convert.ToDouble(input.FlowRateM3s),
+                TotalPressurePa = Convert.ToDouble(input.TotalPressurePa),
+                SpeedRpm = Convert.ToInt32(input.SpeedRpm),
+                BladeCount = Convert.ToInt32(input.BladeCount),
+                TipDiameterMm = Convert.ToDouble(input.TipDiameterMm),
+                HubRatio = Convert.ToDouble(input.HubRatio),
+                BladeAngleDeg = Convert.ToDouble(input.BladeAngleDeg),
+                BladeMaterial = input.BladeMaterial ?? string.Empty,
+                BladeProfileId = input.BladeProfileId,
+                MaxTipDiameterMm = input.MaxTipDiameterMm is null ? null : Convert.ToDouble(input.MaxTipDiameterMm),
+                MinEfficiencyPct = input.MinEfficiencyPct is null ? null : Convert.ToDouble(input.MinEfficiencyPct),
+                MaxNoiseDbA = input.MaxNoiseDbA is null ? null : Convert.ToDouble(input.MaxNoiseDbA),
+                MaxMotorPowerKw = input.MaxMotorPowerKw is null ? null : Convert.ToDouble(input.MaxMotorPowerKw),
+                MaxSpeedRpm = input.MaxSpeedRpm is null ? null : Convert.ToInt32(input.MaxSpeedRpm),
+                OverallEfficiencyPct = Convert.ToDouble(result.OverallEfficiencyPct),
+                ShaftPowerKw = Convert.ToDouble(result.ShaftPowerKw),
+                SafetyFactor = Convert.ToDouble(result.SafetyFactor),
+                BladeStressMpa = Convert.ToDouble(result.BladeStressMpa),
+                OverallNoiseDbA = result.OverallNoiseDbA is null ? null : Convert.ToDouble(result.OverallNoiseDbA),
+                WarningMessages = ParseWarningMessages(result.WarningMessages)
+            };
+        }
+
+        private static List<string> ParseWarningMessages(string? warnings)
+        {
+            if (string.IsNullOrWhiteSpace(warnings))
+                return new List<string>();
+
+            try
+            {
+                var parsed = JsonSerializer.Deserialize<List<string>>(warnings);
+                if (parsed is not null)
+                    return parsed.Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+            }
+            catch (JsonException)
+            {
+                // Some historical rows store warnings as plain text rather than JSON.
+            }
+
+            return warnings
+                .Split(new[] { '\r', '\n', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .ToList();
+        }
+
+        private static SizingCandidate ToSizingCandidate(DesignOptimization optimized)
+        {
+            return new SizingCandidate
+            {
+                BladeAngleDeg = optimized.BladeAngleDeg,
+                SpeedRpm = optimized.SpeedRpm,
+                TipDiameterMm = optimized.TipDiameterMm,
+                BladeCount = optimized.BladeCount,
+                OverallEfficiencyPct = optimized.EfficiencyPct,
+                ShaftPowerKw = optimized.ShaftPowerKw,
+                SafetyFactor = optimized.SafetyFactor,
+                BladeStressMpa = optimized.BladeStressMpa,
+                NoiseDbA = optimized.NoiseDbA,
+                FlowCoefficient = optimized.FlowCoefficient,
+                PressureCoefficient = optimized.PressureCoefficient,
+                MaterialUsed = optimized.Material,
+                Warnings = optimized.ResolvedWarnings.ToList(),
+                FeasibleAgainstConstraints = optimized.StallRiskResolved && optimized.MotorMarginResolved,
+                BetterThanBaseline = false
+            };
+        }
+
+        private static DesignComparativeDiagnostics BuildComparativeDiagnostics(
+            DesignResult baseline,
+            SizingCandidate optimized)
+        {
+            var input = baseline.DesignInput;
+            var currentNoise = baseline.OverallNoiseDbA is null ? 0.0 : Convert.ToDouble(baseline.OverallNoiseDbA);
+            var currentMotorPower = Convert.ToDouble(input.MotorPowerKw);
+            var rows = new List<DesignDeltaRow>();
+
+            AddDelta(rows, "Tip diameter (mm)", Convert.ToDouble(input.TipDiameterMm), optimized.TipDiameterMm, false);
+            AddDelta(rows, "Speed (RPM)", Convert.ToDouble(input.SpeedRpm), optimized.SpeedRpm, false);
+            AddDelta(rows, "Blade count", Convert.ToDouble(input.BladeCount), optimized.BladeCount, false);
+            AddDelta(rows, "Blade angle (deg)", Convert.ToDouble(input.BladeAngleDeg), optimized.BladeAngleDeg, false);
+            AddDelta(rows, "Efficiency (%)", Convert.ToDouble(baseline.OverallEfficiencyPct), optimized.OverallEfficiencyPct, true);
+            AddDelta(rows, "Shaft power (kW)", Convert.ToDouble(baseline.ShaftPowerKw), optimized.ShaftPowerKw, false);
+            AddDelta(rows, "Motor power (kW)", currentMotorPower, optimized.ShaftPowerKw * 1.15, false);
+            AddDelta(rows, "Flow coefficient", 0.0, optimized.FlowCoefficient, true);
+            AddDelta(rows, "Pressure coefficient", 0.0, optimized.PressureCoefficient, true);
+            AddDelta(rows, "Noise (dBA)", currentNoise, optimized.NoiseDbA, false);
+            AddDelta(rows, "Blade stress (MPa)", Convert.ToDouble(baseline.BladeStressMpa), optimized.BladeStressMpa, false);
+            AddDelta(rows, "Safety factor", Convert.ToDouble(baseline.SafetyFactor), optimized.SafetyFactor, true);
+
+            var baselineWarnings = ParseWarningMessages(baseline.WarningMessages);
+            var optimizedWarnings = optimized.Warnings;
+            var audit = new List<WarningAuditEntry>();
+
+            foreach (var warning in baselineWarnings.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var persists = optimizedWarnings.Any(x =>
+                    x.Contains(warning, StringComparison.OrdinalIgnoreCase)
+                    || warning.Contains(x, StringComparison.OrdinalIgnoreCase));
+
+                audit.Add(new WarningAuditEntry
+                {
+                    Message = warning,
+                    Status = persists ? "persisting" : "resolved"
+                });
+            }
+
+            foreach (var warning in optimizedWarnings.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                if (!audit.Any(x => x.Message.Equals(warning, StringComparison.OrdinalIgnoreCase)))
+                {
+                    audit.Add(new WarningAuditEntry
+                    {
+                        Message = warning,
+                        Status = "new"
+                    });
+                }
+            }
+
+            return new DesignComparativeDiagnostics
+            {
+                DeltaTable = rows,
+                WarningAudit = audit,
+                ResolvedWarningCount = audit.Count(x => x.Status == "resolved"),
+                PersistingWarningCount = audit.Count(x => x.Status == "persisting"),
+                NewWarningCount = audit.Count(x => x.Status == "new")
+            };
+        }
+
+        private static void AddDelta(
+            List<DesignDeltaRow> rows,
+            string metric,
+            double baseline,
+            double optimized,
+            bool higherIsBetter)
+        {
+            var delta = optimized - baseline;
+            var direction = Math.Abs(delta) < 0.000001
+                ? "neutral"
+                : higherIsBetter
+                    ? delta > 0 ? "improved" : "worse"
+                    : delta < 0 ? "improved" : "worse";
+
+            rows.Add(new DesignDeltaRow
+            {
+                Metric = metric,
+                BaselineValue = FormatMetric(baseline),
+                OptimizedValue = FormatMetric(optimized),
+                DeltaValue = (delta >= 0 ? "+" : "") + FormatMetric(delta),
+                Direction = direction
+            });
+        }
+
+        private static string FormatMetric(double value)
+        {
+            return value.ToString("0.###", CultureInfo.InvariantCulture);
+        }
+
+        private static string BuildOptimizationReply(
+            DesignResult baseline,
+            SizingCandidate optimized,
+            DesignComparativeDiagnostics diagnostics,
+            string draftToken)
+        {
+            var input = baseline.DesignInput;
+            var sb = new StringBuilder();
+
+            sb.AppendLine($"Optimization draft for Result #{baseline.Id} ({input.Project?.Name ?? "Project"})");
+            sb.AppendLine();
+            sb.AppendLine("Parameter | Current | Optimized | Delta");
+            sb.AppendLine("--- | --- | --- | ---");
+
+            foreach (var row in diagnostics.DeltaTable)
+                sb.AppendLine($"{row.Metric} | {row.BaselineValue} | {row.OptimizedValue} | {row.DeltaValue}");
+
+            sb.AppendLine();
+            sb.AppendLine($"Warning audit: {diagnostics.ResolvedWarningCount} resolved, {diagnostics.PersistingWarningCount} persisting, {diagnostics.NewWarningCount} new.");
+
+            foreach (var warning in diagnostics.WarningAudit)
+                sb.AppendLine($"- [{warning.Status}] {warning.Message}");
+
+            sb.AppendLine();
+            sb.AppendLine($"Draft token: {draftToken}");
+            sb.AppendLine($"Save as optimized design for Result #{baseline.Id}? [Yes / No]");
+
+            return sb.ToString().Trim();
+        }
+
         // ── Actions ─────────────────────────────────────────────────────
 
         private static readonly string[] ActionPluginNames = { "Actions", "SmartDesign" };
@@ -168,10 +516,10 @@ namespace AxialFanMVC.Repositories
             var (tool, arguments) = await DecideToolCallAsync(kernel, message, ct);
 
             if (tool is null)
-                return null; // the model decided this is not an action request
+                return null;
 
             if (!ActionPluginNames.Any(p => tool.StartsWith(p + ".", StringComparison.OrdinalIgnoreCase)))
-                return null; // model hallucinated a tool outside the allowed action plugins; treat as no action
+                return null;
 
             bool needsProjectId = tool.EndsWith(".CreateNewDesign", StringComparison.OrdinalIgnoreCase);
             bool needsResultId = tool.EndsWith(".TriggerCfdRun", StringComparison.OrdinalIgnoreCase)
@@ -183,8 +531,6 @@ namespace AxialFanMVC.Repositories
             if (needsResultId && context.ResultId is null)
                 return "Open a design result page first (or tell me the result id), then ask me to run that.";
 
-            // The page/context ids are the source of truth for ownership-sensitive parameters;
-            // never trust a project/result id the model may have parsed out of free text.
             arguments = OverlayContextIds(arguments, context, needsProjectId, needsResultId);
 
             var result = await InvokeToolAsync(kernel, tool, arguments, context, ct);
@@ -765,7 +1111,6 @@ namespace AxialFanMVC.Repositories
         {
             var cleaned = reply.Trim();
 
-            // The model sometimes continues into a fake next turn or echoes the prompt.
             var cut = Regex.Match(cleaned, @"\n\s*(System|User|Human|Assistant)\s*:", RegexOptions.IgnoreCase);
 
             if (cut.Success)

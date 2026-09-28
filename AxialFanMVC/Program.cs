@@ -2,6 +2,7 @@
 using AxialFanMVC.Repositories;
 using AxialFanMVC.Repositories.Inteface;
 using AxialFanMVC.Services;
+using AxialFanMVC.Services.AeroAi;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.EntityFrameworkCore;
 
@@ -54,6 +55,11 @@ builder.Services.AddScoped<IRagChatOrchestrator, RagChatOrchestrator>();
 builder.Services.AddSingleton<IAgentPendingActionStore, AgentPendingActionStore>();
 builder.Services.AddScoped<IAppAgentService, AppAgentService>();
 builder.Services.AddScoped<IAgentActionExecutor, AgentActionExecutor>();
+
+// AeroAI guided design flow ("Design for projectId=N").
+builder.Services.AddAeroAiOptimizeFlow();
+builder.Services.AddScoped<DesignPreviewService>();
+builder.Services.AddScoped<DesignFlowService>();
 
 // Warms up both .gguf models at startup so the first user request is fast.
 builder.Services.AddHostedService<ModelWarmupService>();

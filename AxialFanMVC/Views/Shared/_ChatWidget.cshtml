@@ -1,149 +1,29 @@
-@* Persistent AI agent widget - included site-wide from _LayoutV2.cshtml for signed-in users.
-   Sends the current page context (controller/action/ids) with every question, keeps the
-   conversation across page navigations, and shows Confirm/Cancel cards for any action the
-   agent stages (CFD run, optimization, new design).
+@* Floating handbook assistant widget — included site-wide from _Layout.cshtml *@
 
-   AeroAI guided design flow: the user types "Design for projectId=7"; the server loads the
-   project, asks for flow rate and total pressure in one message (unit conversion done in C#),
-   confirms with Yes / No, runs the physics engine and returns a diagnostics card. The start
-   command and every message while the flow is active are sent to /AeroAi/Flow/Reply first;
-   anything it does not handle falls through to /Agent/Ask. *@
-@{
-    var rv = ViewContext.RouteData.Values;
-    var query = Context.Request.Query;
+<div id="chatWidgetToggle" class="chat-widget-toggle" title="Ask to AeroAi">
+    <i class="bi bi-chat-dots-fill"></i>
+</div>
 
-    int? ToInt(object? v) =>
-        int.TryParse(Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture), out var n) ? n : (int?)null;
-
-    var pageController = rv["controller"]?.ToString();
-    var pageAction = rv["action"]?.ToString();
-    var pageId = ToInt(rv["id"]);
-    var pageProjectId = ToInt(rv["projectId"]) ?? ToInt(query["projectId"].ToString());
-    var pageResultId = ToInt(rv["resultId"]) ?? ToInt(query["resultId"].ToString());
-}
-
-<div id="agentWidget">
-    @Html.AntiForgeryToken()
-
-    <div id="agentToggle" class="chat-widget-toggle" title="Ask AeroAi">
-        <i class="bi bi-chat-dots-fill"></i>
+<div id="chatWidgetPanel" class="chat-widget-panel shadow-lg d-none">
+    <div class="chat-widget-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-book me-1"></i> AeroAi</span>
+        <button type="button" id="chatWidgetClose" class="btn-close btn-close-white"></button>
     </div>
-
-    <div id="agentPanel" class="chat-widget-panel agent-panel shadow-lg d-none">
-        <div class="chat-widget-header d-flex justify-content-between align-items-center">
-            <span><i class="bi bi-robot me-1"></i> AeroAi</span>
-            <span class="d-flex align-items-center gap-2">
-                <button type="button" id="agentClear" class="agent-icon-btn" title="Clear conversation">
-                    <i class="bi bi-trash3"></i>
-                </button>
-                <button type="button" id="agentMaximize" class="agent-icon-btn" title="Maximize">
-                    <i class="bi bi-fullscreen"></i>
-                </button>
-                <button type="button" id="agentClose" class="btn-close btn-close-white" title="Close"></button>
-            </span>
+    <div id="chatWidgetMessages" class="chat-widget-messages">
+        <div class="chat-msg chat-msg-assistant">
+            Hi! Ask me anything. Try: Optimize design #104
         </div>
-
-        <div id="agentMessages" class="chat-widget-messages"></div>
-
-        <!-- Custom Options Panel (shown during custom path step) -->
-        <div id="customOptionsPanel" class="custom-opts-panel d-none">
-            <div class="custom-opts-title">Custom Configuration</div>
-            <div class="custom-opts-body">
-
-                <div class="custom-opts-row">
-                    <label class="custom-opts-label">
-                        <input type="checkbox" id="optBladeEnable" class="opt-check" />
-                        Blade Count
-                    </label>
-                    <select id="optBladeCount" class="form-select form-select-sm opt-ctrl" disabled>
-                        <option value="">-- select --</option>
-                        <option>3</option><option>4</option><option>5</option>
-                        <option>6</option><option>7</option><option>8</option>
-                        <option>9</option><option>10</option><option>12</option>
-                        <option>14</option><option>16</option><option>20</option>
-                    </select>
-                </div>
-
-                <div class="custom-opts-row">
-                    <label class="custom-opts-label">
-                        <input type="checkbox" id="optMatEnable" class="opt-check" />
-                        Material
-                    </label>
-                    <select id="optMaterial" class="form-select form-select-sm opt-ctrl" disabled>
-                        <option value="">-- select --</option>
-                        <option value="Aluminum 6061-T6">Aluminum 6061-T6</option>
-                        <option value="Aluminum 5052-H32">Aluminum 5052-H32</option>
-                        <option value="Mild Steel A36">Mild Steel A36</option>
-                        <option value="Stainless Steel 304">Stainless Steel 304</option>
-                        <option value="Stainless Steel 316">Stainless Steel 316</option>
-                        <option value="FRP / Composite">FRP / Composite</option>
-                        <option value="PAG">PAG</option>
-                    </select>
-                </div>
-
-                <div class="custom-opts-row">
-                    <label class="custom-opts-label">
-                        <input type="checkbox" id="optDriveEnable" class="opt-check" />
-                        Drive Type
-                    </label>
-                    <select id="optDriveType" class="form-select form-select-sm opt-ctrl" disabled>
-                        <option value="">-- select --</option>
-                        <option value="Direct Drive">Direct Drive</option>
-                        <option value="VFD">VFD</option>
-                        <option value="V-Belt">V-Belt</option>
-                    </select>
-                </div>
-
-                <div class="custom-opts-row">
-                    <label class="custom-opts-label">
-                        <input type="checkbox" id="optDiaEnable" class="opt-check" />
-                        Max Tip Diameter
-                    </label>
-                    <div class="d-flex gap-1" id="optDiaWrap" style="opacity:0.4;pointer-events:none;">
-                        <input type="number" id="optDiameter" class="form-control form-control-sm"
-                               placeholder="e.g. 1000" min="250" max="4000" step="50" style="width:90px;" />
-                        <span class="opt-unit">mm</span>
-                    </div>
-                </div>
-
-                <div class="custom-opts-row">
-                    <label class="custom-opts-label">
-                        <input type="checkbox" id="optAltEnable" class="opt-check" />
-                        Altitude
-                    </label>
-                    <div class="d-flex gap-1" id="optAltWrap" style="opacity:0.4;pointer-events:none;">
-                        <input type="number" id="optAltitude" class="form-control form-control-sm"
-                               placeholder="e.g. 1500" min="0" max="5000" step="100" style="width:90px;" />
-                        <span class="opt-unit">m</span>
-                    </div>
-                </div>
-
-                <div class="custom-opts-row">
-                    <label class="custom-opts-label">
-                        <input type="checkbox" id="optTempEnable" class="opt-check" />
-                        Temperature
-                    </label>
-                    <div class="d-flex gap-1" id="optTempWrap" style="opacity:0.4;pointer-events:none;">
-                        <input type="number" id="optTemperature" class="form-control form-control-sm"
-                               placeholder="e.g. 40" min="-40" max="120" step="1" style="width:90px;" />
-                        <span class="opt-unit">°C</span>
-                    </div>
-                </div>
-
-            </div>
-            <div class="custom-opts-footer">
-                <button type="button" id="optSkip" class="btn btn-outline-secondary btn-sm">Skip</button>
-                <button type="button" id="optSubmit" class="btn btn-primary btn-sm">Apply</button>
-            </div>
-        </div>
-
-        <div class="chat-widget-input d-flex gap-2">
-            <input type="text" id="agentInput" class="form-control form-control-sm"
-                   maxlength="2000" placeholder="Ask a question or request an action..." autocomplete="off" />
-            <button type="button" id="agentSend" class="btn btn-primary btn-sm" title="Send">
-                <i class="bi bi-send-fill"></i>
-            </button>
-        </div>
+    </div>
+    <div id="chatWidgetConfirm" class="chat-widget-confirm d-none">
+        <button type="button" id="chatWidgetYes" class="btn btn-success btn-sm">Yes</button>
+        <button type="button" id="chatWidgetNo" class="btn btn-outline-secondary btn-sm">No</button>
+    </div>
+    <div class="chat-widget-input d-flex gap-2">
+        <input type="text" id="chatWidgetInput" class="form-control form-control-sm"
+               placeholder="Ask a question..." />
+        <button type="button" id="chatWidgetSend" class="btn btn-primary btn-sm">
+            <i class="bi bi-send-fill"></i>
+        </button>
     </div>
 </div>
 
@@ -162,7 +42,7 @@
         justify-content: center;
         font-size: 1.4rem;
         cursor: pointer;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.25);
         z-index: 1050;
     }
 
@@ -170,16 +50,21 @@
         position: fixed;
         bottom: 92px;
         right: 24px;
-        width: 400px;
+        width: 340px;
         max-width: calc(100vw - 32px);
-        height: 560px;
-        max-height: calc(100vh - 120px);
+        max-height: 480px;
         background: #fff;
         border-radius: 12px;
         display: flex;
         flex-direction: column;
         overflow: hidden;
         z-index: 1050;
+        transition: width 0.15s ease;
+    }
+
+    .chat-widget-panel.chat-widget-wide {
+        width: 560px;
+        max-height: 620px;
     }
 
     .chat-widget-header {
@@ -188,39 +73,7 @@
         padding: 10px 14px;
         font-weight: 600;
         font-size: 0.9rem;
-        cursor: grab;
-        user-select: none;
     }
-
-    .chat-widget-header:active {
-        cursor: grabbing;
-    }
-
-    .chat-widget-panel.is-maximized {
-        top: 0 !important;
-        left: 0 !important;
-        right: 0 !important;
-        bottom: 0 !important;
-        width: 100vw !important;
-        height: 100vh !important;
-        max-width: 100vw !important;
-        max-height: 100vh !important;
-        border-radius: 0 !important;
-    }
-
-    .agent-icon-btn {
-        background: transparent;
-        border: 0;
-        color: #fff;
-        opacity: 0.85;
-        padding: 0;
-        line-height: 1;
-        cursor: pointer;
-    }
-
-        .agent-icon-btn:hover {
-            opacity: 1;
-        }
 
     .chat-widget-messages {
         flex: 1;
@@ -234,9 +87,8 @@
         border-radius: 10px;
         margin-bottom: 8px;
         font-size: 0.85rem;
-        max-width: 88%;
+        max-width: 85%;
         white-space: pre-wrap;
-        word-wrap: break-word;
     }
 
     .chat-msg-user {
@@ -250,871 +102,97 @@
         color: #212529;
     }
 
-    .chat-msg-error {
-        background: #f8d7da;
-        color: #842029;
+    .chat-msg-mono {
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 0.72rem;
+        max-width: 100%;
+        overflow-x: auto;
+        white-space: pre;
     }
 
-    .chat-msg a {
-        display: inline-block;
-        margin-top: 6px;
-        font-weight: 600;
-    }
-
-    .agent-action-card {
-        border: 1px solid #ffc107;
-        background: #fff8e1;
-        border-radius: 10px;
-        padding: 10px 12px;
-        margin-bottom: 8px;
-        font-size: 0.82rem;
-    }
-
-    .agent-action-title {
-        font-weight: 600;
-        margin-bottom: 4px;
-    }
-
-    .agent-action-buttons {
+    .chat-widget-confirm {
+        padding: 8px 10px;
+        border-top: 1px solid #dee2e6;
         display: flex;
         gap: 8px;
-        margin-top: 8px;
     }
 
     .chat-widget-input {
         padding: 10px;
         border-top: 1px solid #dee2e6;
     }
-
-    /* ---- AeroAI guided flow: quick replies ---- */
-    .aeroai-chips {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        margin: 0 0 8px;
-    }
-
-    /* ---- AeroAI guided flow: diagnostics card ---- */
-    .aeroai-card {
-        background: #fff;
-        border: 1px solid #dee2e6;
-        border-radius: 10px;
-        padding: 10px 12px;
-        margin-bottom: 8px;
-        font-size: 0.8rem;
-        color: #212529;
-    }
-
-    .aeroai-card-head {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 8px;
-        margin-bottom: 8px;
-    }
-
-    .aeroai-card-title {
-        font-weight: 600;
-        font-size: 0.85rem;
-    }
-
-    .aeroai-badge {
-        font-size: 0.7rem;
-        font-weight: 600;
-        padding: 2px 8px;
-        border-radius: 999px;
-        white-space: nowrap;
-    }
-
-    .aeroai-badge-ok {
-        background: #d1e7dd;
-        color: #0f5132;
-    }
-
-    .aeroai-badge-warn {
-        background: #fff3cd;
-        color: #664d03;
-    }
-
-    .aeroai-tiles {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 6px;
-        margin-bottom: 8px;
-    }
-
-    .aeroai-tile {
-        background: #f8f9fa;
-        border: 1px solid #e9ecef;
-        border-left: 3px solid #adb5bd;
-        border-radius: 6px;
-        padding: 6px 8px;
-    }
-
-    .aeroai-tile-label {
-        font-size: 0.68rem;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-        color: #6c757d;
-    }
-
-    .aeroai-tile-value {
-        font-size: 0.95rem;
-        font-weight: 700;
-    }
-
-    .aeroai-lvl-good {
-        border-left-color: #198754;
-    }
-
-    .aeroai-lvl-warn {
-        border-left-color: #ffc107;
-    }
-
-    .aeroai-lvl-bad {
-        border-left-color: #dc3545;
-    }
-
-    .aeroai-callout {
-        border-left: 3px solid #adb5bd;
-        background: #f8f9fa;
-        border-radius: 6px;
-        padding: 6px 8px;
-        margin-bottom: 8px;
-    }
-
-    .aeroai-rows {
-        border-top: 1px solid #e9ecef;
-    }
-
-    .aeroai-row {
-        display: flex;
-        justify-content: space-between;
-        gap: 10px;
-        padding: 4px 0;
-        border-bottom: 1px solid #f1f3f5;
-    }
-
-    .aeroai-row-label {
-        color: #6c757d;
-        flex: 0 0 auto;
-    }
-
-    .aeroai-row-value {
-        text-align: right;
-        word-break: break-word;
-    }
-
-    .aeroai-warnings {
-        margin: 8px 0 0;
-        padding-left: 18px;
-        color: #664d03;
-    }
-
-    .aeroai-open {
-        margin-top: 10px;
-    }
-
-    /* ---- Custom Options Panel ---- */
-    .custom-opts-panel {
-        border-top: 1px solid #dee2e6;
-        background: #f8f9fa;
-        display: flex;
-        flex-direction: column;
-        max-height: 320px;
-        overflow-y: auto;
-        flex-shrink: 0;
-    }
-
-    .custom-opts-title {
-        font-weight: 600;
-        font-size: 0.78rem;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        color: var(--bs-primary);
-        padding: 8px 12px 4px;
-    }
-
-    .custom-opts-body {
-        padding: 0 12px 6px;
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-    }
-
-    .custom-opts-row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-
-    .custom-opts-label {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 0.8rem;
-        width: 130px;
-        flex-shrink: 0;
-        cursor: pointer;
-        user-select: none;
-        color: #495057;
-    }
-
-    .opt-check {
-        cursor: pointer;
-        accent-color: var(--bs-primary);
-        width: 15px;
-        height: 15px;
-        flex-shrink: 0;
-    }
-
-    .opt-unit {
-        font-size: 0.78rem;
-        color: #6c757d;
-        align-self: center;
-    }
-
-    .custom-opts-footer {
-        display: flex;
-        justify-content: flex-end;
-        gap: 8px;
-        padding: 6px 12px 10px;
-        border-top: 1px solid #e9ecef;
-    }
 </style>
 
 <script>
     (function () {
-        const ctx = @Json.Serialize(new
-        {
-            controller = pageController,
-            action = pageAction,
-            id = pageId,
-            projectId = pageProjectId,
-            resultId = pageResultId
-        });
+        const toggle = document.getElementById('chatWidgetToggle');
+        const panel = document.getElementById('chatWidgetPanel');
+        const closeBtn = document.getElementById('chatWidgetClose');
+        const input = document.getElementById('chatWidgetInput');
+        const sendBtn = document.getElementById('chatWidgetSend');
+        const messages = document.getElementById('chatWidgetMessages');
+        const confirmBar = document.getElementById('chatWidgetConfirm');
+        const yesBtn = document.getElementById('chatWidgetYes');
+        const noBtn = document.getElementById('chatWidgetNo');
 
-        const HISTORY_KEY = 'aeroai.history.v1';
-        const OPEN_KEY = 'aeroai.open.v1';
-        const FLOW_KEY = 'aeroai.flow.v1';
-        const MAX_HISTORY = 40;
-        const REQUEST_TIMEOUT_MS = 180000;
-        const FLOW_START_RX = /\bdesign\s+for\s+project\s*(?:id)?\s*[=:#]?\s*\d+/i;
+        toggle.addEventListener('click', () => panel.classList.toggle('d-none'));
+        closeBtn.addEventListener('click', () => panel.classList.add('d-none'));
 
-        const GREETING =
-            "Hi! I'm AeroAi. Ask me about fan design, or about your projects, results, BOM, CFD and optimization jobs. " +
-            "If you ask me to run CFD, optimize or create a design, I'll ask you to confirm first.";
-
-        const root = document.getElementById('agentWidget');
-        const toggle = document.getElementById('agentToggle');
-        const panel = document.getElementById('agentPanel');
-        const closeBtn = document.getElementById('agentClose');
-        const clearBtn = document.getElementById('agentClear');
-        const maxBtn = document.getElementById('agentMaximize');
-        const header = panel.querySelector('.chat-widget-header');
-        const messages = document.getElementById('agentMessages');
-        const input = document.getElementById('agentInput');
-        const sendBtn = document.getElementById('agentSend');
-
-        let history = loadHistory();
-        let busy = false;
-        let flowActive = storageGet(FLOW_KEY) === '1';
-
-        // ---- maximize / minimize -------------------------------------------
-
-        const MAX_KEY = 'aeroai.maximized.v1';
-        let isMaximized = storageGet(MAX_KEY) === '1';
-
-        function applyMaximized() {
-            if (isMaximized) {
-                panel.classList.add('is-maximized');
-                panel.style.top = '';
-                panel.style.left = '';
-                panel.style.right = '';
-                panel.style.bottom = '';
-                panel.style.width = '';
-                panel.style.height = '';
-                maxBtn.querySelector('i').className = 'bi bi-fullscreen-exit';
-                maxBtn.title = 'Restore';
-            } else {
-                panel.classList.remove('is-maximized');
-                maxBtn.querySelector('i').className = 'bi bi-fullscreen';
-                maxBtn.title = 'Maximize';
-                restoreDragPosition();
-            }
+        function isDeltaTable(text) {
+            return !!text && text.indexOf('Metric') !== -1 && text.indexOf('Delta') !== -1;
         }
 
-        maxBtn.addEventListener('click', function () {
-            isMaximized = !isMaximized;
-            storageSet(MAX_KEY, isMaximized ? '1' : '0');
-            applyMaximized();
-        });
-
-        // ---- drag to move --------------------------------------------------
-
-        const DRAG_KEY = 'aeroai.pos.v1';
-        let dragState = null;
-
-        function saveDragPosition() {
-            storageSet(DRAG_KEY, JSON.stringify({ top: panel.style.top, left: panel.style.left }));
-        }
-
-        function restoreDragPosition() {
-            try {
-                var pos = JSON.parse(storageGet(DRAG_KEY) || 'null');
-                if (pos && pos.top && pos.left) {
-                    panel.style.top = pos.top;
-                    panel.style.left = pos.left;
-                    panel.style.bottom = 'auto';
-                    panel.style.right = 'auto';
-                }
-            } catch (e) { }
-        }
-
-        header.addEventListener('mousedown', function (e) {
-            if (isMaximized) return;
-            if (e.target.closest('button')) return;
-            e.preventDefault();
-            var rect = panel.getBoundingClientRect();
-            dragState = { startX: e.clientX, startY: e.clientY, origTop: rect.top, origLeft: rect.left };
-            panel.style.top = rect.top + 'px';
-            panel.style.left = rect.left + 'px';
-            panel.style.bottom = 'auto';
-            panel.style.right = 'auto';
-        });
-
-        document.addEventListener('mousemove', function (e) {
-            if (!dragState) return;
-            var dx = e.clientX - dragState.startX;
-            var dy = e.clientY - dragState.startY;
-            var newTop = Math.max(0, Math.min(window.innerHeight - panel.offsetHeight, dragState.origTop + dy));
-            var newLeft = Math.max(0, Math.min(window.innerWidth - panel.offsetWidth, dragState.origLeft + dx));
-            panel.style.top = newTop + 'px';
-            panel.style.left = newLeft + 'px';
-        });
-
-        document.addEventListener('mouseup', function () {
-            if (dragState) { saveDragPosition(); dragState = null; }
-        });
-
-        header.addEventListener('touchstart', function (e) {
-            if (isMaximized) return;
-            if (e.target.closest('button')) return;
-            var touch = e.touches[0];
-            var rect = panel.getBoundingClientRect();
-            dragState = { startX: touch.clientX, startY: touch.clientY, origTop: rect.top, origLeft: rect.left };
-            panel.style.top = rect.top + 'px';
-            panel.style.left = rect.left + 'px';
-            panel.style.bottom = 'auto';
-            panel.style.right = 'auto';
-        }, { passive: true });
-
-        document.addEventListener('touchmove', function (e) {
-            if (!dragState) return;
-            var touch = e.touches[0];
-            var dx = touch.clientX - dragState.startX;
-            var dy = touch.clientY - dragState.startY;
-            var newTop = Math.max(0, Math.min(window.innerHeight - panel.offsetHeight, dragState.origTop + dy));
-            var newLeft = Math.max(0, Math.min(window.innerWidth - panel.offsetWidth, dragState.origLeft + dx));
-            panel.style.top = newTop + 'px';
-            panel.style.left = newLeft + 'px';
-        }, { passive: true });
-
-        document.addEventListener('touchend', function () {
-            if (dragState) { saveDragPosition(); dragState = null; }
-        });
-
-        function storageGet(key) {
-            try { return window.sessionStorage.getItem(key); } catch (e) { return null; }
-        }
-
-        function storageSet(key, value) {
-            try { window.sessionStorage.setItem(key, value); } catch (e) { }
-        }
-
-        function storageRemove(key) {
-            try { window.sessionStorage.removeItem(key); } catch (e) { }
-        }
-
-        function loadHistory() {
-            try {
-                const parsed = JSON.parse(storageGet(HISTORY_KEY) || '[]');
-                return Array.isArray(parsed) ? parsed : [];
-            } catch (e) {
-                return [];
-            }
-        }
-
-        function saveHistory() {
-            if (history.length > MAX_HISTORY) history = history.slice(history.length - MAX_HISTORY);
-            storageSet(HISTORY_KEY, JSON.stringify(history));
-        }
-
-        function setFlowActive(value) {
-            flowActive = !!value;
-            if (flowActive) storageSet(FLOW_KEY, '1');
-            else storageRemove(FLOW_KEY);
-        }
-
-        function token() {
-            const el = root.querySelector('input[name="__RequestVerificationToken"]');
-            return el ? el.value : '';
-        }
-
-        function scrollToBottom() {
-            messages.scrollTop = messages.scrollHeight;
-        }
-
-        function el(tag, cls, text) {
-            const node = document.createElement(tag);
-            if (cls) node.className = cls;
-            if (text !== undefined && text !== null) node.textContent = text;
-            return node;
-        }
-
-        function addMessage(text, sender, persist, card) {
-            const div = el('div', 'chat-msg chat-msg-' + sender, text);
+        function addMessage(text, sender) {
+            const div = document.createElement('div');
+            div.className = 'chat-msg chat-msg-' + sender;
+            div.textContent = text;
             messages.appendChild(div);
-
-            if (card) messages.appendChild(buildCard(card));
-
-            scrollToBottom();
-
-            if (persist && (sender === 'user' || sender === 'assistant')) {
-                const item = { role: sender, text: text };
-                if (card) item.card = card;
-                history.push(item);
-                saveHistory();
-            }
-
+            messages.scrollTop = messages.scrollHeight;
             return div;
         }
 
-        function setOpen(open) {
-            panel.classList.toggle('d-none', !open);
-            storageSet(OPEN_KEY, open ? '1' : '0');
-            if (open) {
-                applyMaximized();
-                scrollToBottom();
-                input.focus();
-            }
-        }
-
-        async function postJson(url, body) {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-            try {
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'RequestVerificationToken': token()
-                    },
-                    body: JSON.stringify(body),
-                    signal: controller.signal,
-                    credentials: 'same-origin'
-                });
-
-                let data = null;
-                try { data = await response.json(); } catch (e) { }
-
-                return { ok: response.ok, status: response.status, data: data };
-            } finally {
-                clearTimeout(timer);
-            }
-        }
-
-        // ---- custom options panel -----------------------------------------
-
-        const customPanel = document.getElementById('customOptionsPanel');
-        const optSubmitBtn = document.getElementById('optSubmit');
-        const optSkipBtn = document.getElementById('optSkip');
-
-        // checkbox → enable/disable its paired control
-        function wireCheck(checkId, ctrlId) {
-            const chk = document.getElementById(checkId);
-            const ctrl = document.getElementById(ctrlId);
-            if (!chk || !ctrl) return;
-            const isWrap = ctrl.tagName !== 'SELECT' && ctrl.tagName !== 'INPUT';
-            function apply() {
-                if (isWrap) {
-                    ctrl.style.opacity = chk.checked ? '1' : '0.4';
-                    ctrl.style.pointerEvents = chk.checked ? '' : 'none';
-                } else {
-                    ctrl.disabled = !chk.checked;
-                }
-            }
-            chk.addEventListener('change', apply);
-            apply();
-        }
-
-        wireCheck('optBladeEnable', 'optBladeCount');
-        wireCheck('optMatEnable',   'optMaterial');
-        wireCheck('optDriveEnable', 'optDriveType');
-        wireCheck('optDiaEnable',   'optDiaWrap');
-        wireCheck('optAltEnable',   'optAltWrap');
-        wireCheck('optTempEnable',  'optTempWrap');
-
-        function showCustomPanel(show) {
-            customPanel.classList.toggle('d-none', !show);
-            // reset all checkboxes when hiding
-            if (!show) {
-                customPanel.querySelectorAll('.opt-check').forEach(function (c) {
-                    c.checked = false;
-                    c.dispatchEvent(new Event('change'));
-                });
-                customPanel.querySelectorAll('select').forEach(function (s) { s.selectedIndex = 0; });
-                customPanel.querySelectorAll('input[type=number]').forEach(function (i) { i.value = ''; });
-            }
-        }
-
-        function buildCustomText() {
-            var parts = [];
-            if (document.getElementById('optBladeEnable').checked) {
-                var v = document.getElementById('optBladeCount').value;
-                if (v) parts.push('Blade count ' + v);
-            }
-            if (document.getElementById('optMatEnable').checked) {
-                var v = document.getElementById('optMaterial').value;
-                if (v) parts.push('Material ' + v);
-            }
-            if (document.getElementById('optDriveEnable').checked) {
-                var v = document.getElementById('optDriveType').value;
-                if (v) parts.push(v);
-            }
-            if (document.getElementById('optDiaEnable').checked) {
-                var v = document.getElementById('optDiameter').value;
-                if (v) parts.push('Max diameter ' + v + ' mm');
-            }
-            if (document.getElementById('optAltEnable').checked) {
-                var v = document.getElementById('optAltitude').value;
-                if (v) parts.push('Altitude ' + v + ' m');
-            }
-            if (document.getElementById('optTempEnable').checked) {
-                var v = document.getElementById('optTemperature').value;
-                if (v) parts.push('Temp ' + v + ' C');
-            }
-            return parts.join(', ');
-        }
-
-        optSubmitBtn.addEventListener('click', function () {
-            var text = buildCustomText();
-            if (!text) {
-                text = 'Skip';
-            }
-            showCustomPanel(false);
-            sendMessage(text);
-        });
-
-        optSkipBtn.addEventListener('click', function () {
-            showCustomPanel(false);
-            sendMessage('Skip');
-        });
-
-        // Detect server reply that asks for custom options (quickReplies contains 'Skip')
-        function maybeShowCustomPanel(quickReplies) {
-            var hasSkip = quickReplies && quickReplies.some(function (r) {
-                return r.trim().toLowerCase() === 'skip';
-            });
-            showCustomPanel(!!hasSkip);
-        }
-
-        // ---- quick replies -------------------------------------------------
-
-        function clearChips() {
-            messages.querySelectorAll('.aeroai-chips').forEach(function (node) { node.remove(); });
-        }
-
-        function showChips(list) {
-            clearChips();
-            if (!list || !list.length) return;
-
-            const wrap = el('div', 'aeroai-chips');
-
-            list.forEach(function (label) {
-                const button = el('button', 'btn btn-outline-primary btn-sm', label);
-                button.type = 'button';
-                button.addEventListener('click', function () { sendMessage(label); });
-                wrap.appendChild(button);
-            });
-
-            messages.appendChild(wrap);
-            scrollToBottom();
-        }
-
-        // ---- diagnostics card ----------------------------------------------
-
-        function buildCard(card) {
-            const wrap = el('div', 'aeroai-card');
-
-            const head = el('div', 'aeroai-card-head');
-            head.appendChild(el('span', 'aeroai-card-title', card.title || 'Design diagnostics'));
-            const ok = card.status === 'ok';
-            head.appendChild(el(
-                'span',
-                'aeroai-badge ' + (ok ? 'aeroai-badge-ok' : 'aeroai-badge-warn'),
-                ok ? 'No warnings' : 'Review warnings'));
-            wrap.appendChild(head);
-
-            const tiles = el('div', 'aeroai-tiles');
-            (card.headline || []).forEach(function (m) {
-                const tile = el('div', 'aeroai-tile' + (m.level ? ' aeroai-lvl-' + m.level : ''));
-                tile.appendChild(el('div', 'aeroai-tile-label', m.label));
-                tile.appendChild(el('div', 'aeroai-tile-value', m.value));
-                tiles.appendChild(tile);
-            });
-            wrap.appendChild(tiles);
-
-            if (card.stall && card.stall.text) {
-                wrap.appendChild(el('div', 'aeroai-callout aeroai-lvl-' + (card.stall.level || 'good'), card.stall.text));
-            }
-
-            const rows = el('div', 'aeroai-rows');
-            (card.details || []).forEach(function (m) {
-                const row = el('div', 'aeroai-row');
-                row.appendChild(el('span', 'aeroai-row-label', m.label));
-                row.appendChild(el('span', 'aeroai-row-value', m.value));
-                rows.appendChild(row);
-            });
-            wrap.appendChild(rows);
-
-            if (card.warnings && card.warnings.length) {
-                const list = el('ul', 'aeroai-warnings');
-                card.warnings.forEach(function (w) { list.appendChild(el('li', null, w)); });
-                wrap.appendChild(list);
-            }
-
-            if (card.resultUrl && card.resultUrl.charAt(0) === '/') {
-                const link = el('a', 'btn btn-primary btn-sm aeroai-open', 'Open full result');
-                link.href = card.resultUrl;
-                wrap.appendChild(link);
-            }
-
-            return wrap;
-        }
-
-        // ---- pending actions (unchanged) -----------------------------------
-
-        function renderPendingAction(action) {
-            if (!action || !action.id) return;
-            if (messages.querySelector('[data-action-id="' + action.id + '"]')) return;
-
-            const card = document.createElement('div');
-            card.className = 'agent-action-card';
-            card.setAttribute('data-action-id', action.id);
-
-            const title = document.createElement('div');
-            title.className = 'agent-action-title';
-            title.textContent = 'Confirmation required';
-
-            const summary = document.createElement('div');
-            summary.textContent = action.summary || action.actionType || 'Pending action';
-
-            const buttons = document.createElement('div');
-            buttons.className = 'agent-action-buttons';
-
-            const confirmBtn = document.createElement('button');
-            confirmBtn.type = 'button';
-            confirmBtn.className = 'btn btn-success btn-sm';
-            confirmBtn.textContent = 'Confirm';
-
-            const cancelBtn = document.createElement('button');
-            cancelBtn.type = 'button';
-            cancelBtn.className = 'btn btn-outline-secondary btn-sm';
-            cancelBtn.textContent = 'Cancel';
-
-            buttons.appendChild(confirmBtn);
-            buttons.appendChild(cancelBtn);
-            card.appendChild(title);
-            card.appendChild(summary);
-            card.appendChild(buttons);
-            messages.appendChild(card);
-            scrollToBottom();
-
-            confirmBtn.addEventListener('click', async function () {
-                confirmBtn.disabled = true;
-                cancelBtn.disabled = true;
-                confirmBtn.textContent = 'Running...';
-
-                try {
-                    const result = await postJson('/Agent/ConfirmAction', { actionId: action.id });
-                    const data = result.data || {};
-                    card.remove();
-
-                    const msg = addMessage(
-                        data.message || (result.ok ? 'Done.' : 'The action could not be completed.'),
-                        data.success ? 'assistant' : 'error',
-                        data.success);
-
-                    if (data.success && data.redirectUrl) {
-                        const link = document.createElement('a');
-                        link.href = data.redirectUrl;
-                        link.textContent = 'Open result';
-                        msg.appendChild(document.createElement('br'));
-                        msg.appendChild(link);
-                    }
-                } catch (e) {
-                    card.remove();
-                    addMessage('The action could not be completed. Please try again.', 'error', false);
-                }
-            });
-
-            cancelBtn.addEventListener('click', async function () {
-                confirmBtn.disabled = true;
-                cancelBtn.disabled = true;
-
-                try {
-                    await postJson('/Agent/CancelAction', { actionId: action.id });
-                } catch (e) { }
-
-                card.remove();
-                addMessage('Action cancelled.', 'assistant', true);
-            });
-        }
-
-        async function restorePendingActions() {
-            try {
-                const response = await fetch('/Agent/Pending', { credentials: 'same-origin' });
-                if (!response.ok) return;
-                const data = await response.json();
-                (data.pendingActions || []).forEach(renderPendingAction);
-            } catch (e) { }
-        }
-
-        // ---- sending -------------------------------------------------------
-
         async function sendMessage(overrideText) {
             const text = (typeof overrideText === 'string' ? overrideText : input.value).trim();
-            if (!text || busy) return;
+            if (!text) return;
 
-            busy = true;
-            sendBtn.disabled = true;
+            addMessage(text, 'user');
             input.value = '';
-            clearChips();
-            showCustomPanel(false);
-            addMessage(text, 'user', true);
+            sendBtn.disabled = true;
+            confirmBar.classList.add('d-none');
 
-            const thinking = addMessage('Thinking...', 'assistant', false);
-            let resume = null;
+            const thinkingDiv = addMessage('Thinking...', 'assistant');
 
             try {
-                // 1) Guided design flow gets the first look: the start command, or any message while active.
-                if (flowActive || FLOW_START_RX.test(text)) {
-                    const flow = await postJson('/AeroAi/Flow/Reply', { message: text });
-                    const data = flow.data || {};
-
-                    if (flow.ok) setFlowActive(data.flowActive);
-
-                    if (flow.ok && data.handled) {
-                        thinking.remove();
-                        addMessage(data.message || '', 'assistant', true, data.card);
-                        showChips(data.quickReplies);
-                        maybeShowCustomPanel(data.quickReplies);
-                        return;
-                    }
-
-                    if (flow.ok && data.flowActive && data.resume) resume = data;
-                }
-
-                // 2) Everything else goes to the normal agent.
-                const result = await postJson('/Agent/Ask', {
-                    message: text,
-                    controller: ctx.controller,
-                    action: ctx.action,
-                    id: ctx.id,
-                    projectId: ctx.projectId,
-                    resultId: ctx.resultId
+                const response = await fetch('/AeroAi/Ask', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: text })
                 });
+                const data = await response.json();
+                thinkingDiv.textContent = data.reply;
 
-                thinking.remove();
-
-                if (!result.ok) {
-                    const err = (result.data && result.data.error) || 'Something went wrong. Please try again.';
-                    addMessage(err, 'error', false);
+                if (isDeltaTable(data.reply)) {
+                    thinkingDiv.classList.add('chat-msg-mono');
+                    panel.classList.add('chat-widget-wide');
+                }
+                if (data.awaitingConfirmation) {
+                    confirmBar.classList.remove('d-none');
                 } else {
-                    addMessage(result.data.reply || 'No response.', 'assistant', true);
-                    (result.data.pendingActions || []).forEach(renderPendingAction);
-
-                    // Answered a side question mid-flow: bring the user back to it.
-                    if (resume) {
-                        addMessage(resume.resume, 'assistant', true);
-                        showChips(resume.resumeQuickReplies);
-                    }
+                    panel.classList.remove('chat-widget-wide');
                 }
-            } catch (e) {
-                thinking.remove();
-                addMessage(
-                    e && e.name === 'AbortError'
-                        ? 'The assistant took too long to respond. Please try again.'
-                        : 'Could not reach the assistant. Please try again.',
-                    'error',
-                    false);
+            } catch (err) {
+                thinkingDiv.textContent = 'Something went wrong. Please try again.';
             } finally {
-                busy = false;
                 sendBtn.disabled = false;
-                input.focus();
+                messages.scrollTop = messages.scrollHeight;
             }
         }
 
-        function renderHistory() {
-            messages.innerHTML = '';
-
-            if (history.length === 0) {
-                addMessage(GREETING, 'assistant', false);
-                return;
-            }
-
-            history.forEach(function (m) { addMessage(m.text, m.role, false, m.card); });
-        }
-
-        // ---- keep the browser flag in sync with the server session ----------
-
-        async function initFlow() {
-            try {
-                const stateResponse = await fetch('/AeroAi/Flow/State', { credentials: 'same-origin' });
-
-                if (stateResponse.ok) {
-                    const state = await stateResponse.json();
-                    setFlowActive(state.active);
-                }
-            } catch (e) { }
-        }
-
-        toggle.addEventListener('click', function () {
-            setOpen(panel.classList.contains('d-none'));
+        sendBtn.addEventListener('click', () => sendMessage());
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') sendMessage();
         });
-
-        closeBtn.addEventListener('click', function () { setOpen(false); });
-
-        clearBtn.addEventListener('click', async function () {
-            history = [];
-            storageRemove(HISTORY_KEY);
-            setFlowActive(false);
-            showCustomPanel(false);
-
-            try {
-                await postJson('/AeroAi/Flow/Cancel', {});
-            } catch (e) { }
-
-            renderHistory();
-            restorePendingActions();
-        });
-
-        sendBtn.addEventListener('click', function () { sendMessage(); });
-
-        input.addEventListener('keydown', function (e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
-            }
-        });
-
-        renderHistory();
-        restorePendingActions();
-        initFlow();
-
-        if (storageGet(OPEN_KEY) === '1') setOpen(true);
-        else { applyMaximized(); }
+        yesBtn.addEventListener('click', () => sendMessage('Yes'));
+        noBtn.addEventListener('click', () => sendMessage('No'));
     })();
 </script>
