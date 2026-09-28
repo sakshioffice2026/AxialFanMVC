@@ -64,7 +64,7 @@ namespace AxialFanMVC.Services.AeroAi
         private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
         private static readonly Regex StartRx = new(
-            @"\bdesign\s+for\s+project\s*(?:id)?\s*[=:#]?\s*(?<id>\d+)",
+            @"\b(?:(?:create|make|new|start|build|generate)\s+(?:a\s+)?(?:new\s+)?design|design)\s*(?:for|in|on|of)?\s*project\s*(?:id)?\s*[=:#]?\s*(?<id>\d+)",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Regex OptimizeRx = new(

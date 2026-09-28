@@ -27,12 +27,12 @@ namespace AxialFan.Web.Controllers
     {
         private readonly IOllamaChatRepository _chatService;
         private readonly IExceptionHandlerRepository _exceptionHandlerRepository;
-        private readonly AeroAiOptimizeFlow _optimizeFlow;
+        private readonly DesignFlowService _optimizeFlow;
 
         public ChatController(
             IOllamaChatRepository chatService,
             IExceptionHandlerRepository exceptionHandlerRepository,
-            AeroAiOptimizeFlow optimizeFlow)
+            DesignFlowService optimizeFlow)
         {
             _chatService = chatService;
             _exceptionHandlerRepository = exceptionHandlerRepository;
@@ -52,23 +52,26 @@ namespace AxialFan.Web.Controllers
         {
             try
             {
-                var flow = await _optimizeFlow.HandleAsync(request.Message, CurrentUserId);
+                var flow = await _optimizeFlow.HandleAsync(
+                    CurrentUserId,
+                    request.Message?.Trim() ?? "",
+                    HttpContext.RequestAborted);
+
                 if (flow.Handled)
                 {
                     return Ok(new
                     {
-                        reply = flow.Reply,
-                        awaitingConfirmation = flow.AwaitingConfirmation,
-                        savedResultId = flow.SavedResultId
+                        reply = flow.Message,
+                        awaitingConfirmation = flow.FlowActive,
+                        savedResultId = (int?)null
                     });
                 }
 
-                var reply = await _chatService.AskAsync(request.Message);
+                var reply = await _chatService.AskAsync(request.Message ?? "");
                 return Ok(new { reply, awaitingConfirmation = false, savedResultId = (int?)null });
             }
             catch (Exception ex)
             {
-                // Surface the real error instead of a silent 500 — check console/logs too.
                 Console.WriteLine("[ChatController.Ask] " + ex);
                 return Ok(new { reply = "Error: " + ex.Message, awaitingConfirmation = false, savedResultId = (int?)null });
             }

@@ -30,9 +30,15 @@
     </div>
 
     <div id="agentPanel" class="chat-widget-panel agent-panel shadow-lg d-none">
-        <div class="chat-widget-header d-flex justify-content-between align-items-center">
+        <div id="agentHeader" class="chat-widget-header d-flex justify-content-between align-items-center" title="Drag to move (double-click to maximize)">
             <span><i class="bi bi-robot me-1"></i> AeroAi</span>
             <span class="d-flex align-items-center gap-2">
+                <button type="button" id="agentMinimize" class="agent-icon-btn" title="Minimize">
+                    <i class="bi bi-dash-lg"></i>
+                </button>
+                <button type="button" id="agentMaximize" class="agent-icon-btn" title="Maximize">
+                    <i class="bi bi-arrows-fullscreen"></i>
+                </button>
                 <button type="button" id="agentClear" class="agent-icon-btn" title="Clear conversation">
                     <i class="bi bi-trash3"></i>
                 </button>
@@ -356,6 +362,47 @@
     .aeroai-open {
         margin-top: 10px;
     }
+
+    #agentHeader {
+        cursor: move;
+        user-select: none;
+        touch-action: none;
+    }
+
+    #agentHeader button {
+        cursor: pointer;
+    }
+
+    .agent-panel.agent-dragging {
+        transition: none;
+        opacity: 0.95;
+    }
+
+    .agent-panel.agent-maximized {
+        top: 16px !important;
+        left: 16px !important;
+        right: 16px !important;
+        bottom: 16px !important;
+        width: auto !important;
+        height: auto !important;
+        max-width: none;
+        max-height: none;
+    }
+
+    .agent-panel.agent-maximized #agentHeader {
+        cursor: default;
+    }
+
+    .agent-panel.agent-minimized {
+        height: auto !important;
+        max-height: none;
+    }
+
+    .agent-panel.agent-minimized #agentMessages,
+    .agent-panel.agent-minimized .chat-widget-input {
+        display: none !important;
+    }
+
 </style>
 
 <script>
@@ -816,6 +863,138 @@
                 sendMessage();
             }
         });
+
+        // ── Maximize / minimize / drag ─────────────────────────────
+        (function () {
+            const header = document.getElementById('agentHeader');
+            const maxBtn = document.getElementById('agentMaximize');
+            const minBtn = document.getElementById('agentMinimize');
+            const LAYOUT_KEY = 'aeroai.widget.layout';
+            const MARGIN = 8;
+
+            let layout = { maximized: false, minimized: false, left: null, top: null };
+
+            try {
+                const saved = storageGet(LAYOUT_KEY);
+                if (saved) layout = Object.assign(layout, JSON.parse(saved));
+            } catch (e) { }
+
+            function saveLayout() {
+                try { storageSet(LAYOUT_KEY, JSON.stringify(layout)); } catch (e) { }
+            }
+
+            function clamp(left, top) {
+                const w = panel.offsetWidth;
+                const h = panel.offsetHeight;
+                return {
+                    left: Math.min(Math.max(MARGIN, left), Math.max(MARGIN, window.innerWidth - w - MARGIN)),
+                    top: Math.min(Math.max(MARGIN, top), Math.max(MARGIN, window.innerHeight - h - MARGIN))
+                };
+            }
+
+            function applyPosition() {
+                if (layout.maximized || layout.left === null || layout.top === null) {
+                    panel.style.left = '';
+                    panel.style.top = '';
+                    panel.style.right = '';
+                    panel.style.bottom = '';
+                    return;
+                }
+
+                const p = clamp(layout.left, layout.top);
+                panel.style.left = p.left + 'px';
+                panel.style.top = p.top + 'px';
+                panel.style.right = 'auto';
+                panel.style.bottom = 'auto';
+            }
+
+            function applyLayout() {
+                panel.classList.toggle('agent-maximized', layout.maximized);
+                panel.classList.toggle('agent-minimized', layout.minimized && !layout.maximized);
+
+                maxBtn.title = layout.maximized ? 'Restore' : 'Maximize';
+                maxBtn.innerHTML = layout.maximized
+                    ? '<i class="bi bi-fullscreen-exit"></i>'
+                    : '<i class="bi bi-arrows-fullscreen"></i>';
+
+                minBtn.title = layout.minimized ? 'Expand' : 'Minimize';
+                minBtn.innerHTML = layout.minimized
+                    ? '<i class="bi bi-chevron-up"></i>'
+                    : '<i class="bi bi-dash-lg"></i>';
+
+                applyPosition();
+                if (!layout.minimized) scrollToBottom();
+            }
+
+            function toggleMaximize() {
+                layout.maximized = !layout.maximized;
+                if (layout.maximized) layout.minimized = false;
+                saveLayout();
+                applyLayout();
+            }
+
+            function toggleMinimize() {
+                layout.minimized = !layout.minimized;
+                if (layout.minimized) layout.maximized = false;
+                saveLayout();
+                applyLayout();
+            }
+
+            maxBtn.addEventListener('click', function (e) { e.stopPropagation(); toggleMaximize(); });
+            minBtn.addEventListener('click', function (e) { e.stopPropagation(); toggleMinimize(); });
+            header.addEventListener('dblclick', function (e) {
+                if (e.target.closest('button')) return;
+                toggleMaximize();
+            });
+
+            let dragging = false;
+            let offsetX = 0;
+            let offsetY = 0;
+
+            header.addEventListener('pointerdown', function (e) {
+                if (e.target.closest('button') || layout.maximized || e.button > 0) return;
+
+                const rect = panel.getBoundingClientRect();
+                dragging = true;
+                offsetX = e.clientX - rect.left;
+                offsetY = e.clientY - rect.top;
+                panel.classList.add('agent-dragging');
+                header.setPointerCapture(e.pointerId);
+                e.preventDefault();
+            });
+
+            header.addEventListener('pointermove', function (e) {
+                if (!dragging) return;
+
+                const p = clamp(e.clientX - offsetX, e.clientY - offsetY);
+                layout.left = p.left;
+                layout.top = p.top;
+                panel.style.left = p.left + 'px';
+                panel.style.top = p.top + 'px';
+                panel.style.right = 'auto';
+                panel.style.bottom = 'auto';
+            });
+
+            function endDrag(e) {
+                if (!dragging) return;
+                dragging = false;
+                panel.classList.remove('agent-dragging');
+                try { header.releasePointerCapture(e.pointerId); } catch (err) { }
+                saveLayout();
+            }
+
+            header.addEventListener('pointerup', endDrag);
+            header.addEventListener('pointercancel', endDrag);
+
+            window.addEventListener('resize', applyPosition);
+
+            // Re-apply whenever the panel is opened.
+            new MutationObserver(function () {
+                if (!panel.classList.contains('d-none')) applyLayout();
+            }).observe(panel, { attributes: true, attributeFilter: ['class'] });
+
+            applyLayout();
+        })();
 
         renderHistory();
         restorePendingActions();

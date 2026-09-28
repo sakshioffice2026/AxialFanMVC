@@ -43,15 +43,16 @@ namespace AxialFanMVC.Services.AeroAi
 
     // Deterministic optimizer: every change is verified against the same physics engines
     // (in memory, nothing written to MySQL). Rules run in a fixed order:
-    // 1) even blade count -> odd, 2) stall (flow coefficient), 3) runout, 4) motor sizing.
+    // 1) even blade count -> odd, 2) direct-drive speed snap, 3) stall, 4) runout, 5) motor sizing.
     public sealed class DesignOptimizerEngine
     {
         private const double StallLimit = 0.15;
         private const double StallTarget = 0.16;
         private const double MotorMargin = 1.15;
         private const int MaxStallTrials = 4;
-        private const int MaxRunoutSteps = 6;
-        private const double MaxBladeAngleStepDeg = 1.0;
+        private const int MaxRunoutSteps = 12;
+        private const double MaxBladeAngleStepDeg = 0.5;
+        private const int MaxSpeedTrials = 6;
 
         private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
@@ -60,6 +61,12 @@ namespace AxialFanMVC.Services.AeroAi
             300, 350, 400, 450, 500, 560, 630, 710, 800, 850, 900, 950,
             1000, 1060, 1120, 1250, 1400, 1600, 1800, 2000, 2240, 2500, 2800, 3150
         };
+
+        // 50 Hz synchronous-less-slip speeds: 2, 4, 6, 8 pole.
+        private static readonly int[] StandardDirectDriveRpm = { 2900, 1450 };
+
+        // Engine warns when a direct-drive fan runs >10% below the 2/4-pole synchronous speed.
+        private static readonly int[] SynchronousRpm = { 3000, 1500 };
 
         private static readonly double[] StandardMotorsKw =
         {
@@ -131,7 +138,80 @@ namespace AxialFanMVC.Services.AeroAi
                 }
             }
 
-            // 2) Stall: lift the flow coefficient above the limit by trying neighbouring standard diameters.
+            // 2) Speed standardisation: direct-drive fans snap to a standard synchronous speed,
+            //    with the tip diameter rescaled (D ~ 1/N at constant pressure).
+            if (IsDirectDrive(current) && !IsStandardSpeed(current.SpeedRpm))
+            {
+                var baseWarnings = CountWarnings(currentPreview);
+                DesignRunParameters? bestSpeed = null;
+                DesignPreviewResult? bestSpeedPreview = null;
+                var trials = 0;
+
+                foreach (var rpm in StandardDirectDriveRpm.OrderBy(r => Math.Abs(r - current.SpeedRpm)))
+                {
+                    var scaled = current.TipDiameterMm * current.SpeedRpm / (double)rpm;
+                    var diameters = StandardDiametersMm
+                        .Where(d => !(current.MaxTipDiameterMm is > 0) || d <= current.MaxTipDiameterMm.Value)
+                        .OrderBy(d => Math.Abs(d - scaled))
+                        .Take(2);
+
+                    foreach (var diameter in diameters)
+                    {
+                        if (trials++ >= MaxSpeedTrials)
+                            break;
+
+                        var candidate = Copy(current);
+                        candidate.SpeedRpm = rpm;
+                        candidate.TipDiameterMm = diameter;
+
+                        var result = await _preview.PreviewAsync(candidate, ct);
+                        if (!result.Success)
+                            continue;
+
+                        var better = bestSpeedPreview is null ||
+                                     CountWarnings(result) < CountWarnings(bestSpeedPreview) ||
+                                     (CountWarnings(result) == CountWarnings(bestSpeedPreview) &&
+                                      (result.OverallEfficiencyPct ?? 0) > (bestSpeedPreview.OverallEfficiencyPct ?? 0));
+
+                        if (better)
+                        {
+                            bestSpeed = candidate;
+                            bestSpeedPreview = result;
+                        }
+                    }
+
+                    if (trials >= MaxSpeedTrials)
+                        break;
+                }
+
+                if (bestSpeed is not null && bestSpeedPreview is not null &&
+                    CountWarnings(bestSpeedPreview) <= baseWarnings)
+                {
+                    changes.Add(new OptimizationChange
+                    {
+                        Parameter = "Fan speed",
+                        Before = current.SpeedRpm.ToString(Inv) + " RPM",
+                        After = bestSpeed.SpeedRpm.ToString(Inv) + " RPM",
+                        Reason = "Snapped to a standard synchronous direct-drive speed."
+                    });
+
+                    if (Math.Abs(bestSpeed.TipDiameterMm - current.TipDiameterMm) > 0.5)
+                    {
+                        changes.Add(new OptimizationChange
+                        {
+                            Parameter = "Tip diameter",
+                            Before = current.TipDiameterMm.ToString("0", Inv) + " mm",
+                            After = bestSpeed.TipDiameterMm.ToString("0", Inv) + " mm",
+                            Reason = "Resized for the standard-speed velocity triangle."
+                        });
+                    }
+
+                    current = bestSpeed;
+                    currentPreview = bestSpeedPreview;
+                }
+            }
+
+            // 3) Stall: lift the flow coefficient above the limit by trying neighbouring standard diameters.
             if (NeedsStallFix(currentPreview))
             {
                 var startPhi = currentPreview.FlowCoefficient ?? 0.0;
@@ -182,7 +262,7 @@ namespace AxialFanMVC.Services.AeroAi
                 }
             }
 
-            // 3) Runout: raise blade angle in small steps until the shortfall warning clears.
+            // 4) Runout: raise blade angle in 0.5 degree steps until the shortfall warning clears.
             if (HasRunout(currentPreview))
             {
                 var startAngle = current.BladeAngleDeg ?? 0.0;
@@ -215,7 +295,7 @@ namespace AxialFanMVC.Services.AeroAi
                 }
             }
 
-            // 4) Motor: size to shaft power plus margin, next standard frame.
+            // 5) Motor: size to shaft power plus margin, next standard IEC frame.
             var shaftKw = currentPreview.ShaftPowerKw ?? 0.0;
             var requiredKw = shaftKw * MotorMargin;
             var motorKw = current.MotorPowerKw ?? 0.0;
@@ -256,6 +336,22 @@ namespace AxialFanMVC.Services.AeroAi
                 Remaining = after.Where(kv => before.ContainsKey(kv.Key)).Select(kv => kv.Value).ToList(),
                 Introduced = after.Where(kv => !before.ContainsKey(kv.Key)).Select(kv => kv.Value).ToList()
             };
+        }
+
+        private static bool IsDirectDrive(DesignRunParameters p)
+        {
+            return string.IsNullOrWhiteSpace(p.DriveType) ||
+                   p.DriveType.Contains("Direct", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsStandardSpeed(int rpm)
+        {
+            return SynchronousRpm.Any(s => rpm >= s * 0.9 && rpm <= s * 1.05);
+        }
+
+        private static int CountWarnings(DesignPreviewResult r)
+        {
+            return WarningMap(r.Warnings).Count;
         }
 
         private static bool NeedsStallFix(DesignPreviewResult r)
