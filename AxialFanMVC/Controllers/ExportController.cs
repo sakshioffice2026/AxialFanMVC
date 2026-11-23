@@ -1004,6 +1004,81 @@ Always verify with physical testing.
         }
     }
 
+    // ── GET /Export/Step?resultId=5 ───────────────────────────────
+    private static readonly HttpClient _cadHttp = new() { Timeout = TimeSpan.FromSeconds(200) };
+
+    public async Task<IActionResult> Step(int resultId)
+    {
+        try
+        {
+            var result = await LoadResult(resultId);
+            if (result == null) return NotFound();
+
+            var di = result.DesignInput;
+
+            double tipR = di.TipDiameterMm / 2000.0;
+            double hubRatio = Math.Clamp(di.HubRatio, 0.15, 0.85);
+            double hubR = tipR * hubRatio;
+            double annulus = Math.PI * (tipR * tipR - hubR * hubR);
+            double axialVel = annulus > 0 ? di.FlowRateM3s / annulus : 5.0;
+
+            var payload = new Dictionary<string, object?>
+            {
+                ["tip_radius_m"] = tipR,
+                ["hub_ratio"] = hubRatio,
+                ["blade_count"] = Math.Clamp(di.BladeCount, 1, 20),
+                ["blade_angle_deg"] = di.BladeAngleDeg,
+                ["profile_coordinate_json"] = di.BladeProfile?.CoordinateData,
+                ["rpm"] = di.SpeedRpm,
+                ["axial_velocity_ms"] = axialVel,
+                ["stagger_angle_deg"] = di.BladeAngleDeg
+            };
+
+            var baseUrl = HttpContext.RequestServices
+                .GetRequiredService<IConfiguration>()["CadService:BaseUrl"] ?? "http://localhost:8002";
+
+            using var content = new StringContent(
+                System.Text.Json.JsonSerializer.Serialize(payload),
+                System.Text.Encoding.UTF8,
+                "application/json");
+
+            using var response = await _cadHttp.PostAsync(
+                $"{baseUrl.TrimEnd('/')}/generate-blade-cad", content);
+            var body = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _exceptionHandlerRepository.SaveException(
+                    nameof(ExportController),
+                    nameof(Step),
+                    $"CAD service returned {(int)response.StatusCode}: {body}");
+
+                return StatusCode(502, "STEP generation failed. Check that the CAD service is running.");
+            }
+
+            using var json = System.Text.Json.JsonDocument.Parse(body);
+            var stepPath = json.RootElement.GetProperty("step_file").GetString();
+
+            if (string.IsNullOrWhiteSpace(stepPath) || !System.IO.File.Exists(stepPath))
+                return StatusCode(502, "STEP file was not found on the CAD service host.");
+
+            var bytes = await System.IO.File.ReadAllBytesAsync(stepPath);
+
+            await LogExport(di.ProjectId, "step");
+
+            return File(bytes, "application/step", $"AxialFan_{resultId}.step");
+        }
+        catch (Exception ex)
+        {
+            _exceptionHandlerRepository.SaveException(
+                nameof(ExportController),
+                nameof(Step),
+                ex.ToString());
+
+            return StatusCode(500, "An unexpected error occurred while generating the STEP file.");
+        }
+    }
+
     // ── POST /Export/ChartsOnlyPdfWithSnapshot ────────────────────────
     [HttpPost("Export/ChartsOnlyPdfWithSnapshot"), ValidateAntiForgeryToken]
     public async Task<IActionResult> ChartsOnlyPdfWithSnapshot([FromBody] PdfWithChartsRequest req)
