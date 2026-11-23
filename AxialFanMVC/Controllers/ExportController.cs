@@ -1079,6 +1079,89 @@ Always verify with physical testing.
         }
     }
 
+    // ── GET /Export/Dxf2d?resultId=5 ──────────────────────────────
+    // Real 2D DXF (front/top/side projected from the actual 3D solid)
+    public async Task<IActionResult> Dxf2d(int resultId)
+    {
+        try
+        {
+            var result = await LoadResult(resultId);
+            if (result == null) return NotFound();
+
+            var di = result.DesignInput;
+
+            double tipR = di.TipDiameterMm / 2000.0;
+            double hubRatio = Math.Clamp(di.HubRatio, 0.15, 0.85);
+            double hubR = tipR * hubRatio;
+            double annulus = Math.PI * (tipR * tipR - hubR * hubR);
+            double axialVel = annulus > 0 ? di.FlowRateM3s / annulus : 5.0;
+
+            var payload = new Dictionary<string, object?>
+            {
+                ["tip_radius_m"] = tipR,
+                ["hub_ratio"] = hubRatio,
+                ["blade_count"] = Math.Clamp(di.BladeCount, 1, 20),
+                ["blade_angle_deg"] = di.BladeAngleDeg,
+                ["profile_coordinate_json"] = di.BladeProfile?.CoordinateData,
+                ["rpm"] = di.SpeedRpm,
+                ["axial_velocity_ms"] = axialVel,
+                ["stagger_angle_deg"] = di.BladeAngleDeg
+            };
+
+            var baseUrl = HttpContext.RequestServices
+                .GetRequiredService<IConfiguration>()["CadService:BaseUrl"] ?? "http://localhost:8002";
+
+            using var content = new StringContent(
+                System.Text.Json.JsonSerializer.Serialize(payload),
+                System.Text.Encoding.UTF8,
+                "application/json");
+
+            using var response = await _cadHttp.PostAsync(
+                $"{baseUrl.TrimEnd('/')}/generate-blade-cad", content);
+            var body = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _exceptionHandlerRepository.SaveException(
+                    nameof(ExportController),
+                    nameof(Dxf2d),
+                    $"CAD service returned {(int)response.StatusCode}: {body}");
+
+                return StatusCode(502, "2D DXF generation failed. Check that the CAD service is running.");
+            }
+
+            using var json = System.Text.Json.JsonDocument.Parse(body);
+            var caseId = json.RootElement.GetProperty("case_id").GetString();
+            var stepPath = json.RootElement.GetProperty("step_file").GetString();
+
+            if (string.IsNullOrWhiteSpace(stepPath) || string.IsNullOrWhiteSpace(caseId))
+                return StatusCode(502, "CAD service returned no output paths.");
+
+            var dir = System.IO.Path.GetDirectoryName(stepPath)!;
+            var mergedPath = System.IO.Path.Combine(dir, $"fan_{caseId}_2d.dxf");
+            var frontPath = System.IO.Path.Combine(dir, $"fan_{caseId}_front_2d.dxf");
+            var dxfPath = System.IO.File.Exists(mergedPath) ? mergedPath : frontPath;
+
+            if (!System.IO.File.Exists(dxfPath))
+                return StatusCode(502, "2D DXF file was not found on the CAD service host.");
+
+            var bytes = await System.IO.File.ReadAllBytesAsync(dxfPath);
+
+            await LogExport(di.ProjectId, "dxf");
+
+            return File(bytes, "application/dxf", $"AxialFan_2D_{resultId}.dxf");
+        }
+        catch (Exception ex)
+        {
+            _exceptionHandlerRepository.SaveException(
+                nameof(ExportController),
+                nameof(Dxf2d),
+                ex.ToString());
+
+            return StatusCode(500, "An unexpected error occurred while generating the 2D DXF.");
+        }
+    }
+
     // ── POST /Export/ChartsOnlyPdfWithSnapshot ────────────────────────
     [HttpPost("Export/ChartsOnlyPdfWithSnapshot"), ValidateAntiForgeryToken]
     public async Task<IActionResult> ChartsOnlyPdfWithSnapshot([FromBody] PdfWithChartsRequest req)
@@ -1143,7 +1226,7 @@ Always verify with physical testing.
                 nameof(FullReportPdf),
                 ex.ToString());
 
-            return RedirectToAction("Index", "Home");
+            return StatusCode(500, "Report PDF generation failed: " + ex.Message);
         }
     }
 

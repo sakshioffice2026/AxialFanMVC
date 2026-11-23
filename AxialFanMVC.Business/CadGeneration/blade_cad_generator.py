@@ -860,7 +860,7 @@ class BladeCADGenerator:
         offsets = {"front": (0, 0), "top": (0, -pad), "side": (pad, 0)}
 
         for name in ("front", "top", "side"):
-                                   entry = view_paths.get(name)
+            entry = view_paths.get(name)
             path = entry.get("dxf_path") if isinstance(entry, dict) else entry
             if not path or not os.path.isfile(path):
                 continue
