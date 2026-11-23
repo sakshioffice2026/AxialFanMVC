@@ -36,9 +36,9 @@ else
                             @{
                                 var badgeClass = p.Status switch
                                 {
-                                    "active"   => "bg-success",
+                                    "active" => "bg-success",
                                     "archived" => "bg-secondary",
-                                    _          => "bg-warning text-dark"
+                                    _ => "bg-warning text-dark"
                                 };
                             }
                             <span class="badge @badgeClass">@p.Status</span>
@@ -65,6 +65,11 @@ else
                                asp-route-projectId="@p.Id"
                                class="btn btn-sm btn-outline-secondary">
                                 <i class="bi bi-clock-history me-1"></i>History
+                            </a>
+                            <a asp-controller="Reports" asp-action="ExportPdf"
+                               asp-route-projectId="@p.Id"
+                               class="btn btn-sm btn-outline-danger">
+                                <i class="bi bi-file-earmark-pdf me-1"></i>Report PDF
                             </a>
                             <a asp-action="Edit" asp-route-id="@p.Id"
                                class="btn btn-sm btn-outline-secondary">

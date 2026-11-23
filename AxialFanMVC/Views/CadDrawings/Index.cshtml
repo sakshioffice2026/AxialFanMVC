@@ -1,0 +1,87 @@
+@model IEnumerable<AxialFanMVC.ViewModels.CadDrawingListItem>
+
+@{
+    ViewData["Title"] = "CAD Drawings";
+    var items = Model?.ToList() ?? new List<AxialFanMVC.ViewModels.CadDrawingListItem>();
+}
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+    <div>
+        <h2 class="mb-1"><i class="bi bi-rulers me-2 text-primary"></i>CAD Drawings</h2>
+        <p class="text-muted mb-0">2D DXF (projected from the real 3D model), STEP and general drawings for every design.</p>
+    </div>
+</div>
+
+@if (!items.Any())
+{
+    <div class="alert alert-info">No designs found. Create a design first.</div>
+}
+else
+{
+    <div class="card shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Result</th>
+                        <th>Project</th>
+                        <th class="text-end">Flow (m³/s)</th>
+                        <th class="text-end">Pressure (Pa)</th>
+                        <th class="text-end">Speed (RPM)</th>
+                        <th class="text-end">Eff (%)</th>
+                        <th>Calculated</th>
+                        <th class="text-end">Downloads</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var d in items)
+                    {
+                        <tr>
+                            <td>#@d.ResultId</td>
+                            <td>@d.ProjectName</td>
+                            <td class="text-end">@d.FlowRateM3s.ToString("F2")</td>
+                            <td class="text-end">@d.StaticPressurePa.ToString("F0")</td>
+                            <td class="text-end">@d.SpeedRpm</td>
+                            <td class="text-end">@d.OverallEfficiencyPct.ToString("F1")</td>
+                            <td>@d.CalculatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</td>
+                            <td class="text-end">
+                                <div class="d-inline-flex gap-1 flex-wrap justify-content-end">
+                                    <a class="btn btn-sm btn-primary"
+                                       asp-controller="Export" asp-action="Dxf2d"
+                                       asp-route-resultId="@d.ResultId"
+                                       title="Real 2D DXF (front / top / side)">
+                                        <i class="bi bi-filetype-dxf me-1"></i>2D DXF
+                                    </a>
+                                    <a class="btn btn-sm btn-outline-secondary"
+                                       asp-controller="Export" asp-action="Step"
+                                       asp-route-resultId="@d.ResultId"
+                                       title="3D STEP model">
+                                        <i class="bi bi-box me-1"></i>STEP
+                                    </a>
+                                    <div class="btn-group">
+                                        <button type="button"
+                                                class="btn btn-sm btn-outline-secondary dropdown-toggle"
+                                                data-bs-toggle="dropdown"
+                                                aria-expanded="false">
+                                            Other drawings
+                                        </button>
+                                        <ul class="dropdown-menu dropdown-menu-end shadow">
+                                            <li><a class="dropdown-item" asp-controller="Export" asp-action="EyeshotDwg" asp-route-resultId="@d.ResultId" asp-route-drawing="front_elevation">Front Elevation</a></li>
+                                            <li><a class="dropdown-item" asp-controller="Export" asp-action="EyeshotDwg" asp-route-resultId="@d.ResultId" asp-route-drawing="cross_section">Cross Section</a></li>
+                                            <li><a class="dropdown-item" asp-controller="Export" asp-action="EyeshotDwg" asp-route-resultId="@d.ResultId" asp-route-drawing="blade_profile">Blade Profile</a></li>
+                                            <li><a class="dropdown-item" asp-controller="Export" asp-action="EyeshotDwg" asp-route-resultId="@d.ResultId" asp-route-drawing="blade_angle">Blade Angle</a></li>
+                                            <li><a class="dropdown-item" asp-controller="Export" asp-action="EyeshotDwg" asp-route-resultId="@d.ResultId" asp-route-drawing="hub_detail">Hub Detail</a></li>
+                                            <li><a class="dropdown-item" asp-controller="Export" asp-action="EyeshotDwg" asp-route-resultId="@d.ResultId" asp-route-drawing="casing_detail">Casing Detail</a></li>
+                                            <li><hr class="dropdown-divider" /></li>
+                                            <li><a class="dropdown-item" asp-controller="Export" asp-action="EyeshotDwg" asp-route-resultId="@d.ResultId" asp-route-drawing="general_arrangement">General Arrangement (GA)</a></li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}

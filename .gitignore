@@ -1,6 +1,11 @@
 venv/
 **/venv/
 __pycache__/
+bin/
+obj/
+**/bin/
+**/obj/
+.vs/
 AxialFanMVC/wwwroot/cfd/
 AxialFanMVC/wwwroot/cfd-results/
 CfdIpc/

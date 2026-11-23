@@ -20,6 +20,7 @@ public class ExportService
         // of relying on individual controller actions to set it inline
         // right before calling GeneratePdf().
         QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
+        QuestPDF.Settings.CheckIfAllTextGlyphsAreAvailable = false;
 
         var relDir = config["AppSettings:ExportDirectory"]
                      ?? "wwwroot/exports";
@@ -682,12 +683,26 @@ For engineering reference only.
     public (byte[] Bytes, string FileName) ExportFullPdfReport(DesignResult result)
     {
         var di = result.DesignInput;
-        var warnings = result.WarningMessages != null
-            ? System.Text.Json.JsonSerializer.Deserialize<List<string>>(result.WarningMessages) ?? new()
-            : new List<string>();
 
-        List<double> q, dp, eta, kw;
-        string curveLabel;
+        List<string> warnings;
+        try
+        {
+            warnings = string.IsNullOrWhiteSpace(result.WarningMessages)
+                ? new List<string>()
+                : System.Text.Json.JsonSerializer.Deserialize<List<string>>(result.WarningMessages) ?? new List<string>();
+        }
+        catch { warnings = new List<string>(); }
+
+        static List<double> ParseList(string? s) =>
+            (s ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(v => double.TryParse(v, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : double.NaN)
+                .ToList();
+
+        List<double> q = new(), dp = new(), eta = new(), kw = new();
+        string curveLabel = "";
+        bool hasCurves = false;
+
         var saved = result.PerformanceCurves?
             .Where(c => c.Source == "PINN")
             .OrderByDescending(c => c.GeneratedAt)
@@ -696,30 +711,147 @@ For engineering reference only.
 
         if (saved != null)
         {
-            q = saved.QValues.Split(',').Select(double.Parse).ToList();
-            dp = saved.DpValues.Split(',').Select(double.Parse).ToList();
-            eta = saved.EtaValues.Split(',').Select(double.Parse).ToList();
-            kw = saved.KwValues.Split(',').Select(double.Parse).ToList();
-            curveLabel = $"{saved.BladeAngleDeg:F0}° / {saved.SpeedRpm} RPM ({saved.Source})";
+            var sq = ParseList(saved.QValues);
+            var sdp = ParseList(saved.DpValues);
+            var seta = ParseList(saved.EtaValues);
+            var skw = ParseList(saved.KwValues);
+            bool ok = sq.Count >= 2 && sdp.Count == sq.Count && seta.Count == sq.Count && skw.Count == sq.Count
+                      && sq.Concat(sdp).Concat(seta).Concat(skw).All(v => !double.IsNaN(v));
+            if (ok)
+            {
+                q = sq; dp = sdp; eta = seta; kw = skw;
+                curveLabel = $"{saved.BladeAngleDeg:F0}° / {saved.SpeedRpm} RPM ({saved.Source})";
+                hasCurves = true;
+            }
         }
-        else
+
+        if (!hasCurves)
         {
-            var aero = AeroCalcEngine.Calculate(di);
-            var profileData = BladeProfileEngine.ResolveProfileData(di.BladeProfile, aero.ChordLengthMm);
-            var generated = BladeElementEngine.GenerateCurves(di, aero, profileData, di.BladeAngleDeg, di.SpeedRpm);
-            q = generated.QValues; dp = generated.DpValues; eta = generated.EtaValues; kw = generated.KwValues;
-            curveLabel = $"{di.BladeAngleDeg:F0}° / {di.SpeedRpm} RPM (no saved curve — regenerated for this export)";
+            try
+            {
+                var aero = AeroCalcEngine.Calculate(di);
+                var curveProfile = BladeProfileEngine.ResolveProfileData(di.BladeProfile, aero.ChordLengthMm);
+                var generated = BladeElementEngine.GenerateCurves(di, aero, curveProfile, di.BladeAngleDeg, di.SpeedRpm);
+                q = generated.QValues; dp = generated.DpValues; eta = generated.EtaValues; kw = generated.KwValues;
+                curveLabel = $"{di.BladeAngleDeg:F0}° / {di.SpeedRpm} RPM (regenerated for this export)";
+                hasCurves = q.Count >= 2;
+            }
+            catch { hasCurves = false; }
         }
 
-        const int chartWidth = 480, chartHeight = 220;
-        byte[] qdpPng = RenderChartPng(chartWidth, chartHeight, (canvas, size) =>
-            DrawSingleLineChart(canvas, size, q, dp,
-                "Flow Rate Q (m³/s)", "ΔP (Pa)", new SKColor(0x0d, 0x6e, 0xfd), fillArea: true));
+        byte[]? qdpPng = null, etaPng = null;
+        if (hasCurves)
+        {
+            try
+            {
+                const int chartWidth = 480, chartHeight = 220;
+                qdpPng = RenderChartPng(chartWidth, chartHeight, (canvas, size) =>
+                    DrawSingleLineChart(canvas, size, q, dp,
+                        "Flow Rate Q (m³/s)", "ΔP (Pa)", new SKColor(0x0d, 0x6e, 0xfd), fillArea: true));
+                etaPng = RenderChartPng(chartWidth, chartHeight, (canvas, size) =>
+                    DrawDualLineChart(canvas, size, q, eta, kw,
+                        "Flow Rate Q (m³/s)", "η (%)", "kW",
+                        new SKColor(0x0d, 0x6e, 0xfd), new SKColor(0x19, 0x87, 0x54)));
+            }
+            catch { qdpPng = null; etaPng = null; }
+        }
 
-        byte[] etaPng = RenderChartPng(chartWidth, chartHeight, (canvas, size) =>
-            DrawDualLineChart(canvas, size, q, eta, kw,
-                "Flow Rate Q (m³/s)", "η (%)", "kW",
-                new SKColor(0x0d, 0x6e, 0xfd), new SKColor(0x19, 0x87, 0x54)));
+        // ── Blade profile data ──
+        BladeProfileData? prof = null;
+        try
+        {
+            prof = BladeProfileEngine.ResolveProfileData(
+                di.BladeProfile, result.ChordLengthMm > 0 ? result.ChordLengthMm : 100);
+        }
+        catch { prof = null; }
+
+        List<Point2D> upperPts = prof?.UpperSurface ?? new List<Point2D>();
+        List<Point2D> lowerPts = prof?.LowerSurface ?? new List<Point2D>();
+        List<Point2D> camberPts = prof?.CamberLine ?? new List<Point2D>();
+        var customLoop = new List<Point2D>();
+
+        if (prof == null && !string.IsNullOrWhiteSpace(di.BladeProfile?.CoordinateData))
+        {
+            try
+            {
+                using var coordDoc = System.Text.Json.JsonDocument.Parse(di.BladeProfile!.CoordinateData!);
+                if (coordDoc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    foreach (var el in coordDoc.RootElement.EnumerateArray())
+                    {
+                        if (el.ValueKind == System.Text.Json.JsonValueKind.Array && el.GetArrayLength() >= 2)
+                            customLoop.Add(new Point2D(el[0].GetDouble(), el[1].GetDouble()));
+                        else if (el.ValueKind == System.Text.Json.JsonValueKind.Object
+                                 && el.TryGetProperty("x", out var xe) && el.TryGetProperty("y", out var ye))
+                            customLoop.Add(new Point2D(xe.GetDouble(), ye.GetDouble()));
+                    }
+                }
+            }
+            catch { customLoop.Clear(); }
+        }
+
+        byte[]? profilePng = null;
+        var allPts = upperPts.Concat(lowerPts).Concat(customLoop).ToList();
+        if (allPts.Count >= 3)
+        {
+            try
+            {
+                profilePng = RenderChartPng(480, 200, (canvas, size) =>
+                {
+                    double minX = allPts.Min(p => p.X), maxX = allPts.Max(p => p.X);
+                    double minY = allPts.Min(p => p.Y), maxY = allPts.Max(p => p.Y);
+                    double w = Math.Max(maxX - minX, 1e-9), h = Math.Max(maxY - minY, 1e-9);
+                    const float margin = 20f;
+                    float scale = (float)Math.Min((size.Width - 2 * margin) / w, (size.Height - 2 * margin) / h);
+                    float cx = size.Width / 2f, cy = size.Height / 2f;
+                    double midX = (minX + maxX) / 2.0, midY = (minY + maxY) / 2.0;
+
+                    using var outline = new SKPaint
+                    {
+                        IsAntialias = true,
+                        Style = SKPaintStyle.Stroke,
+                        StrokeWidth = 1.6f,
+                        Color = new SKColor(0x0d, 0x6e, 0xfd)
+                    };
+                    using var camberPaint = new SKPaint
+                    {
+                        IsAntialias = true,
+                        Style = SKPaintStyle.Stroke,
+                        StrokeWidth = 1f,
+                        Color = new SKColor(0x6c, 0x75, 0x7d)
+                    };
+
+                    SKPoint Map(Point2D p) =>
+                        new SKPoint(cx + (float)((p.X - midX) * scale), cy - (float)((p.Y - midY) * scale));
+
+                    void Poly(IEnumerable<Point2D> pts, SKPaint paint, bool close)
+                    {
+                        using var path = new SKPath();
+                        bool first = true;
+                        foreach (var p in pts)
+                        {
+                            var s = Map(p);
+                            if (first) { path.MoveTo(s); first = false; }
+                            else path.LineTo(s);
+                        }
+                        if (close) path.Close();
+                        canvas.DrawPath(path, paint);
+                    }
+
+                    if (customLoop.Count >= 3)
+                    {
+                        Poly(customLoop, outline, true);
+                    }
+                    else
+                    {
+                        Poly(upperPts, outline, false);
+                        Poly(lowerPts, outline, false);
+                        if (camberPts.Count >= 2) Poly(camberPts, camberPaint, false);
+                    }
+                });
+            }
+            catch { profilePng = null; }
+        }
 
         var document = Document.Create(container =>
         {
@@ -736,13 +868,13 @@ For engineering reference only.
                     col.Spacing(4);
 
                     col.Item().PaddingTop(6).Text(
-                        $"Project: {di.Project?.Name}   |   Status: {result.Status.ToUpper()}   |   Calculated: {result.CalculatedAt:dd MMM yyyy HH:mm}");
+                        $"Project: {di.Project?.Name}   |   Status: {(result.Status ?? "").ToUpper()}   |   Calculated: {result.CalculatedAt:dd MMM yyyy HH:mm}");
 
                     if (warnings.Any())
                     {
                         col.Item().PaddingTop(8).Text("Warnings").Bold();
                         foreach (var w in warnings)
-                            col.Item().Text($"⚠ {w}").FontSize(8.5f);
+                            col.Item().Text($"! {w}").FontSize(8.5f);
                     }
 
                     void SectionTable(string title, params (string Label, string Value)[] rows)
@@ -760,7 +892,7 @@ For engineering reference only.
                     }
 
                     SectionTable("Input Parameters",
-                        ("Media Type", di.MediaType),
+                        ("Media Type", di.MediaType ?? "—"),
                         ("Flow Rate", $"{di.FlowRateM3s:F3} m³/s"),
                         ("Total Pressure", $"{di.TotalPressurePa:F0} Pa"),
                         ("Fan Speed", $"{di.SpeedRpm} RPM"),
@@ -783,14 +915,12 @@ For engineering reference only.
                         ("Shaft Power", $"{result.ShaftPowerKw:F3} kW"));
 
                     SectionTable("Structural Results",
-                        ("Material", result.MaterialUsed),
-                     ("Yield Strength", $"{result.YieldStrengthMpa:F0} MPa"),
+                        ("Material", result.MaterialUsed ?? "—"),
+                        ("Yield Strength", $"{result.YieldStrengthMpa:F0} MPa"),
                         ("Tip Clearance", $"{result.TipClearanceMm:F1} mm"),
                         ("Blade Stress", $"{result.BladeStressMpa:F2} MPa"),
                         ("Safety Factor", $"{result.SafetyFactor:F2} ({(result.SafetyFactor >= 2.0 ? "PASS" : "FAIL")})"));
 
-                    // Previously missing from every PDF export path — the
-                    // whole reason this method exists.
                     SectionTable("Acoustic Results",
                         ("Overall Noise (Lp)", $"{result.OverallNoiseDbA:F1} dB(A)"),
                         ("Sound Power Level (Lw)", $"{result.SoundPowerLevelDb:F1} dB"),
@@ -798,15 +928,83 @@ For engineering reference only.
                         ("Tip Mach Number", $"{result.TipMachNumber:F3}"),
                         ("Noise Rating (NR)", $"{result.NoiseRatingValue:F1} ({result.NoiseRating})"));
 
-                    col.Item().PaddingTop(14).Text($"Performance Curve — {curveLabel}").Bold().FontSize(11);
-                    col.Item().Row(row =>
+                    // ── Blade Profile section ──
+                    if (prof != null)
                     {
-                        row.RelativeItem().Border(1).BorderColor(Colors.Grey.Lighten1).Padding(4)
-                            .Image(qdpPng).FitWidth();
-                        row.ConstantItem(8);
-                        row.RelativeItem().Border(1).BorderColor(Colors.Grey.Lighten1).Padding(4)
-                            .Image(etaPng).FitWidth();
-                    });
+                        var pd = prof.Dimensions;
+                        var ap = prof.AeroParams;
+                        SectionTable($"Blade Profile — {prof.Designation}",
+                            ("Designation", prof.Designation),
+                            ("Type", prof.Type),
+                            ("Chord", $"{pd.ChordMm:F1} mm"),
+                            ("Max Thickness", $"{pd.MaxThicknessMm:F2} mm ({pd.MaxThicknessPct:F1} %) at {pd.MaxThicknessXPct:F1} % chord"),
+                            ("Max Camber", $"{pd.MaxCamberMm:F2} mm ({pd.MaxCamberPct:F1} %) at {pd.MaxCamberXPct:F1} % chord"),
+                            ("Leading Edge Radius", $"{pd.LeadingEdgeRadiusMm:F2} mm"),
+                            ("Trailing Edge Thickness", $"{pd.TrailingEdgeThickMm:F2} mm"),
+                            ("Mean Line Angle", $"{pd.MeanLineAngle:F2} °"),
+                            ("Design Cl", $"{ap.DesignLiftCoeff:F2}"),
+                            ("Zero-lift Angle", $"{ap.ApproxZeroLiftAngle:F2} °"),
+                            ("Stall Angle (approx.)", $"{ap.ApproxStallAngle:F1} °"),
+                            ("Max Cl (approx.)", $"{ap.ApproxMaxCl:F2}"),
+                            ("Min Cd (approx.)", $"{ap.ApproxMinDrag:F4}"));
+                    }
+                    else
+                    {
+                        SectionTable("Blade Profile",
+                            ("Name", di.BladeProfile?.Name ?? "—"),
+                            ("Type", di.BladeProfile?.Type ?? "—"),
+                            ("Description", di.BladeProfile?.Description ?? "—"));
+                    }
+
+                    if (profilePng != null)
+                    {
+                        col.Item().PaddingTop(6).Border(1).BorderColor(Colors.Grey.Lighten1)
+                            .Padding(4).Image(profilePng).FitWidth();
+                    }
+
+                    if (prof != null && prof.StationTable.Count > 0)
+                    {
+                        var step = Math.Max(1, prof.StationTable.Count / 10);
+                        var stationRows = prof.StationTable.Where((_, i) => i % step == 0).ToList();
+
+                        col.Item().PaddingTop(8).Text("Profile Stations").Bold();
+                        col.Item().Table(table =>
+                        {
+                            table.ColumnsDefinition(c =>
+                            {
+                                c.RelativeColumn(); c.RelativeColumn(); c.RelativeColumn(); c.RelativeColumn();
+                            });
+                            table.Cell().Text("X (mm)").Bold();
+                            table.Cell().Text("Upper Y (mm)").Bold();
+                            table.Cell().Text("Lower Y (mm)").Bold();
+                            table.Cell().Text("Thickness (mm)").Bold();
+                            foreach (var s in stationRows)
+                            {
+                                table.Cell().Text($"{s.XMm:F2}");
+                                table.Cell().Text($"{s.YUpperMm:F2}");
+                                table.Cell().Text($"{s.YLowerMm:F2}");
+                                table.Cell().Text($"{s.ThicknessMm:F2}");
+                            }
+                        });
+                    }
+
+                    // ── Performance curves ──
+                    if (qdpPng != null && etaPng != null)
+                    {
+                        col.Item().PaddingTop(14).Text($"Performance Curve — {curveLabel}").Bold().FontSize(11);
+                        col.Item().Row(row =>
+                        {
+                            row.RelativeItem().Border(1).BorderColor(Colors.Grey.Lighten1).Padding(4)
+                                .Image(qdpPng).FitWidth();
+                            row.ConstantItem(8);
+                            row.RelativeItem().Border(1).BorderColor(Colors.Grey.Lighten1).Padding(4)
+                                .Image(etaPng).FitWidth();
+                        });
+                    }
+                    else
+                    {
+                        col.Item().PaddingTop(14).Text("Performance curves unavailable for this design.").Italic();
+                    }
                 });
 
                 page.Footer().AlignCenter().Text("Generated by AxialFlow Designer — for engineering reference only.");

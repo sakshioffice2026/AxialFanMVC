@@ -215,6 +215,18 @@
                     <li>
                         <a class="dropdown-item"
                            asp-controller="Export"
+                           asp-action="FullReportPdf"
+                           asp-route-resultId="@Model.ResultId">
+                            <i class="bi bi-file-earmark-pdf me-2 text-danger"></i>
+                            Report PDF
+                            <small class="text-muted d-block ps-4">
+                                Full report with blade profile and charts
+                            </small>
+                        </a>
+                    </li>
+                    <li>
+                        <a class="dropdown-item"
+                           asp-controller="Export"
                            asp-action="Drawings"
                            asp-route-resultId="@Model.ResultId">
                             <i class="bi bi-rulers me-2 text-secondary"></i>
